@@ -1,0 +1,593 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ChangeEvent, CSSProperties, DragEvent, PointerEvent } from "react";
+import {
+  cancelJob,
+  createAutomaticSet,
+  listTracks,
+  readAutomaticSetFromJob,
+  uploadTracks,
+  waitForJob,
+  JobCancelledError,
+} from "@/lib/api";
+import { useSaundSession } from "@/lib/session";
+import type { AutomaticSetResult, JobRecord, JourneyMode, TrackRecord } from "@/lib/types";
+import { AccountDialog } from "./AccountDialog";
+import { BrainWorkspace } from "./BrainWorkspace";
+import { FinishedSetPlayer } from "./FinishedSetPlayer";
+import { HeroSoundtrack, type HeroSoundtrackHandle } from "./HeroSoundtrack";
+import { Icon } from "./Icon";
+import { LivePlayer } from "./LivePlayer";
+
+const INTRO_PROGRESS_DELAY_MS = 180;
+const INTRO_PROGRESS_DURATION_MS = 6_800;
+const INTRO_SEEN_KEY = "saund.ai.intro.seen.v1";
+
+const journeys: Array<{ value: JourneyMode; label: string; detail: string; cue: string }> = [
+  { value: "balanced", label: "Flow", detail: "Natural movement with room to breathe.", cue: "Balanced" },
+  { value: "warmup", label: "Warm", detail: "Patient opening, gradual energy and space.", cue: "Patient" },
+  { value: "peak", label: "Drive", detail: "Push toward the strongest moments in the crate.", cue: "Forward" },
+  { value: "sunset", label: "Release", detail: "Warm movement with a softer landing.", cue: "Open" },
+];
+
+function outputName(journey: JourneyMode) {
+  const stamp = new Date().toISOString().replaceAll(":", "-").replace("T", "_").slice(0, 19);
+  return `SAUND_${journey}_${stamp}.wav`;
+}
+
+function letterStyle(index: number) {
+  return { "--letter-index": index } as CSSProperties;
+}
+
+function trackAIState(track: TrackRecord) {
+  const readiness = track.readiness;
+  if (!readiness) return { label: "Waiting", tone: "waiting" };
+  const state = readiness.state.toLowerCase();
+  if (readiness.dj_ready || state === "ready") return { label: "Ready", tone: "ready" };
+  if (state === "failed" || state === "cancelled") return { label: "Needs attention", tone: "failed" };
+  if (state === "pending" || state === "queued") return { label: "Listening", tone: "active" };
+  const percent = Math.round(Math.max(0, Math.min(1, readiness.progress ?? 0)) * 100);
+  return { label: percent > 0 ? `Analysing ${percent}%` : "Analysing", tone: "active" };
+}
+
+function jobStage(job: JobRecord | null) {
+  if (!job) return { index: 0, eyebrow: "System armed", headline: "Ready to take the room.", detail: "The Executive will prepare the performance before audio is allowed to run." };
+  const key = job.stage.toLowerCase();
+  if (key.includes("render") || key.includes("final") || key.includes("deliver") || key.includes("encode")) {
+    return { index: 3, eyebrow: "Execution preparation", headline: "Committing the performance.", detail: job.message || "Rendering the validated plan and checking the execution contract." };
+  }
+  if (key.includes("headphone") || key.includes("rehears") || key.includes("measure") || key.includes("transition")) {
+    return { index: 2, eyebrow: "Private audition", headline: "Listening before committing.", detail: job.message || "AI Headphones and the Professional Brain are judging the handoffs." };
+  }
+  if (key.includes("analy") || key.includes("stem") || key.includes("feature") || key.includes("cached")) {
+    return { index: 0, eyebrow: "Music understanding", headline: "Reading the crate.", detail: job.message || "Understanding rhythm, structure, energy and usable performance layers." };
+  }
+  return { index: 1, eyebrow: "Executive planning", headline: "Thinking ahead.", detail: job.message || "Building the route, move sequence and prepared horizon." };
+}
+
+export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const soundtrackRef = useRef<HeroSoundtrackHandle | null>(null);
+  const introProgressBarRef = useRef<HTMLSpanElement | null>(null);
+  const introProgressRef = useRef(0);
+  const {
+    selectedPaths,
+    setSelectedPaths,
+    listener,
+    createJourney: journey,
+    setCreateJourney: setJourney,
+    account,
+    authReady,
+  } = useSaundSession();
+
+  const [tracks, setTracks] = useState<TrackRecord[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [job, setJob] = useState<JobRecord | null>(null);
+  const [result, setResult] = useState<AutomaticSetResult | null>(null);
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [entered, setEntered] = useState(false);
+  const [introResolved, setIntroResolved] = useState(false);
+  const [introExiting, setIntroExiting] = useState(false);
+  const [introReady, setIntroReady] = useState(false);
+  const [soundtrackActive, setSoundtrackActive] = useState(true);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [accountDialogReason, setAccountDialogReason] = useState<"account" | "build">("account");
+  const [buildAfterAuth, setBuildAfterAuth] = useState(false);
+  const [brainOpen, setBrainOpen] = useState(false);
+
+  const selectedTracks = tracks.filter((track) => selectedPaths.includes(track.path));
+  const readySelectedCount = selectedTracks.filter((track) => track.readiness?.dj_ready || track.readiness?.state === "ready").length;
+  const failedSelectedCount = selectedTracks.filter((track) => ["failed", "cancelled"].includes(track.readiness?.state ?? "")).length;
+  const preparingSelectedCount = selectedTracks.filter((track) => track.readiness && !["ready", "failed", "cancelled"].includes(track.readiness.state)).length;
+  const selectedReadinessProgress = selectedTracks.length === 0
+    ? 0
+    : selectedTracks.reduce((sum, track) => {
+      if (track.readiness?.dj_ready || track.readiness?.state === "ready") return sum + 1;
+      return sum + Math.max(0, Math.min(1, track.readiness?.progress ?? 0));
+    }, 0) / selectedTracks.length;
+  const canStartSession = selectedPaths.length >= 2 && !job && !uploading;
+  const currentJourney = journeys.find((item) => item.value === journey) ?? journeys[0];
+  const currentJobStage = jobStage(job);
+
+  const refresh = useCallback(async () => {
+    try {
+      setTracks(await listTracks("audio"));
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const preparing = tracks.some((track) => track.readiness && !["ready", "failed", "cancelled"].includes(track.readiness.state));
+    if (!preparing) return;
+    const timer = window.setInterval(() => {
+      void listTracks("audio").then(setTracks).catch(() => undefined);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [tracks]);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(INTRO_SEEN_KEY) === "1") {
+        setEntered(true);
+        setSoundtrackActive(false);
+        setIntroReady(true);
+        introProgressRef.current = 1;
+      }
+    } catch {
+      // The entrance remains usable when storage is unavailable.
+    } finally {
+      setIntroResolved(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (entered) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const bar = introProgressBarRef.current;
+    introProgressRef.current = reduceMotion ? 1 : 0;
+    setIntroReady(reduceMotion);
+    if (bar) bar.style.transform = `scaleX(${introProgressRef.current})`;
+    if (reduceMotion) return;
+
+    let frame = 0;
+    const startsAt = performance.now() + INTRO_PROGRESS_DELAY_MS;
+    const advance = (now: number) => {
+      const progress = now <= startsAt ? 0 : Math.min(1, (now - startsAt) / INTRO_PROGRESS_DURATION_MS);
+      introProgressRef.current = progress;
+      if (bar) bar.style.transform = `scaleX(${progress})`;
+      if (progress >= 1) {
+        setIntroReady(true);
+        return;
+      }
+      frame = window.requestAnimationFrame(advance);
+    };
+    frame = window.requestAnimationFrame(advance);
+    return () => window.cancelAnimationFrame(frame);
+  }, [entered]);
+
+  useEffect(() => {
+    const locked = !entered;
+    document.documentElement.classList.toggle("saund-intro-locked", locked);
+    document.body.classList.toggle("saund-intro-locked", locked);
+    return () => {
+      document.documentElement.classList.remove("saund-intro-locked");
+      document.body.classList.remove("saund-intro-locked");
+    };
+  }, [entered]);
+
+  function handleIntroPointer(event: PointerEvent<HTMLElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+    event.currentTarget.style.setProperty("--intro-x", `${(x * 8).toFixed(2)}px`);
+    event.currentTarget.style.setProperty("--intro-y", `${(y * 6).toFixed(2)}px`);
+  }
+
+  function resetIntroPointer(event: PointerEvent<HTMLElement>) {
+    event.currentTarget.style.setProperty("--intro-x", "0px");
+    event.currentTarget.style.setProperty("--intro-y", "0px");
+  }
+
+  function enterCreate() {
+    if (!introReady || introProgressRef.current < 1 || introExiting) return;
+    setSoundtrackActive(false);
+    try { window.localStorage.setItem(INTRO_SEEN_KEY, "1"); } catch { /* optional */ }
+    setIntroExiting(true);
+    window.setTimeout(() => {
+      setEntered(true);
+      setIntroExiting(false);
+    }, 900);
+  }
+
+  async function ingest(files: FileList | null) {
+    if (!files?.length) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded = await uploadTracks(Array.from(files));
+      const paths = uploaded.files.map((file) => file.path);
+      setSelectedPaths((current) => Array.from(new Set([...current, ...paths])));
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function executeCreateSet() {
+    if (selectedPaths.length < 2) return;
+    setSoundtrackActive(false);
+    setError(null);
+    setResult(null);
+    setLive(false);
+    try {
+      const initial = await createAutomaticSet({
+        trackPaths: selectedPaths,
+        journey,
+        listener,
+        outputName: outputName(journey),
+      });
+      const completed = await waitForJob(initial, setJob);
+      setResult(readAutomaticSetFromJob(completed));
+      setJob(null);
+    } catch (caught) {
+      setJob(null);
+      if (caught instanceof JobCancelledError) {
+        setError(null);
+        return;
+      }
+      if (typeof caught === "object" && caught !== null && "status" in caught && (caught as { status?: number }).status === 401) {
+        setBuildAfterAuth(true);
+        setAccountDialogReason("build");
+        setAccountDialogOpen(true);
+        return;
+      }
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function cancelActiveJob() {
+    if (!job?.cancellable) return;
+    try {
+      setJob(await cancelJob(job.job_id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  function requestCreateSet() {
+    if (!canStartSession) return;
+    if (!account) {
+      setBuildAfterAuth(true);
+      setAccountDialogReason("build");
+      setAccountDialogOpen(true);
+      return;
+    }
+    void executeCreateSet();
+  }
+
+  function openAccount() {
+    setBuildAfterAuth(false);
+    setAccountDialogReason("account");
+    setAccountDialogOpen(true);
+  }
+
+  function handleAuthenticated() {
+    const shouldBuild = buildAfterAuth;
+    setAccountDialogOpen(false);
+    setBuildAfterAuth(false);
+    if (shouldBuild) window.setTimeout(() => void executeCreateSet(), 0);
+  }
+
+  function reset() {
+    setResult(null);
+    setLive(false);
+    setJob(null);
+    setError(null);
+  }
+
+  if (!introResolved) {
+    return <main className="autonomous-shell autonomous-shell--resolving" aria-label="Opening SAUND.AI" />;
+  }
+
+  if (result && live) {
+    return <LivePlayer result={result} journey={journey} listener={listener} onClose={() => setLive(false)} />;
+  }
+
+  if (brainOpen) {
+    return (
+      <BrainWorkspace
+        result={result}
+        journey={journey}
+        onBack={() => setBrainOpen(false)}
+        onOpenStudio={onOpenStudio}
+      />
+    );
+  }
+
+  if (result) {
+    return (
+      <FinishedSetPlayer
+        result={result}
+        journey={journey}
+        onReset={reset}
+        onStartLive={() => setLive(true)}
+        onOpenBrain={() => setBrainOpen(true)}
+        listener={listener}
+      />
+    );
+  }
+
+  return (
+    <main className={`autonomous-shell ${entered ? "is-entered" : "is-intro"}`} id="top">
+      <div className={`saund-global-controls ${entered ? "is-workspace" : "is-intro"}`}>
+        <HeroSoundtrack
+          ref={soundtrackRef}
+          phase={!soundtrackActive ? "off" : (entered || introExiting ? "workspace" : "intro")}
+          onSoundStart={() => {
+            const video = videoRef.current;
+            if (!video || entered) return;
+            video.currentTime = 0;
+            void video.play().catch(() => undefined);
+          }}
+        />
+      </div>
+
+      {!entered && (
+        <section
+          className={`saund-intro autonomous-intro ${introExiting ? "is-exiting" : ""}`}
+          aria-labelledby="saund-intro-title"
+          onPointerMove={handleIntroPointer}
+          onPointerLeave={resetIntroPointer}
+        >
+          <video
+            ref={videoRef}
+            className="saund-intro__video"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            poster="/media/saund-hero-poster.jpg"
+            aria-hidden="true"
+          >
+            <source media="(max-width: 700px)" src="/media/saund-hero-mobile.mp4" type="video/mp4" />
+            <source src="/media/saund-hero-desktop.mp4" type="video/mp4" />
+          </video>
+          <div className="saund-intro__shade" aria-hidden="true" />
+          <div className="saund-intro__grain" aria-hidden="true" />
+
+          <header className="autonomous-intro__top">
+            <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
+            <span>Autonomous DJ system</span>
+          </header>
+
+          <div className="autonomous-intro__statement">
+            <p className="autonomous-kicker">LISTEN · THINK · PERFORM · ADAPT</p>
+            <h1 id="saund-intro-title">An AI that DJs.</h1>
+            <p>Not a playlist. Not a recommendation engine. A musical intelligence that prepares, commits and performs the next move.</p>
+          </div>
+
+          <div className="autonomous-intro__system" aria-hidden="true">
+            <span><i /> Brain online</span>
+            <span><i /> Executive armed</span>
+            <span><i /> Safety governed</span>
+          </div>
+
+          <button
+            type="button"
+            className="autonomous-intro__enter"
+            onClick={enterCreate}
+            disabled={!introReady || introExiting}
+            aria-label="Start a session"
+            aria-describedby="saund-intro-entry-status"
+          >
+            <span>
+              <small id="saund-intro-entry-status">{introReady ? "Enter the system" : "Opening"}</small>
+              <strong>Start a session</strong>
+            </span>
+            <Icon name="arrow" />
+          </button>
+
+          <div className="saund-intro__progress" aria-hidden="true"><span ref={introProgressBarRef} /></div>
+        </section>
+      )}
+
+      {entered && (
+        <section className="autonomous-launch" aria-label="Start an autonomous DJ session">
+          <header className="autonomous-topbar">
+            <a className="autonomous-brand" href="#top" aria-label="SAUND.AI">
+              <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
+              <small>Autonomous DJ</small>
+            </a>
+            <nav className="autonomous-nav" aria-label="Primary">
+              <span className="is-active">Perform</span>
+              <button type="button" onClick={() => setBrainOpen(true)}>Brain</button>
+              <a href="/lab">Lab</a>
+            </nav>
+            <div className="autonomous-topbar__actions">
+              <span className="autonomous-health"><i /> Executive ready</span>
+              <button type="button" className="autonomous-account" onClick={openAccount}>
+                {account ? account.email.split("@")[0] : authReady ? "Log in" : "Account"}
+              </button>
+            </div>
+          </header>
+
+          <div className="session-launch">
+            <header className="session-launch__hero">
+              <div>
+                <span className="autonomous-kicker">START A SESSION</span>
+                <h1>Give SAUND the room.</h1>
+              </div>
+              <p>Select the crate and the direction. The Brain handles the musical decisions; the Executive protects the performance.</p>
+            </header>
+
+            <div className="session-launch__grid">
+              <section className="session-crate" aria-label="Session crate">
+                <header className="session-section-head">
+                  <div><span>01</span><div><small>CRATE</small><strong>Your music</strong></div></div>
+                  <p>{selectedPaths.length} selected · {readySelectedCount} ready</p>
+                </header>
+
+                <button
+                  className={`session-dropzone ${dragging ? "is-dragging" : ""}`}
+                  type="button"
+                  disabled={uploading || Boolean(job)}
+                  onClick={() => inputRef.current?.click()}
+                  onDragEnter={(event: DragEvent<HTMLButtonElement>) => { event.preventDefault(); setDragging(true); }}
+                  onDragOver={(event: DragEvent<HTMLButtonElement>) => event.preventDefault()}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(event: DragEvent<HTMLButtonElement>) => {
+                    event.preventDefault();
+                    setDragging(false);
+                    void ingest(event.dataTransfer.files);
+                  }}
+                >
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    multiple
+                    accept="audio/*,.mp3,.wav,.flac,.m4a,.aiff"
+                    hidden
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => void ingest(event.target.files)}
+                  />
+                  <span className="session-dropzone__icon"><Icon name="upload" /></span>
+                  <span><strong>{uploading ? "Adding music…" : "Add music"}</strong><small>Drop audio or choose files</small></span>
+                  <b>{tracks.length ? `${tracks.length} in crate` : "Empty crate"}</b>
+                </button>
+
+                <div className="session-tracklist scroll-area" role="list" aria-label="Available tracks">
+                  {tracks.length === 0 ? (
+                    <div className="session-tracklist__empty">
+                      <Icon name="waveform" />
+                      <strong>The crate is empty.</strong>
+                      <small>Add at least two tracks to arm a session.</small>
+                    </div>
+                  ) : tracks.map((track, index) => {
+                    const selected = selectedPaths.includes(track.path);
+                    const state = trackAIState(track);
+                    return (
+                      <button
+                        type="button"
+                        role="listitem"
+                        key={track.path}
+                        className={`session-track ${selected ? "is-selected" : ""}`}
+                        aria-pressed={selected}
+                        onClick={() => setSelectedPaths((current) => selected
+                          ? current.filter((path) => path !== track.path)
+                          : [...current, track.path])}
+                      >
+                        <span className="session-track__index">{String(index + 1).padStart(2, "0")}</span>
+                        <span className="session-track__main">
+                          <strong>{track.name}</strong>
+                          <small>{(track.size / 1_048_576).toFixed(1)} MB{track.performance_layers?.complete ? " · performance layers" : ""}</small>
+                        </span>
+                        <span className={`session-track__state is-${state.tone}`}><i />{state.label}</span>
+                        <span className="session-track__select">{selected ? <Icon name="check" /> : "+"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <footer className="session-crate__footer">
+                  <span>{failedSelectedCount > 0 ? `${failedSelectedCount} selected track${failedSelectedCount === 1 ? "" : "s"} need attention` : preparingSelectedCount > 0 ? `${preparingSelectedCount} still being understood in the background` : selectedPaths.length >= 2 ? "Crate ready for the Executive" : "Select at least two tracks"}</span>
+                  {selectedPaths.length > 0 && <b>{Math.round(selectedReadinessProgress * 100)}% understood</b>}
+                </footer>
+              </section>
+
+              <aside className="session-command" aria-label="Session direction">
+                <header className="session-section-head">
+                  <div><span>02</span><div><small>DIRECTION</small><strong>Shape the room</strong></div></div>
+                </header>
+
+                <div className="session-directions" role="radiogroup" aria-label="Set direction">
+                  {journeys.map((option) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={journey === option.value}
+                      key={option.value}
+                      className={journey === option.value ? "is-selected" : ""}
+                      onClick={() => setJourney(option.value)}
+                    >
+                      <span><small>{option.cue}</small><strong>{option.label}</strong></span>
+                      <p>{option.detail}</p>
+                      <i>{journey === option.value ? <Icon name="check" /> : ""}</i>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="session-system" aria-label="Autonomous system state">
+                  <div><span><i className="is-on" />Autonomous Executive</span><strong>ON</strong></div>
+                  <div><span><i className="is-on" />AI Headphones</span><strong>ON</strong></div>
+                  <div><span><i className="is-on" />Crowd adaptation</span><strong>ON</strong></div>
+                  <div><span><i className="is-on" />Safety Governor</span><strong>ON</strong></div>
+                </div>
+
+                <div className="session-command__summary">
+                  <small>SESSION INTENT</small>
+                  <strong>{currentJourney.label}</strong>
+                  <p>{selectedPaths.length >= 2 ? `${selectedPaths.length} tracks ready for autonomous planning.` : "Choose the music that SAUND may perform."}</p>
+                </div>
+
+                <button className="session-start" type="button" disabled={!canStartSession} onClick={requestCreateSet}>
+                  <span><small>{account ? "Executive will prepare the horizon" : "Login requested only when starting"}</small><strong>Start DJ</strong></span>
+                  <Icon name="arrow" />
+                </button>
+              </aside>
+            </div>
+
+            {job && (
+              <section className="session-preparing" aria-live="polite">
+                <div className="session-preparing__copy">
+                  <span className="autonomous-kicker">{currentJobStage.eyebrow}</span>
+                  <h2>{currentJobStage.headline}</h2>
+                  <p>{currentJobStage.detail}</p>
+                </div>
+                <div className="session-preparing__progress">
+                  <div className="session-preparing__rail"><i style={{ width: `${Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%` }} /></div>
+                  <div className="session-preparing__stages">
+                    {["Understand", "Plan", "Audition", "Commit"].map((stage, index) => (
+                      <span key={stage} className={index < currentJobStage.index ? "is-complete" : index === currentJobStage.index ? "is-active" : ""}>
+                        <i />{stage}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="session-preparing__status">
+                  <strong>{Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%</strong>
+                  {job.cancellable && <button type="button" onClick={() => void cancelActiveJob()}>Cancel</button>}
+                </div>
+              </section>
+            )}
+
+            {error && (
+              <div className="autonomous-error" role="alert">
+                <Icon name="warning" />
+                <span><strong>SAUND could not continue.</strong><small>{error}</small></span>
+                <button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><Icon name="close" /></button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <AccountDialog
+        open={accountDialogOpen}
+        reason={accountDialogReason}
+        onClose={() => { setAccountDialogOpen(false); setBuildAfterAuth(false); }}
+        onAuthenticated={handleAuthenticated}
+      />
+    </main>
+  );
+}

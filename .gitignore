@@ -1,0 +1,91 @@
+.env
+.env.*
+!.env.example
+# Local historical development/release notes
+/DJAI_*.md
+/SAUND_AI_*.md
+
+# Patch leftovers
+*.orig
+*.rej
+
+.venv/
+.cuevenv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Patch leftovers
+*.orig
+*.rej
+
+# Runtime/model caches
+.djai-cache/
+config/*.json
+!config/model-registry.json
+!config/scoring-model.json
+!config/.gitkeep
+
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+
+audio/*
+!audio/.gitkeep
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.aiff
+*.aif
+*.ogg
+
+output/*
+!output/.gitkeep
+
+ratings/*
+!ratings/.gitkeep
+
+accounts/*.sqlite3
+accounts/*.sqlite3-*
+
+benchmarks/*.sqlite3
+benchmarks/*.sqlite3-*
+
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Patch leftovers
+*.orig
+*.rej
+
+# Raw downloaded datasets
+datasets/downloads/
+
+# Large normalized/generated dataset payloads
+datasets/external/*/records.jsonl
+datasets/external/*/weak-labels.jsonl
+
+# Generated bootstrap training examples
+datasets/bootstrap-corpora/*/records.jsonl
+datasets/bootstrap-corpora/*/weak-examples.jsonl
+datasets/bootstrap-corpora/*/tasks/*.jsonl
+# Private learned/model state
+config/bootstrap-models/
+config/training-lab-models/
+config/scoring-model.json
+
+config/neural/*
+!config/neural/.gitkeep
+
+# Private/generated datasets
+datasets/bootstrap-corpora/
+datasets/external/
+datasets/downloads/
+
+# Local historical engineering notes
+/DJAI_*.md
+/SAUND_AI_*.md

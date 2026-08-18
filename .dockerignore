@@ -1,0 +1,36 @@
+.git
+.env
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.djai-cache
+.djai-backups
+build
+dist
+*.egg-info
+output/*
+!output/.gitkeep
+audio/*
+!audio/.gitkeep
+ratings/*
+!ratings/.gitkeep
+frontend/node_modules
+frontend/.next
+frontend/tsconfig.tsbuildinfo
+*.zip
+.DS_Store
+
+# Never send local corpora, user databases, or learned runtime state into a hosted build context.
+datasets
+accounts/*
+config/bootstrap-models
+config/*.json
+!config/model-registry.json
+ratings/*
+!ratings/.gitkeep
+
+# Local release benchmark history is runtime evidence, not image content.
+benchmarks/*.sqlite3
+benchmarks/*.sqlite3-*

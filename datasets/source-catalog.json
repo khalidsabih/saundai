@@ -1,0 +1,171 @@
+{
+  "schema_version": "1.0",
+  "policy": {
+    "external_default_lane": "research",
+    "production_default_deny": true,
+    "audio_download_requires_explicit_opt_in": true
+  },
+  "sources": [
+    {
+      "name": "EDM-CUE / M-DJCUE",
+      "lane": "research",
+      "purpose": [
+        "expert cue points",
+        "phrase alignment",
+        "cue prior"
+      ],
+      "homepage": "https://ismir2024program.ismir.net/poster_19.html",
+      "importer": "edm-cue",
+      "contains_audio": false,
+      "rights_status": "annotations/model are public; review the source release before production training",
+      "default_asset": null,
+      "assets": [
+        {
+          "name": "annotations",
+          "url": null,
+          "kind": "annotations",
+          "checksum": null,
+          "checksum_algorithm": null,
+          "size_note": "",
+          "manual": true,
+          "notes": "Download the public annotation export from the authors, then import the local CSV/JSON/JSONL file."
+        }
+      ],
+      "notes": "The paper reports 21k+ expert cue annotations for nearly 5k tracks. SAUND.AI never resolves linked commercial track audio automatically.",
+      "id": "edm-cue"
+    },
+    {
+      "name": "UnmixDB",
+      "lane": "research",
+      "purpose": [
+        "DJ mix ground truth",
+        "cue regions",
+        "tempo/speed",
+        "technical transition structure"
+      ],
+      "homepage": "https://zenodo.org/records/1422385",
+      "importer": "unmixdb",
+      "contains_audio": true,
+      "rights_status": "source description states CC-licensed redistributable dance tracks; still requires SAUND.AI production rights review",
+      "default_asset": "README.txt",
+      "assets": [
+        {
+          "name": "README.txt",
+          "url": null,
+          "kind": "metadata",
+          "checksum": null,
+          "checksum_algorithm": null,
+          "size_note": "",
+          "manual": false,
+          "notes": "Resolved dynamically through the Zenodo record API."
+        },
+        {
+          "name": "mixotic-set044-excerpts.zip",
+          "url": null,
+          "kind": "audio",
+          "checksum": "eadf9fb3b6ed7dad72db72acc111c66a",
+          "checksum_algorithm": "md5",
+          "size_note": "~890 MB",
+          "manual": false,
+          "notes": "Large audio archive; requires --allow-audio-download."
+        }
+      ],
+      "notes": "The importer accepts an extracted UnmixDB directory and normalizes tab-separated start/end/label ground truth.",
+      "id": "unmixdb"
+    },
+    {
+      "name": "Free Music Archive (FMA)",
+      "lane": "research",
+      "purpose": [
+        "rights-aware music catalog",
+        "genre diversity",
+        "audio bootstrap pool"
+      ],
+      "homepage": "https://github.com/mdeff/fma",
+      "importer": "fma",
+      "contains_audio": true,
+      "rights_status": "metadata is CC BY 4.0; each audio track keeps the artist-selected license and must be filtered/reviewed before production use",
+      "default_asset": "fma_metadata.zip",
+      "assets": [
+        {
+          "name": "fma_metadata.zip",
+          "url": "https://os.unil.cloud.switch.ch/fma/fma_metadata.zip",
+          "kind": "metadata",
+          "checksum": "f0df49ffe5f2a6008d7dc83c6915b31835dfe733",
+          "checksum_algorithm": "sha1",
+          "size_note": "~342 MiB",
+          "manual": false,
+          "notes": ""
+        },
+        {
+          "name": "fma_small.zip",
+          "url": "https://os.unil.cloud.switch.ch/fma/fma_small.zip",
+          "kind": "audio",
+          "checksum": "ade154f733639d52e35e32f5593efe5be76c6d70",
+          "checksum_algorithm": "sha1",
+          "size_note": "~7.2 GiB",
+          "manual": false,
+          "notes": "8,000 30-second tracks; requires --allow-audio-download."
+        }
+      ],
+      "notes": "SAUND.AI imports metadata first and preserves per-track license fields. It does not mark the whole audio corpus production-cleared.",
+      "id": "fma"
+    },
+    {
+      "name": "ListenBrainz public listens",
+      "lane": "research",
+      "purpose": [
+        "next-track prior",
+        "sequence statistics",
+        "taste pretraining"
+      ],
+      "homepage": "https://listenbrainz.org/data/",
+      "importer": "listenbrainz",
+      "contains_audio": false,
+      "rights_status": "public listen data is published CC0; SAUND.AI still requires privacy/product review before production personalization training",
+      "default_asset": null,
+      "assets": [
+        {
+          "name": "listenbrainz-listens-dump.tar.zst",
+          "url": null,
+          "kind": "archive",
+          "checksum": null,
+          "checksum_algorithm": null,
+          "size_note": "very large",
+          "manual": true,
+          "notes": "Use an official current mirror, extract the dump, then point the importer at the extracted listens directory."
+        }
+      ],
+      "notes": "The normalizer hashes user identifiers and stores adjacent listening edges, not raw usernames.",
+      "id": "listenbrainz"
+    },
+    {
+      "name": "Medley2K",
+      "lane": "research",
+      "purpose": [
+        "human transition structure",
+        "transition timing",
+        "structural pretraining"
+      ],
+      "homepage": "https://arxiv.org/abs/2008.11159",
+      "importer": "medley2k",
+      "contains_audio": false,
+      "rights_status": "paper makes the dataset available; license/distribution terms must be reviewed before production use",
+      "default_asset": null,
+      "assets": [
+        {
+          "name": "annotations",
+          "url": null,
+          "kind": "annotations",
+          "checksum": null,
+          "checksum_algorithm": null,
+          "size_note": "",
+          "manual": true,
+          "notes": "Import the downloaded transition metadata/JSON/CSV export. MIDI/audio acquisition is intentionally not automated."
+        }
+      ],
+      "notes": "Used as a structural prior only; medley transitions are not treated as proof of professional DJ taste.",
+      "id": "medley2k"
+    }
+  ]
+}

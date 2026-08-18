@@ -1,0 +1,88 @@
+name: saund-ai-hosted
+
+services:
+  api:
+    image: ${SAUND_API_IMAGE:-saund-ai-engine:local-hosted}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: hosted
+      args:
+        SAUND_BUILD_COMMIT: ${SAUND_BUILD_COMMIT:-}
+        SAUND_BUILD_TIME_UTC: ${SAUND_BUILD_TIME_UTC:-}
+        SAUND_IMAGE_TAG: ${SAUND_IMAGE_TAG:-local}
+    environment:
+      DJAI_WORKSPACE: /workspace
+      SAUND_ENV: production
+      SAUND_HOSTED_MODE: "1"
+      SAUND_PERSISTENT_WORKSPACE: "1"
+      SAUND_DATABASE_URL: ${SAUND_DATABASE_URL:?set SAUND_DATABASE_URL}
+      SAUND_OBJECT_STORE: s3
+      SAUND_OBJECT_STORE_BUCKET: ${SAUND_OBJECT_STORE_BUCKET:?set SAUND_OBJECT_STORE_BUCKET}
+      SAUND_OBJECT_STORE_ENDPOINT: ${SAUND_OBJECT_STORE_ENDPOINT:?set SAUND_OBJECT_STORE_ENDPOINT}
+      SAUND_OBJECT_STORE_REGION: ${SAUND_OBJECT_STORE_REGION:-auto}
+      SAUND_OBJECT_STORE_ACCESS_KEY_ID: ${SAUND_OBJECT_STORE_ACCESS_KEY_ID:?set SAUND_OBJECT_STORE_ACCESS_KEY_ID}
+      SAUND_OBJECT_STORE_SECRET_ACCESS_KEY: ${SAUND_OBJECT_STORE_SECRET_ACCESS_KEY:?set SAUND_OBJECT_STORE_SECRET_ACCESS_KEY}
+      SAUND_PUBLIC_ORIGIN: ${SAUND_PUBLIC_ORIGIN:?set SAUND_PUBLIC_ORIGIN}
+      SAUND_API_ORIGIN: ${SAUND_API_ORIGIN:?set SAUND_API_ORIGIN}
+      SAUND_ALLOWED_HOSTS: ${SAUND_ALLOWED_HOSTS:-}
+      DJAI_CORS_ORIGINS: ${DJAI_CORS_ORIGINS:?set DJAI_CORS_ORIGINS}
+      DJAI_CONFIRMATION_SECRET: ${DJAI_CONFIRMATION_SECRET:?set DJAI_CONFIRMATION_SECRET}
+      SAUND_AUTH_COOKIE_SECURE: "1"
+      SAUND_UPLOAD_AUTH_REQUIRED: "1"
+      SAUND_SIGNUP_MODE: ${SAUND_SIGNUP_MODE:-invite}
+      SAUND_INVITE_CODES: ${SAUND_INVITE_CODES:-}
+      SAUND_TRUST_PROXY_HEADERS: "1"
+      DJAI_TRAINING_LAB_ENABLED: "0"
+      SAUND_ALLOW_HOSTED_TRAINING_LAB: "0"
+      DJAI_JOB_WORKERS: ${DJAI_JOB_WORKERS:-2}
+      DJAI_STEM_JOB_WORKERS: ${DJAI_STEM_JOB_WORKERS:-1}
+      DJAI_CPU_BUDGET: ${DJAI_CPU_BUDGET:-0}
+      DJAI_JOB_HEARTBEAT_SECONDS: ${DJAI_JOB_HEARTBEAT_SECONDS:-5}
+      DJAI_JOB_STALL_SECONDS: ${DJAI_JOB_STALL_SECONDS:-180}
+      SAUND_IMAGE_TAG: ${SAUND_IMAGE_TAG:-local}
+      SAUND_BUILD_COMMIT: ${SAUND_BUILD_COMMIT:-}
+      SAUND_BUILD_TIME_UTC: ${SAUND_BUILD_TIME_UTC:-}
+      DJAI_AUTO_STEMS: ${DJAI_AUTO_STEMS:-background}
+      DJAI_STEM_DEVICE: ${DJAI_STEM_DEVICE:-cpu}
+      DJAI_MODEL_ALLOW_DOWNLOAD: "0"
+      DJAI_EMBEDDING_ALLOW_DOWNLOAD: "0"
+      DJAI_BOOTSTRAP_RUNTIME_MODE: ${DJAI_BOOTSTRAP_RUNTIME_MODE:-shadow}
+      SAUND_BOOTSTRAP_PRODUCTION_APPROVED: ${SAUND_BOOTSTRAP_PRODUCTION_APPROVED:-0}
+    volumes:
+      - saund-workspace:/workspace
+      - saund-model-cache:/model-cache
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${DJAI_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready', timeout=5)"]
+      interval: 20s
+      timeout: 8s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    image: ${SAUND_FRONTEND_IMAGE:-saund-ai-frontend:local}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        SAUND_INTERNAL_API_URL: ${SAUND_INTERNAL_API_URL:-http://api:8000}
+        NEXT_PUBLIC_SAUND_API_URL: ${NEXT_PUBLIC_SAUND_API_URL:-}
+        SAUND_BUILD_COMMIT: ${SAUND_BUILD_COMMIT:-}
+        SAUND_BUILD_TIME_UTC: ${SAUND_BUILD_TIME_UTC:-}
+    environment:
+      SAUND_INTERNAL_API_URL: ${SAUND_INTERNAL_API_URL:-http://api:8000}
+      NEXT_PUBLIC_SAUND_API_URL: ${NEXT_PUBLIC_SAUND_API_URL:-}
+    ports:
+      - "${DJAI_FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  saund-workspace:
+  saund-model-cache:

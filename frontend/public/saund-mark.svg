@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SAUND.AI">
+  <rect width="64" height="64" rx="16" fill="#0a0c0f"/>
+  <path d="M17 20.5c0-4.7 3.8-8.5 8.5-8.5H43v8H25.5a.5.5 0 0 0-.5.5v3c0 .3.2.5.5.5h13C43.2 24 47 27.8 47 32.5v11C47 48.2 43.2 52 38.5 52H17v-8h21.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-13C20.8 36 17 32.2 17 27.5v-7Z" fill="#f4f5f2"/>
+  <circle cx="48" cy="16" r="4" fill="#c8ff55"/>
+</svg>

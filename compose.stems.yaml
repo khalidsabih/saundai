@@ -1,0 +1,28 @@
+services:
+  stems:
+    image: djai-stems:6.0.0
+    build:
+      context: .
+      dockerfile: Dockerfile.stems
+    working_dir: /workspace
+    environment:
+      HOME: /tmp
+      TORCH_HOME: /model-cache/torch
+      HF_HOME: /model-cache/huggingface
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /workspace/src
+      DJAI_WORKSPACE: /workspace
+      DJAI_ANALYSIS_WORKERS: ${DJAI_ANALYSIS_WORKERS:-0}
+      DJAI_GRAPH_WORKERS: ${DJAI_GRAPH_WORKERS:-0}
+      DJAI_PROCESS_START_METHOD: ${DJAI_PROCESS_START_METHOD:-spawn}
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace
+      - type: volume
+        source: djai-model-cache
+        target: /model-cache
+    entrypoint: ["python", "-m", "djai"]
+
+volumes:
+  djai-model-cache:

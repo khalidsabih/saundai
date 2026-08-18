@@ -1,0 +1,144 @@
+{
+  "schema_version": "2.0",
+  "policy": {
+    "research_lane": "May contain datasets/models permitted for evaluation or research only. Never export these examples into production weights without a separate rights review.",
+    "production_lane": "Every source must have rights_reviewed=true, commercial_training_allowed=true, and derivative_models_allowed=true before production training.",
+    "default_deny": true
+  },
+  "datasets": [
+    {
+      "id": "edm-cue",
+      "name": "EDM-CUE",
+      "lane": "research",
+      "purpose": [
+        "expert cue point research",
+        "cue point evaluation",
+        "phrase alignment"
+      ],
+      "paper": "https://arxiv.org/abs/2407.06823",
+      "project_page": "https://ismir2024program.ismir.net/poster_19.html",
+      "published_model": "https://huggingface.co/disco-eth/cue-detr",
+      "license": "review source release before production use",
+      "rights_reviewed": false,
+      "commercial_training_allowed": null,
+      "derivative_models_allowed": null,
+      "redistribution_allowed": null,
+      "audio_bundled": false,
+      "expected_scale": {
+        "tracks": 4710,
+        "cue_points": 21461,
+        "hours": 380
+      },
+      "notes": "Metadata/annotations only. DJAI does not redistribute or automatically acquire copyrighted source audio. CUE-DETR remains an optional research cue prior."
+    },
+    {
+      "id": "djai-expert-owned",
+      "name": "DJAI Expert Demonstrations on Cleared Audio",
+      "lane": "production",
+      "purpose": [
+        "transition preference",
+        "expert imitation",
+        "full-set policy"
+      ],
+      "source": "DJAI Expert Program",
+      "license": "project-specific contributor/source agreement",
+      "rights_reviewed": true,
+      "commercial_training_allowed": true,
+      "derivative_models_allowed": true,
+      "redistribution_allowed": false,
+      "audio_bundled": false,
+      "notes": "Only records whose source_rights_confirmed flag is true may enter the production lane."
+    },
+    {
+      "id": "djai-synthetic-failures",
+      "name": "DJAI Synthetic Technical Failure Corpus",
+      "lane": "production",
+      "purpose": [
+        "technical quality",
+        "safety judge",
+        "regression testing"
+      ],
+      "source": "Generated from rights-cleared DJAI source renders",
+      "license": "inherits cleared source rights; generated labels owned by project",
+      "rights_reviewed": true,
+      "commercial_training_allowed": true,
+      "derivative_models_allowed": true,
+      "redistribution_allowed": false,
+      "audio_bundled": false,
+      "notes": "Generation must only use source audio that is cleared for the intended training use."
+    },
+    {
+      "id": "unmixdb",
+      "name": "UnmixDB",
+      "lane": "research",
+      "purpose": [
+        "DJ mix ground truth",
+        "cue regions",
+        "tempo and speed factors",
+        "transition structure"
+      ],
+      "source": "https://zenodo.org/records/1422385",
+      "license": "source record describes Creative-Commons-licensed redistributable electronic dance tracks; exact production reuse review pending",
+      "rights_reviewed": false,
+      "commercial_training_allowed": null,
+      "derivative_models_allowed": null,
+      "redistribution_allowed": null,
+      "audio_bundled": false,
+      "notes": "External data remains research-only until SAUND.AI completes a source-specific production rights review."
+    },
+    {
+      "id": "fma",
+      "name": "Free Music Archive (FMA)",
+      "lane": "research",
+      "purpose": [
+        "music catalog",
+        "genre diversity",
+        "rights-aware audio bootstrap pool"
+      ],
+      "source": "https://github.com/mdeff/fma",
+      "license": "metadata CC BY 4.0; audio uses per-track artist-selected licenses",
+      "rights_reviewed": false,
+      "commercial_training_allowed": null,
+      "derivative_models_allowed": null,
+      "redistribution_allowed": null,
+      "audio_bundled": false,
+      "notes": "Importer preserves per-track license metadata. The full audio dataset is never treated as globally production-cleared."
+    },
+    {
+      "id": "listenbrainz",
+      "name": "ListenBrainz public listens",
+      "lane": "research",
+      "purpose": [
+        "next-track prior",
+        "sequence statistics",
+        "taste pretraining"
+      ],
+      "source": "https://listenbrainz.org/data/",
+      "license": "public user listen data published CC0; privacy/product review pending",
+      "rights_reviewed": false,
+      "commercial_training_allowed": null,
+      "derivative_models_allowed": null,
+      "redistribution_allowed": null,
+      "audio_bundled": false,
+      "notes": "Normalizer hashes user identifiers and does not store raw usernames."
+    },
+    {
+      "id": "medley2k",
+      "name": "Medley2K",
+      "lane": "research",
+      "purpose": [
+        "human transition structure",
+        "transition timing",
+        "structural pretraining"
+      ],
+      "source": "https://arxiv.org/abs/2008.11159",
+      "license": "review dataset release terms before production use",
+      "rights_reviewed": false,
+      "commercial_training_allowed": null,
+      "derivative_models_allowed": null,
+      "redistribution_allowed": null,
+      "audio_bundled": false,
+      "notes": "Human-curated medley transitions are structural evidence, not direct proof of professional DJ preference."
+    }
+  ]
+}
