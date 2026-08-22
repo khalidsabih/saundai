@@ -3,7 +3,8 @@
   "policy": {
     "research_lane": "May contain datasets/models permitted for evaluation or research only. Never export these examples into production weights without a separate rights review.",
     "production_lane": "Every source must have rights_reviewed=true, commercial_training_allowed=true, and derivative_models_allowed=true before production training.",
-    "default_deny": true
+    "default_deny": true,
+    "production_default_deny": true
   },
   "datasets": [
     {

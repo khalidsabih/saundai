@@ -1,3 +1,17 @@
+# SAUND.AI core runtime dependencies.
+#
+# The authoritative dependency definition is pyproject.toml.
+# Optional capabilities are installed through extras:
+#
+#   pip install -e '.[dev]'
+#   pip install -e '.[stems]'
+#   pip install -e '.[neural]'
+#   pip install -e '.[live]'
+#   pip install -e '.[hosted]'
+#   pip install -e '.[cue]'
+#
+# The normal Docker "brain" target installs stems + neural automatically.
+
 numpy>=1.26,<3
 scipy>=1.11,<2
 librosa>=0.10.2,<0.12

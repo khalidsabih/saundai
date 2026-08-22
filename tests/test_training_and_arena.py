@@ -10,13 +10,20 @@ from djai.training.provenance import audit_dataset_registry
 from djai.training.synthetic_failures import corrupt_audio
 
 
-def test_redacted_source_package_has_no_unreviewed_production_datasets():
+def test_redacted_source_package_has_only_reviewed_production_datasets():
     registry = json.loads(Path("datasets/registry.json").read_text(encoding="utf-8"))
     assert registry["policy"]["production_default_deny"] is True
+
     report = audit_dataset_registry("datasets/registry.json", lane="production")
+
     assert report["ready"] is True
-    assert report["dataset_count"] == 0
     assert report["blockers"] == []
+
+    for dataset in report["datasets"]:
+        assert dataset["rights_reviewed"] is True
+        assert dataset["commercial_training_allowed"] is True
+        assert dataset["derivative_models_allowed"] is True
+        assert dataset["audio_bundled"] is False
 
 
 def test_registry_blocks_uncleared_production_source(tmp_path: Path):

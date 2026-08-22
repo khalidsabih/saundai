@@ -8,6 +8,8 @@ The project combines deterministic audio execution with optional learned musical
 
 > The `VERSION` file is the authoritative product version.
 
+> **Fresh-clone friendly:** private trained models and local datasets are not required to run the core engine. A clean checkout can build, start, analyze synthetic audio, plan and evaluate transitions, and render a complete demonstration set.
+
 ---
 
 ## What SAUND.AI does
@@ -56,9 +58,13 @@ It supports inspecting the current route, comparing alternative planning branche
 
 ### Live
 
-After a set has been prepared, the Live player can play the prepared performance and expose current playback information.
+After a set has been prepared, the Live player executes the prepared performance and exposes current playback information.
 
-Live currently follows the prepared plan. It is not presented as a crowd-reactive autonomous replanning system.
+Already committed playback is protected: NOW and NEXT remain immutable once committed. When eligible, SAUND can perform bounded replanning of later FUTURE transitions and commit a validated replacement at a safe boundary.
+
+Late, stale, invalid, or unsafe replanning work is discarded.
+
+Live is not an unrestricted crowd-reactive autonomous DJ. Replanning remains bounded by prepared state, timing, validation, and execution-safety constraints.
 
 ### Lab
 
@@ -144,46 +150,32 @@ Model weights are not silently bootstrapped during normal startup.
 
 ## Requirements
 
-* Docker Desktop
-* Docker Compose
+- Docker Desktop
+- Docker Compose
 
-Create your local environment:
+Clone the repository and create your local environment:
 
 ```bash
+git clone https://github.com/khalidsabih/saundai.git
+cd saundai
 cp .env.example .env
-```
-
-Make the helper scripts executable:
-
-```bash
 chmod +x scripts/*.sh
 ```
 
-Build the project:
+Build and start SAUND.AI:
 
 ```bash
-./scripts/bootstrap.sh
+docker compose build api frontend
+docker compose up -d api frontend
 ```
 
-`bootstrap.sh` builds the backend, test, CLI, and frontend images and runs the project's test workflow.
-
-Check model state:
+Check that the backend is ready:
 
 ```bash
-./scripts/saund.sh models-status
+curl http://localhost:8000/api/ready
 ```
 
-Explicitly cache the default pretrained rhythm model:
-
-```bash
-./scripts/saund.sh models-bootstrap
-```
-
-Start the application:
-
-```bash
-./scripts/start.sh
-```
+A ready response reports `"status":"ready"`.
 
 Open:
 
@@ -193,13 +185,39 @@ API docs     http://localhost:8000/docs
 API health   http://localhost:8000/api/ready
 ```
 
-Stop it with:
+## Try SAUND.AI without your own music
+
+A fresh clone does not require private trained SAUND models, ratings, datasets, or user audio to run the core demonstration path.
+
+Run the built-in synthetic demonstration:
+
+```bash
+./scripts/saund.sh demo-set --render
+```
+
+The demo generates five synthetic tracks, analyzes them, chooses a route, plans and evaluates transitions, replans rejected transitions when necessary, creates previews, and renders a continuous set.
+
+The finished set is written to:
+
+```text
+output/demo-set/full-set.wav
+```
+
+The plan, transition previews, and render report are also written under:
+
+```text
+output/demo-set/
+```
+
+Optional pretrained model weights are not downloaded silently. See **Model setup** below if you want to enable them.
+
+Stop the application with:
 
 ```bash
 ./scripts/stop.sh
 ```
 
-`stop.sh` uses normal `docker compose down` and does not request volume deletion.
+`stop.sh` performs a normal `docker compose down` and does not delete the persistent model-cache volume.
 
 ---
 
@@ -573,7 +591,6 @@ src/djai/
 ├── performance/     transition programs and deterministic execution
 ├── training/        dataset, provenance and training workflows
 └── evaluation/      evaluation and Arena tooling
-
 frontend/            Next.js application
 scripts/             build, development and release tooling
 tests/               backend/product tests
@@ -585,19 +602,9 @@ ratings/             local learning/evidence state
 
 ---
 
-# Development checks
+# Development and maintainer checks
 
-Run the project test workflow:
-
-```bash
-./scripts/test.sh
-```
-
-Check frontend source:
-
-```bash
-./scripts/check-frontend.sh
-```
+The commands below are intended for development, regression validation, and release preparation. They are not required for normal local use.
 
 Validate Compose configuration:
 
@@ -623,7 +630,19 @@ Check status:
 docker compose ps
 ```
 
-Follow logs:
+Check frontend source and build contracts:
+
+```bash
+./scripts/check-frontend.sh
+```
+
+Run the project test workflow:
+
+```bash
+./scripts/test.sh
+```
+
+Follow service logs when debugging:
 
 ```bash
 docker compose logs -f api frontend
@@ -671,7 +690,7 @@ In particular:
 * DJ-specific neural heads are shadow/zero-authority by default in the shipped model registry.
 * A trained model is not automatically a production-authorized model.
 * Foundation models provide sensory evidence; they are not automatically DJ taste.
-* Live playback follows a prepared performance rather than performing crowd-reactive live replanning.
+* Live protects committed NOW/NEXT playback and supports bounded FUTURE replanning when eligible; it is not an unrestricted crowd-reactive replanning system.
 * CUE-DETR is optional research functionality, not the main DJ brain.
 * Transition execution is limited to the techniques and operations implemented by the deterministic engine.
 * External datasets, pretrained models, and derived weights require their own rights and license review.
@@ -681,7 +700,7 @@ In particular:
 
 # Private local state
 
-Do not publish local runtime, user, dataset, or learned state.
+Do not publish local runtime, user, dataset, learned-model, or secret state.
 
 Examples include:
 
@@ -696,12 +715,14 @@ datasets/bootstrap-corpora/
 datasets/training-lab/
 config/bootstrap-models/
 config/training-lab-models/
-config/neural/
+config/neural/*
 audio/
 output/
 ```
 
-Use `.env.example` only for non-secret configuration examples.
+Repository placeholders such as `ratings/.gitkeep` and `config/neural/.gitkeep` may remain tracked; local contents should not.
+
+Use `.env.example` only for non-secret configuration examples. Keep real credentials and randomly generated secrets in the ignored local `.env` file.
 
 ---
 
@@ -711,9 +732,13 @@ Detailed technical documentation is available under [`docs/`](docs/).
 
 Useful starting points include:
 
+* [`docs/README.md`](docs/README.md)
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+* [`docs/API.md`](docs/API.md)
 * [`docs/AUTOMATIC.md`](docs/AUTOMATIC.md)
+* [`docs/LIVE.md`](docs/LIVE.md)
 * [`docs/LEARNING.md`](docs/LEARNING.md)
+* [`docs/QUALITY.md`](docs/QUALITY.md)
 * [`docs/MEASUREMENT.md`](docs/MEASUREMENT.md)
 * [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md)
 * [`docs/STEMS.md`](docs/STEMS.md)
