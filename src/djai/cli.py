@@ -46,6 +46,7 @@ from .training.neural_heads import promote_model, train_neural_head
 from .intelligence.governance import load_arena_evidence
 from .training.lab_dataset import create_training_snapshot, train_shadow_ranker, training_lab_status
 from .training.taste_learning import train_taste_learning_heads, taste_learning_status
+from .training.real_taste import real_taste_status, train_real_taste_from_snapshot
 from .training.source_catalog import fetch_source_asset, source_catalog
 from .training.dataset_builder import (
     create_bootstrap_corpus,
@@ -790,6 +791,11 @@ def build_parser() -> argparse.ArgumentParser:
     taste_train.add_argument("--ridge", type=float, default=0.18)
     sub.add_parser("training-taste-status", help="Show runtime evidence and both taste-learning shadow heads")
 
+    real_taste_train = sub.add_parser("training-real-taste-train", help="Teacher pretrain -> human fine-tune -> held-out human benchmark")
+    real_taste_train.add_argument("--snapshot-id")
+    real_taste_train.add_argument("--ridge", type=float, default=0.18)
+    sub.add_parser("training-real-taste-status", help="Show staged real-taste training and held-out human results")
+
     teacher_status = sub.add_parser("teacher-status", help="Show provider-neutral LLM teacher-data status and governance")
     teacher_status.add_argument("--workspace")
 
@@ -1120,6 +1126,19 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(0)
         if args.command == "training-taste-status":
             _write_json(taste_learning_status(current_environment().workspace), None)
+            raise SystemExit(0)
+        if args.command == "training-real-taste-train":
+            _write_json(
+                train_real_taste_from_snapshot(
+                    current_environment().workspace,
+                    snapshot_id=args.snapshot_id,
+                    ridge=args.ridge,
+                ),
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "training-real-taste-status":
+            _write_json(real_taste_status(current_environment().workspace), None)
             raise SystemExit(0)
         if args.command == "teacher-status":
             workspace = args.workspace or current_environment().workspace

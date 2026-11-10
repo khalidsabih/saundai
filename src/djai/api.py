@@ -60,6 +60,7 @@ from .training.lab_dataset import (
     training_lab_status,
 )
 from .training.taste_learning import train_taste_learning_heads, taste_learning_status
+from .training.real_taste import real_taste_status, train_real_taste_from_snapshot
 from .training.human_preference import (
     create_human_review_session,
     human_preference_status,
@@ -2269,6 +2270,22 @@ def train_training_lab_shadow_model(request: TrainingLabTrainRequest) -> dict[st
 def get_taste_learning_status() -> dict[str, Any]:
     _require_training_lab()
     return taste_learning_status(WORKSPACE)
+
+
+@app.post("/api/training-lab/real-taste/train")
+def train_real_taste(request: TrainingLabTrainRequest) -> dict[str, Any]:
+    _require_training_lab()
+    return train_real_taste_from_snapshot(
+        WORKSPACE,
+        snapshot_id=request.snapshot_id,
+        ridge=request.ridge,
+    )
+
+
+@app.get("/api/training-lab/real-taste/status")
+def get_real_taste_status() -> dict[str, Any]:
+    _require_training_lab()
+    return real_taste_status(WORKSPACE)
 
 
 

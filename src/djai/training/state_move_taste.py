@@ -413,3 +413,30 @@ def state_move_taste_status(workspace: str | Path) -> dict[str, Any]:
         "reason_tags": payload.get("reason_tags", {}),
         "minimum_comparisons": MINIMUM_STATE_MOVE_COMPARISONS,
     }
+
+
+def evaluate_state_move_taste_model(
+    preferences_path: str | Path,
+    model_path: str | Path,
+) -> dict[str, Any]:
+    rows = _rows_from_preferences(Path(preferences_path).expanduser().resolve())
+    if not rows:
+        return {"examples": 0, "accuracy": None, "baseline_accuracy": None}
+    payload = json.loads(Path(model_path).expanduser().resolve().read_text(encoding="utf-8"))
+    weights = np.asarray(payload.get("weights", []), dtype=np.float64)
+    if weights.size != len(STATE_MOVE_FEATURES):
+        raise ValueError("State-move held-out evaluation feature schema mismatch.")
+    intercept = float(payload.get("intercept", 0.0) or 0.0)
+    x = np.vstack([row[0] for row in rows])
+    y = np.asarray([row[1] for row in rows], dtype=np.float64)
+    sample_weights = np.asarray([row[2] for row in rows], dtype=np.float64)
+    predictions = np.clip(intercept + x @ weights, 0.0, 1.0)
+    accuracy = float(np.average((predictions >= 0.5) == (y >= 0.5), weights=sample_weights))
+    share = float(np.average(y >= 0.5, weights=sample_weights))
+    baseline = max(share, 1.0 - share)
+    return {
+        "examples": len(rows),
+        "accuracy": round(accuracy, 6),
+        "baseline_accuracy": round(baseline, 6),
+        "improvement_vs_baseline": round(accuracy - baseline, 6),
+    }
