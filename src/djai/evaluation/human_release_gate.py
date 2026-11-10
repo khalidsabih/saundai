@@ -194,7 +194,8 @@ def create_human_release_session(
     benchmark_path: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(workspace).expanduser().resolve()
-    benchmark = load_locked_benchmark(benchmark_path or (root / DEFAULT_MANIFEST))
+    resolved_benchmark_path = Path(benchmark_path or (root / DEFAULT_MANIFEST)).expanduser().resolve()
+    benchmark = load_locked_benchmark(resolved_benchmark_path)
     reviewer = evaluator_id(evaluator, cohort)
     votes = _read_jsonl(root / DEFAULT_VOTES)
     reviewed = {
@@ -222,6 +223,7 @@ def create_human_release_session(
         "version": HUMAN_RELEASE_GATE_VERSION,
         "session_id": session_id,
         "benchmark_id": benchmark["benchmark_id"],
+        "benchmark_path": str(resolved_benchmark_path),
         "locked_sha256": benchmark["locked_sha256"],
         "case_id": case["case_id"],
         "evaluator_id": reviewer,
@@ -262,7 +264,8 @@ def record_human_release_vote(
     if not session_path.exists():
         raise ValueError("Human release session does not exist.")
     session = json.loads(session_path.read_text(encoding="utf-8"))
-    benchmark = load_locked_benchmark(root / DEFAULT_MANIFEST)
+    benchmark_path = Path(str(session.get("benchmark_path") or (root / DEFAULT_MANIFEST))).expanduser().resolve()
+    benchmark = load_locked_benchmark(benchmark_path)
     if session.get("benchmark_id") != benchmark.get("benchmark_id"):
         raise ValueError("Human release session belongs to a different benchmark.")
     labels = session.get("labels") if isinstance(session.get("labels"), Mapping) else {}
@@ -313,6 +316,17 @@ def record_human_release_vote(
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     destination = root / DEFAULT_VOTES
+    existing_votes = _read_jsonl(destination)
+    if any(
+        str(item.get("session_id") or "") == session_id
+        or (
+            str(item.get("benchmark_id") or "") == str(benchmark["benchmark_id"])
+            and str(item.get("case_id") or "") == case_id
+            and str(item.get("evaluator_id") or "") == str(session.get("evaluator_id") or "")
+        )
+        for item in existing_votes
+    ):
+        raise ValueError("This human release comparison has already been submitted by this evaluator.")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")
