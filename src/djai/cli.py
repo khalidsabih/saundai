@@ -51,7 +51,7 @@ from .intelligence.expert_policy import train_expert_policy
 from .intelligence.model_registry import registry_status
 from .intelligence.model_bootstrap import bootstrap_models
 from .training.neural_heads import promote_model, train_neural_head
-from .intelligence.governance import load_arena_evidence
+from .intelligence.governance import load_arena_evidence, load_human_release_evidence
 from .training.lab_dataset import create_training_snapshot, train_shadow_ranker, training_lab_status
 from .training.taste_learning import train_taste_learning_heads, taste_learning_status
 from .training.real_taste import real_taste_status, train_real_taste_from_snapshot
@@ -930,7 +930,8 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--registry", default=None)
     promote_parser.add_argument("--rights-reviewed", action="store_true")
     promote_parser.add_argument("--governance-approved", action="store_true")
-    promote_parser.add_argument("--arena-report", default=None, help="JSON Arena report required for production promotion")
+    promote_parser.add_argument("--arena-report", default=None, help="Optional legacy blind Arena evidence")
+    promote_parser.add_argument("--human-release-report", default=None, help="Phase 11 locked human release-gate JSON required for production promotion")
 
     rate = sub.add_parser("rate", help="Append a structured listening rating")
     rate.add_argument("report")
@@ -1378,8 +1379,21 @@ def main(argv: list[str] | None = None) -> None:
             _write_json({"checkpoint":str(output)},None)
             raise SystemExit(0)
         if args.command == "models-promote":
-            arena_payload=load_arena_evidence(args.arena_report) if args.arena_report else None
-            output=promote_model(args.model_id,authority=args.authority,registry_path=args.registry,rights_reviewed=args.rights_reviewed,governance_approved=args.governance_approved,arena_report_payload=arena_payload)
+            arena_payload = load_arena_evidence(args.arena_report) if args.arena_report else None
+            release_payload = (
+                load_human_release_evidence(args.human_release_report)
+                if args.human_release_report
+                else None
+            )
+            output = promote_model(
+                args.model_id,
+                authority=args.authority,
+                registry_path=args.registry,
+                rights_reviewed=args.rights_reviewed,
+                governance_approved=args.governance_approved,
+                arena_report_payload=arena_payload,
+                human_release_gate_payload=release_payload,
+            )
             _write_json({"registry":str(output),"model_id":args.model_id,"authority":args.authority},None)
             raise SystemExit(0)
         if args.command == "rate":
