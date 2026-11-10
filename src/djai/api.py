@@ -42,6 +42,7 @@ from .intelligence.preferences import append_preference
 from .brain.memory import append_feature_rejection, load_rejections
 from .brain.crate_memory import CrateMemoryStore, crate_memory_status
 from .brain.professional import ProfessionalBrainConfig
+from .brain.timing import SetTimingIntent
 from .brain.professional_mixing import professional_mixing_status
 from .brain.structural_operations import structural_operation_status
 from .brain.dj_move import move_brain_status
@@ -796,6 +797,9 @@ def health() -> dict[str, Any]:
             "release_benchmarking_1_9": True,
             "benchmark_champion_gate_1_9": True,
             "release_candidate_certification_2_0": True,
+            "time_event_aware_set_intelligence_13": True,
+            "live_autonomous_hardening_14": True,
+            "venue_production_reliability_15": True,
             "docker_authority_passthrough_2_0": True,
             "persisted_schema_preflight_2_0": True,
             "cooperative_job_cancellation_1_5_3": True,
@@ -1401,6 +1405,12 @@ def create_set_plan(
                     measurement_log=measurement_log,
                     automatic_delivery=request.resolved_automatic_delivery,
                     listener=listener,
+                    timing_intent=SetTimingIntent(
+                    target_duration_seconds=request.target_duration_seconds,
+                    peak_fraction=request.peak_fraction,
+                    closing_window_seconds=request.closing_window_seconds,
+                    ending_energy=request.ending_energy,
+                ),
                 )
             else:
                 analysis_stats = AnalysisBatchStats()
@@ -1430,6 +1440,12 @@ def create_set_plan(
                     ),
                     automatic_delivery=request.resolved_automatic_delivery,
                     listener=listener,
+                    timing_intent=SetTimingIntent(
+                    target_duration_seconds=request.target_duration_seconds,
+                    peak_fraction=request.peak_fraction,
+                    closing_window_seconds=request.closing_window_seconds,
+                    ending_energy=request.ending_energy,
+                ),
                 )
                 performance = dict(plan.metadata.get("performance", {}))
                 performance["analysis"] = analysis_stats.to_dict()
@@ -1455,6 +1471,12 @@ def create_set_plan(
                 measurement_log=measurement_log,
                 automatic_delivery=request.resolved_automatic_delivery,
                 listener=listener,
+                timing_intent=SetTimingIntent(
+                    target_duration_seconds=request.target_duration_seconds,
+                    peak_fraction=request.peak_fraction,
+                    closing_window_seconds=request.closing_window_seconds,
+                    ending_energy=request.ending_energy,
+                ),
             )
         context.update_absolute("finalizing", 0.99, "Saving Studio plan", current=1, total=1)
         output = save_set_plan(plan, context.output_dir / "set-plan.json")
@@ -1590,6 +1612,12 @@ def create_automatic_set(
             ),
             automatic_delivery=True,
             listener=listener,
+            timing_intent=SetTimingIntent(
+                target_duration_seconds=request.target_duration_seconds,
+                peak_fraction=request.peak_fraction,
+                closing_window_seconds=request.closing_window_seconds,
+                ending_energy=request.ending_energy,
+            ),
         )
         plan.metadata["stem_enriched_tracks"] = stem_count
         plan.metadata["performance_layer_enriched_tracks"] = layer_count
