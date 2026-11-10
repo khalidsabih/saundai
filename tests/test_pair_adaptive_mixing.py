@@ -61,7 +61,7 @@ def test_pair_variants_compile_distinct_immutable_programs(track_pair):
         "assertive",
     }
     assert len({item.execution_signature for item in variants}) == 3
-    assert len({item.performance_program["fingerprint"] for item in variants}) == 3
+    assert len({item.performance_program_fingerprint for item in variants}) == 3
 
     for item in variants:
         program = transition_program_from_dict(item.performance_program)
