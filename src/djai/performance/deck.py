@@ -90,6 +90,83 @@ def _phase_nudge(
     return float(source_nudge)
 
 
+def _phase_integrity_profile(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    plan: TransitionPlan,
+    *,
+    phase_nudge_seconds_b: float,
+) -> dict[str, object]:
+    """Predict bounded deck-B phase corrections across the complete overlap."""
+    if not _enabled("DJAI_DECK_PHASE_WARP", "1") or not plan.beatmatched:
+        return {"enabled": False, "safe": True, "reason": "not applicable", "points": [], "max_phase_error_ms": 0.0, "max_residual_ms": 0.0, "source_delta_seconds_b": 0.0}
+
+    confidence = min(float(track_a.beat_grid_confidence), float(track_b.beat_grid_confidence))
+    if confidence < 0.55 or len(track_a.beats_seconds) < 4 or len(track_b.beats_seconds) < 4:
+        return {"enabled": False, "safe": False, "reason": "beat evidence is too weak for continuous phase control", "points": [], "max_phase_error_ms": 0.0, "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
+
+    beat_seconds = 60.0 / max(float(plan.target_bpm), 1.0)
+    radius = min(0.32, beat_seconds * 0.48)
+    max_correction = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0) / 1000.0
+    max_step = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_STEP_MAX_MS", "18")), 5.0, 35.0) / 1000.0
+    residual_limit_ms = _clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0)
+    samples = max(5, min(17, int(os.environ.get("DJAI_DECK_PHASE_WARP_SAMPLES", "9"))))
+
+    points: list[dict[str, float]] = []
+    previous = 0.0
+    baseline_error: float | None = None
+    max_error = 0.0
+    max_residual = 0.0
+    missing = 0
+    rate_a = max(float(plan.render_rate_a), 1e-9)
+    rate_b = max(float(plan.render_rate_b), 1e-9)
+
+    for index in range(samples):
+        fraction = index / max(1, samples - 1)
+        output_seconds = float(plan.transition_seconds) * fraction
+        source_a = float(plan.exit_time_a) + output_seconds * rate_a
+        source_b = float(plan.entry_time_b) + float(phase_nudge_seconds_b) + output_seconds * rate_b
+        offset_a = _nearest_offset(track_a.beats_seconds, source_a, radius=radius)
+        offset_b = _nearest_offset(track_b.beats_seconds, source_b, radius=radius)
+        if offset_a is None or offset_b is None:
+            missing += 1
+            continue
+        phase_error = offset_b / rate_b - offset_a / rate_a
+        if baseline_error is None:
+            baseline_error = phase_error
+        drift_error = phase_error - baseline_error
+        max_error = max(max_error, abs(drift_error))
+        correction = _clamp(-drift_error, -max_correction, max_correction)
+        correction = _clamp(correction, previous - max_step, previous + max_step)
+        previous = correction
+        residual = drift_error + correction
+        max_residual = max(max_residual, abs(residual))
+        points.append({
+            "fraction": round(fraction, 6),
+            "source_offset_seconds": round(correction * rate_b, 7),
+            "phase_error_ms": round(drift_error * 1000.0, 3),
+            "residual_ms": round(residual * 1000.0, 3),
+        })
+
+    if missing > samples // 3 or len(points) < 4:
+        return {"enabled": False, "safe": False, "reason": "insufficient beat matches across overlap", "points": points, "max_phase_error_ms": round(max_error * 1000.0, 3), "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
+
+    source_delta = float(points[-1]["source_offset_seconds"])
+    available_delta = max(0.0, float(track_b.duration_seconds) - (float(plan.entry_time_b) + float(phase_nudge_seconds_b) + float(plan.source_duration_b)))
+    source_available = source_delta <= available_delta + 1e-6 if source_delta > 0.0 else True
+    safe = bool(max_residual * 1000.0 <= residual_limit_ms and source_available)
+    return {
+        "enabled": True,
+        "safe": safe,
+        "reason": "bounded continuous phase lock" if safe else "required correction exceeds bounded phase-lock envelope",
+        "points": points,
+        "max_phase_error_ms": round(max_error * 1000.0, 3),
+        "max_residual_ms": round(max_residual * 1000.0, 3),
+        "residual_limit_ms": round(residual_limit_ms, 3),
+        "source_delta_seconds_b": round(source_delta if safe else 0.0, 7),
+    }
+
+
 def _release_bars(rate_delta: float, vocal_probability: float, section: str) -> int:
     # More exposed incoming vocals get a slower tempo ride; instrumental and
     # breakdown sections can absorb a shorter release cleanly.
@@ -117,6 +194,10 @@ def decide_deck_performance(
     entry_candidate: TransitionCandidate | None = None,
 ) -> DeckPerformanceDecision:
     phase_nudge = _phase_nudge(track_a, track_b, plan)
+    phase_integrity = _phase_integrity_profile(
+        track_a, track_b, plan, phase_nudge_seconds_b=phase_nudge
+    )
+    phase_source_delta = float(phase_integrity.get("source_delta_seconds_b", 0.0) or 0.0)
     start_rate = max(0.01, float(plan.render_rate_b))
     native_rate = 1.0
     native_bpm = float(track_b.bpm)
@@ -180,7 +261,7 @@ def decide_deck_performance(
     release_source = release_seconds * average_rate
 
     adjusted_start = max(0.0, plan.entry_time_b + phase_nudge)
-    transition_end = adjusted_start + plan.source_duration_b
+    transition_end = adjusted_start + plan.source_duration_b + phase_source_delta
     available_source = max(0.0, track_b.duration_seconds - transition_end - 0.25)
     if available_source + 1e-6 < release_source:
         if available_source < beats_per_bar * 60.0 / max(native_bpm, 1.0) * 2.0:
@@ -218,6 +299,12 @@ def apply_deck_performance(
 ) -> TransitionPlan:
     decision = decide_deck_performance(track_a, track_b, plan, entry_candidate=entry_candidate)
     plan.phase_nudge_seconds_b = decision.phase_nudge_seconds_b
+    phase_integrity = _phase_integrity_profile(
+        track_a, track_b, plan, phase_nudge_seconds_b=decision.phase_nudge_seconds_b
+    )
+    phase_source_delta = float(phase_integrity.get("source_delta_seconds_b", 0.0) or 0.0)
+    if bool(phase_integrity.get("safe", True)) and abs(phase_source_delta) > 1e-9:
+        plan.source_duration_b = round(max(0.0, plan.source_duration_b + phase_source_delta), 6)
     plan.tempo_release_seconds_b = decision.tempo_release_seconds_b
     plan.tempo_release_source_duration_b = decision.tempo_release_source_duration_b
     plan.tempo_release_start_rate_b = decision.tempo_release_start_rate_b
@@ -241,13 +328,33 @@ def apply_deck_performance(
             "pitch_preserving_time_stretch": True,
             "tempo_owner_before": "deck_a",
             "tempo_owner_after": "deck_b",
-            "policy": "beat_phase_lock_then_native_tempo_release",
+            "policy": "continuous_beat_phase_lock_then_native_tempo_release",
+            "phase_integrity": phase_integrity,
             "musical_timeline_version": timeline_b.version,
             "timeline_fingerprint": timeline_b.fingerprint,
             "entry_phrase_id": entry_phrase.phrase_id if entry_phrase is not None else None,
             "entry_phrase_role": entry_phrase.role if entry_phrase is not None else "unknown",
         },
     }
+    if plan.beatmatched and not bool(phase_integrity.get("safe", True)):
+        plan.requires_confirmation = True
+        plan.warning = (
+            "Continuous beat-phase lock is outside the bounded correction envelope; "
+            "automatic delivery should replan or use a structural reset."
+        )
+        plan.rationale = [
+            *plan.rationale,
+            "Beat Integrity rejected this long rhythmic overlap because residual phase error remains too large.",
+        ]
+    elif plan.beatmatched and bool(phase_integrity.get("enabled", False)):
+        plan.rationale = [
+            *plan.rationale,
+            (
+                f"Beat Integrity applies bounded continuous correction across the overlap "
+                f"(predicted residual <= {float(phase_integrity.get('max_residual_ms', 0.0)):.1f} ms)."
+            ),
+        ]
+
     if decision.tempo_release_seconds_b > 0.0:
         plan.rationale = [
             *plan.rationale,
@@ -271,6 +378,9 @@ def deck_runtime_status() -> dict[str, object]:
         "tempo_release_enabled": _enabled("DJAI_DECK_TEMPO_RELEASE", "1"),
         "phase_nudge_enabled": _enabled("DJAI_DECK_PHASE_NUDGE", "1"),
         "phase_nudge_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_NUDGE_MAX_MS", "90")), 10.0, 140.0), 1),
+        "phase_warp_enabled": _enabled("DJAI_DECK_PHASE_WARP", "1"),
+        "phase_warp_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0), 1),
+        "phase_residual_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0), 1),
         "tempo_release_max_delta": round(_clamp(float(os.environ.get("DJAI_DECK_TEMPO_RELEASE_MAX", "0.10")), 0.02, 0.15), 4),
         "pitch_preserving": True,
         "tempo_ownership_transfer": True,

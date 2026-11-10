@@ -7,6 +7,9 @@ on:
       - "src/djai/fallback.py"
       - "src/djai/decision.py"
       - "src/djai/set_planner.py"
+      - "src/djai/performance/deck.py"
+      - "src/djai/renderer.py"
+      - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
       - "tests/test_set_pipeline.py"
       - "tests/test_decision_planner.py"
@@ -16,11 +19,15 @@ on:
     branches:
       - main
       - dj-fundamentals
+      - beat-integrity
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
       - "src/djai/decision.py"
       - "src/djai/set_planner.py"
+      - "src/djai/performance/deck.py"
+      - "src/djai/renderer.py"
+      - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
       - "tests/test_set_pipeline.py"
       - "tests/test_decision_planner.py"
@@ -49,6 +56,7 @@ jobs:
         run: >
           python -m pytest
           tests/test_dj_fundamentals_milestone.py
+          tests/test_beat_integrity.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
           tests/test_dj_deck_performance_1_2.py::test_variable_deck_tempo_ride_preserves_pitch
