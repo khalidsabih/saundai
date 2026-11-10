@@ -127,3 +127,36 @@ def test_explicit_hard_cut_policy_still_allows_quick_cut(
 
     assert plan.technique == "quick_cut"
     assert plan.metadata["rescue_transition_kind"] == "hard_cut"
+
+
+
+def test_unknown_meter_cannot_qualify_for_rescue_overlap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
+    track_a = _track(tmp_path, "unknown-meter-a", 124.0)
+    track_b = _track(tmp_path, "unknown-meter-b", 125.0)
+    track_a.time_signature = 0
+    track_b.time_signature = 0
+
+    plan = build_last_resort_plan(track_a, track_b)
+
+    assert plan.metadata["rescue_transition_kind"] == "structural_reset"
+    assert any("meter" in reason for reason in plan.metadata["rescue_overlap_risks"])
+
+
+def test_two_strong_vocals_do_not_get_full_record_rescue_overlap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
+    track_a = _track(tmp_path, "vocal-a", 124.0)
+    track_b = _track(tmp_path, "vocal-b", 125.0)
+    track_a.vocal_probability = 0.72
+    track_b.vocal_probability = 0.76
+
+    plan = build_last_resort_plan(track_a, track_b)
+
+    assert plan.metadata["rescue_transition_kind"] == "structural_reset"
+    assert any("lead-vocal" in reason for reason in plan.metadata["rescue_overlap_risks"])
