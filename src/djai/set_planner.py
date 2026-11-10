@@ -3484,6 +3484,7 @@ def plan_folder(
     measurement_log: str | None = "ratings/automatic-measurements.jsonl",
     automatic_delivery: bool = True,
     listener: str = "local",
+    timing_intent: SetTimingIntent | None = None,
 ) -> SetPlan:
     analysis_stats = AnalysisBatchStats()
     analyses = analyze_folder(
@@ -3529,6 +3530,7 @@ def plan_folder(
         ),
         automatic_delivery=automatic_delivery,
         listener=listener,
+        timing_intent=timing_intent,
     )
     plan.metadata["stem_enriched_tracks"] = stem_enriched
     plan.metadata["performance_layer_enriched_tracks"] = layer_enriched
@@ -3556,6 +3558,7 @@ def plan_manual_paths(
     measurement_log: str | None = "ratings/automatic-measurements.jsonl",
     automatic_delivery: bool = False,
     listener: str = "local",
+    timing_intent: SetTimingIntent | None = None,
 ) -> SetPlan:
     from .layers import collapse_performance_layer_paths
 
@@ -3589,6 +3592,7 @@ def plan_manual_paths(
         ),
         automatic_delivery=automatic_delivery,
         listener=listener,
+        timing_intent=timing_intent,
     )
     plan.metadata["stem_enriched_tracks"] = stem_enriched
     plan.metadata["performance_layer_enriched_tracks"] = layer_enriched
