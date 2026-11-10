@@ -194,10 +194,39 @@ def evaluate_professional_mix_contract(plan: TransitionPlan) -> ProfessionalMixC
                 key in dict(program.get("curves", {}) or {})
                 for key in ("deck_a_low_gain", "deck_b_low_gain")
             )
-            if plan.compatibility.vocal_overlap < 0.48:
+            long_master_overlap = plan.transition_bars >= 8 and not structural_reset
+            if long_master_overlap and plan.compatibility.vocal_overlap < 0.24:
+                failures.append(
+                    "Long full-master overlap has severe lead-vocal collision risk; use separated sources, a shorter handoff, or replan."
+                )
+            elif plan.compatibility.vocal_overlap < 0.48:
                 warnings.append("Master-only transition has elevated vocal collision risk; prefer stems/layers when available.")
-            if plan.compatibility.bass_conflict < 0.48 and not low_ownership:
+
+            if long_master_overlap and plan.compatibility.bass_conflict < 0.24 and not low_ownership:
+                failures.append(
+                    "Long full-master overlap has severe simultaneous bass ownership without explicit low-frequency handoff."
+                )
+            elif plan.compatibility.bass_conflict < 0.48 and not low_ownership:
                 warnings.append("Master-only transition has elevated bass collision risk without explicit low-frequency ownership automation.")
+
+            harmonic_fit = max(
+                float(plan.compatibility.harmonic),
+                float(plan.compatibility.local_harmonic),
+            )
+            if long_master_overlap and harmonic_fit < 0.20:
+                failures.append(
+                    "Long full-master overlap has severe harmonic incompatibility for a transparent blend."
+                )
+
+            if (
+                long_master_overlap
+                and plan.compatibility.phrase < 0.22
+                and plan.compatibility.boundary < 0.30
+            ):
+                failures.append(
+                    "Long continuous overlap is not anchored to a credible phrase or structural boundary."
+                )
+
             if family == "structural_bridge":
                 if max(vocal_conflict, melodic_conflict) >= 0.68:
                     failures.append(
@@ -251,6 +280,9 @@ def professional_mix_contract_status() -> dict[str, Any]:
             "incoming_established_before_outgoing_release",
             "single_bass_owner_when_separated_sources_exist",
             "controlled_lead_vocal_ownership_when_separated_sources_exist",
+            "no_severe_master_vocal_or_bass_collision_in_long_overlaps",
+            "credible_phrase_or_boundary_alignment_for_long_overlaps",
+            "no_severe_harmonic_conflict_in_long_transparent_blends",
         ],
         "structural_resets_require_explicit_justification": True,
         "combined_audio_quality_alone_is_insufficient": True,
