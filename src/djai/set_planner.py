@@ -152,7 +152,11 @@ def _edge_objective(
     value -= 0.05 * max(0.0, 0.55 - plan.intent_score)
     if track_a.variable_tempo or track_b.variable_tempo:
         value -= 0.04
-    if track_a.time_signature != track_b.time_signature:
+    meter_a = int(track_a.time_signature or 0)
+    meter_b = int(track_b.time_signature or 0)
+    if meter_a not in {3, 4, 6} or meter_b not in {3, 4, 6}:
+        value -= 0.04
+    elif meter_a != meter_b:
         value -= 0.08
 
     router = plan.metadata.get("transition_router", {})
@@ -1500,7 +1504,7 @@ def _required_source_body(
         # guarantee a small phrase body. The historical fraction remains a UI
         # pacing hint elsewhere; it no longer forces SAUND to ignore a strong
         # early phrase opportunity on a long record.
-        bar_source_seconds = max(0.20, track.time_signature * 60.0 / track.bpm)
+        bar_source_seconds = max(0.20, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / track.bpm)
         requested_source = minimum_body_seconds * max(current_rate, 1e-9)
         requested_bars = int(math.ceil(requested_source / bar_source_seconds))
         requested_bars = int(math.ceil(max(move_cfg.minimum_body_bars, requested_bars) / 4.0) * 4)
@@ -1530,7 +1534,7 @@ def _mixing_window(
         return current_cursor, current_cursor
     move_cfg = MoveBrainConfig.from_environment()
     if move_cfg.enabled and track.bpm > 1.0:
-        bar_source_seconds = max(0.20, track.time_signature * 60.0 / track.bpm)
+        bar_source_seconds = max(0.20, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / track.bpm)
         target_cap = move_cfg.soft_target_bars * bar_source_seconds
         latest_cap = move_cfg.soft_latest_bars * bar_source_seconds
     else:
@@ -1652,7 +1656,7 @@ def _sequence_entry_candidates(track: TrackAnalysis, *, limit: int = 10) -> list
     if not move_cfg.enabled:
         # Exact 1.3 compatibility path: prefer a mature cue and avoid literal
         # time zero when another usable incoming phrase exists.
-        bar_duration = max(0.5, track.time_signature * 60.0 / max(track.bpm, 1.0))
+        bar_duration = max(0.5, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / max(track.bpm, 1.0))
         mature_after = min(4.0 * bar_duration, max(2.0, track.duration_seconds * 0.08))
         preferred_before = min(135.0, track.duration_seconds * 0.48)
         mature = [
