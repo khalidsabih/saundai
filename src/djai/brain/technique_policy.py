@@ -5,6 +5,7 @@ from typing import Sequence
 
 from ..models import TrackAnalysis, TransitionPlan
 from ..planning_context import PairEvidenceMatrix
+from .style_policy import style_plan_adjustment, style_profile
 from .transition_router import TransitionRoute, route_fit
 
 
@@ -191,6 +192,7 @@ def apply_technique_policy(
     from ..naturalness import annotate_transition_naturalness
 
     policy = technique_policy(route)
+    style = style_profile(track_a, track_b)
     scored: list[TransitionPlan] = []
     for plan in plans:
         fit = route_fit(route, plan)
@@ -207,6 +209,8 @@ def apply_technique_policy(
         utility -= policy.complexity_weight * cost
         if allowed:
             utility += 0.018
+        style_adjustment, style_reasons = style_plan_adjustment(plan, style)
+        utility += style_adjustment
         naturalness = annotate_transition_naturalness(plan, track_a=track_a, track_b=track_b)
         # Naturalness is a bounded ranking signal, not a safety gate. It helps
         # phrase-aligned, appropriately short/simple programs reach rehearsal
@@ -223,6 +227,12 @@ def apply_technique_policy(
                 "intent_fit": round(intent_fit, 4),
                 "intervention_cost": round(cost, 4),
                 "principle": "musical_intent_before_dsp",
+            },
+            "style_policy": {
+                **style.to_dict(),
+                "utility_adjustment": round(style_adjustment, 6),
+                "reasons": [*style.reasons, *style_reasons],
+                "hard_safety_may_override": True,
             },
         }
         scored.append(plan)
@@ -247,6 +257,12 @@ def apply_technique_policy(
                     "intervention_cost": round(intervention_cost(plan.technique), 4),
                     "policy_relaxed": True,
                     "principle": "musical_intent_before_dsp",
+                },
+                "style_policy": {
+                    **style.to_dict(),
+                    "utility_adjustment": 0.0,
+                    "reasons": [*style.reasons, "Technique policy relaxed; style remains advisory only."],
+                    "hard_safety_may_override": True,
                 },
             }
         scored = fallback
