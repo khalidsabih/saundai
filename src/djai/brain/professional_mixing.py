@@ -339,6 +339,8 @@ def apply_professional_mixing_policy(
 
 
 def professional_mixing_status() -> dict[str, Any]:
+    from .pair_adaptive_mixing import pair_adaptive_status
+
     return {
         "version": PROFESSIONAL_MIXING_VERSION,
         "compatibility_driven": True,
@@ -356,4 +358,5 @@ def professional_mixing_status() -> dict[str, Any]:
         "outgoing_owner_until_incoming_established": True,
         "reset_is_last_resort": True,
         "pair_may_be_rejected": True,
+        "pair_adaptive_mixing": pair_adaptive_status(),
     }

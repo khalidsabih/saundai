@@ -22,6 +22,8 @@ on:
       - "src/djai/performance/mix_contract.py"
       - "src/djai/brain/style_policy.py"
       - "src/djai/brain/technique_policy.py"
+      - "src/djai/brain/pair_adaptive_mixing.py"
+      - "tests/test_pair_adaptive_mixing.py"
       - "src/djai/training/teacher_dataset.py"
       - "src/djai/training/teacher_consensus.py"
       - "src/djai/training/teacher_governance.py"
@@ -66,6 +68,7 @@ on:
       - human-preference-program
       - real-taste-models
       - human-release-gate
+      - pair-adaptive-mixing
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -86,6 +89,8 @@ on:
       - "src/djai/performance/mix_contract.py"
       - "src/djai/brain/style_policy.py"
       - "src/djai/brain/technique_policy.py"
+      - "src/djai/brain/pair_adaptive_mixing.py"
+      - "tests/test_pair_adaptive_mixing.py"
       - "src/djai/training/teacher_dataset.py"
       - "src/djai/training/teacher_consensus.py"
       - "src/djai/training/teacher_governance.py"
@@ -155,6 +160,7 @@ jobs:
           tests/test_musical_quality_gate.py
           tests/test_gain_staging.py
           tests/test_style_policy.py
+          tests/test_pair_adaptive_mixing.py
           tests/test_teacher_data_platform.py
           tests/test_teacher_data_quality.py
           tests/test_human_preference_program.py
