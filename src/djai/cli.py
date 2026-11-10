@@ -39,11 +39,19 @@ from .training.curriculum import training_curriculum
 from .training.synthetic_failures import generate_synthetic_failure_set
 from .training.expert_dataset import expert_dataset_stats
 from .evaluation.arena import ArenaVote, append_arena_vote, arena_report
+from .evaluation.human_release_gate import (
+    DEFAULT_MANIFEST as HUMAN_RELEASE_DEFAULT_MANIFEST,
+    HumanReleaseThresholds,
+    create_human_release_session,
+    human_release_report,
+    lock_human_release_benchmark,
+    record_human_release_vote,
+)
 from .intelligence.expert_policy import train_expert_policy
 from .intelligence.model_registry import registry_status
 from .intelligence.model_bootstrap import bootstrap_models
 from .training.neural_heads import promote_model, train_neural_head
-from .intelligence.governance import load_arena_evidence
+from .intelligence.governance import load_arena_evidence, load_human_release_evidence
 from .training.lab_dataset import create_training_snapshot, train_shadow_ranker, training_lab_status
 from .training.taste_learning import train_taste_learning_heads, taste_learning_status
 from .training.real_taste import real_taste_status, train_real_taste_from_snapshot
@@ -796,6 +804,34 @@ def build_parser() -> argparse.ArgumentParser:
     real_taste_train.add_argument("--ridge", type=float, default=0.18)
     sub.add_parser("training-real-taste-status", help="Show staged real-taste training and held-out human results")
 
+    release_lock = sub.add_parser("human-release-lock", help="Lock a blind candidate-vs-incumbent human release benchmark")
+    release_lock.add_argument("cases", help="JSONL with case_id plus incumbent_audio/candidate_audio")
+    release_lock.add_argument("--incumbent", required=True)
+    release_lock.add_argument("--candidate", required=True)
+    release_lock.add_argument("-o", "--output", default=HUMAN_RELEASE_DEFAULT_MANIFEST)
+
+    release_session = sub.add_parser("human-release-session", help="Open the next blind case from the locked release benchmark")
+    release_session.add_argument("--evaluator", required=True)
+    release_session.add_argument("--cohort", choices=("general_listener", "experienced_dj", "professional_dj"), required=True)
+
+    release_vote = sub.add_parser("human-release-vote", help="Record one blind human release-gate vote")
+    release_vote.add_argument("session_id")
+    release_vote.add_argument("choice", choices=("a", "b", "tie", "neither"))
+    release_vote.add_argument("--catastrophic-a", action="store_true")
+    release_vote.add_argument("--catastrophic-b", action="store_true")
+    release_vote.add_argument("--reason", action="append", default=[])
+
+    release_report = sub.add_parser("human-release-report", help="Evaluate the locked human release gate")
+    release_report.add_argument("--minimum-cases", type=int, default=150)
+    release_report.add_argument("--minimum-covered", type=int, default=150)
+    release_report.add_argument("--minimum-decisive", type=int, default=150)
+    release_report.add_argument("--minimum-evaluators", type=int, default=3)
+    release_report.add_argument("--minimum-professional-votes", type=int, default=20)
+    release_report.add_argument("--target-win-rate", type=float, default=0.65)
+    release_report.add_argument("--maximum-catastrophic-rate", type=float, default=0.01)
+    release_report.add_argument("--maximum-new-catastrophes", type=int, default=0)
+    release_report.add_argument("-o", "--output")
+
     teacher_status = sub.add_parser("teacher-status", help="Show provider-neutral LLM teacher-data status and governance")
     teacher_status.add_argument("--workspace")
 
@@ -894,7 +930,8 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--registry", default=None)
     promote_parser.add_argument("--rights-reviewed", action="store_true")
     promote_parser.add_argument("--governance-approved", action="store_true")
-    promote_parser.add_argument("--arena-report", default=None, help="JSON Arena report required for production promotion")
+    promote_parser.add_argument("--arena-report", default=None, help="Optional legacy blind Arena evidence")
+    promote_parser.add_argument("--human-release-report", default=None, help="Phase 11 locked human release-gate JSON required for production promotion")
 
     rate = sub.add_parser("rate", help="Append a structured listening rating")
     rate.add_argument("report")
@@ -1140,6 +1177,70 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "training-real-taste-status":
             _write_json(real_taste_status(current_environment().workspace), None)
             raise SystemExit(0)
+        if args.command == "human-release-lock":
+            locked = lock_human_release_benchmark(
+                args.cases,
+                args.output,
+                incumbent=args.incumbent,
+                candidate=args.candidate,
+            )
+            payload = json.loads(locked.read_text(encoding="utf-8"))
+            _write_json(
+                {
+                    "benchmark_path": str(locked),
+                    "benchmark_id": payload.get("benchmark_id"),
+                    "locked_sha256": payload.get("locked_sha256"),
+                    "case_count": payload.get("case_count"),
+                },
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "human-release-session":
+            _write_json(
+                create_human_release_session(
+                    current_environment().workspace,
+                    evaluator=args.evaluator,
+                    cohort=args.cohort,
+                ),
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "human-release-vote":
+            output = record_human_release_vote(
+                current_environment().workspace,
+                session_id=args.session_id,
+                choice=args.choice,
+                catastrophic_a=args.catastrophic_a,
+                catastrophic_b=args.catastrophic_b,
+                reasons=args.reason,
+            )
+            _write_json(
+                {
+                    "votes_path": str(output),
+                    "report": human_release_report(current_environment().workspace),
+                },
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "human-release-report":
+            thresholds = HumanReleaseThresholds(
+                minimum_locked_cases=args.minimum_cases,
+                minimum_covered_cases=args.minimum_covered,
+                minimum_decisive_votes=args.minimum_decisive,
+                minimum_unique_evaluators=args.minimum_evaluators,
+                minimum_professional_dj_votes=args.minimum_professional_votes,
+                target_candidate_win_rate=args.target_win_rate,
+                maximum_candidate_catastrophic_rate=args.maximum_catastrophic_rate,
+                maximum_new_catastrophic_cases=args.maximum_new_catastrophes,
+            )
+            _write_json(
+                human_release_report(
+                    current_environment().workspace,
+                    thresholds=thresholds,
+                ),
+                args.output,
+            )
+            raise SystemExit(0)
         if args.command == "teacher-status":
             workspace = args.workspace or current_environment().workspace
             _write_json(teacher_data_status(workspace), None)
@@ -1278,8 +1379,21 @@ def main(argv: list[str] | None = None) -> None:
             _write_json({"checkpoint":str(output)},None)
             raise SystemExit(0)
         if args.command == "models-promote":
-            arena_payload=load_arena_evidence(args.arena_report) if args.arena_report else None
-            output=promote_model(args.model_id,authority=args.authority,registry_path=args.registry,rights_reviewed=args.rights_reviewed,governance_approved=args.governance_approved,arena_report_payload=arena_payload)
+            arena_payload = load_arena_evidence(args.arena_report) if args.arena_report else None
+            release_payload = (
+                load_human_release_evidence(args.human_release_report)
+                if args.human_release_report
+                else None
+            )
+            output = promote_model(
+                args.model_id,
+                authority=args.authority,
+                registry_path=args.registry,
+                rights_reviewed=args.rights_reviewed,
+                governance_approved=args.governance_approved,
+                arena_report_payload=arena_payload,
+                human_release_gate_payload=release_payload,
+            )
             _write_json({"registry":str(output),"model_id":args.model_id,"authority":args.authority},None)
             raise SystemExit(0)
         if args.command == "rate":

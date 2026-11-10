@@ -82,20 +82,61 @@ def train_neural_head(task,dataset,output,*,require_rights_cleared=True,iteratio
         payload["fine_tuned_from_model_id"]=str(initial.get("model_id") or Path(initial_model_path).stem)
     out=Path(output).expanduser();out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(payload,indent=2)+"\n");return out
 
-def promote_model(model_id,*,authority:Literal["shadow","advisory","production"],registry_path=None,rights_reviewed=False,governance_approved=False,arena_report_payload=None):
-    path=ensure_default_registry(registry_path); payload=json.loads(path.read_text()); target=next((r for r in payload.get("models",[]) if isinstance(r,dict) and r.get("id")==model_id),None)
-    if target is None:raise ValueError(f"Unknown model id: {model_id}")
-    cp=target.get("checkpoint")
-    if not cp or not Path(cp).expanduser().exists():raise ValueError(f"Checkpoint is not installed for {model_id}.")
-    hp=json.loads(Path(cp).expanduser().read_text());m=dict(hp.get("metrics",{}));acc=float(m.get("validation_accuracy",0));n=int(m.get("validation_examples",0))
-    if authority=="advisory" and (n<10 or acc<.55):raise ValueError("Advisory promotion requires >=10 held-out examples and >=55% validation accuracy.")
-    if authority=="production":
-        if not rights_reviewed:raise ValueError("Production promotion requires an explicit rights review.")
-        if n<50 or acc<.62:raise ValueError("Production promotion requires >=50 held-out examples and >=62% validation accuracy.")
-        if not governance_approved:raise ValueError("Production promotion requires explicit model-governance approval.")
-        arena=dict(arena_report_payload or {})
-        if not bool(arena.get("deployment_ready",False)):raise ValueError("Production promotion requires a deployment-ready blind Arena report.")
-    target["authority"]=authority;target["production_approved"]=authority=="production" and rights_reviewed and governance_approved;target["checkpoint_sha256"]=checkpoint_fingerprint(cp);target.setdefault("metadata",{})["validation_metrics"]=m;target["metadata"]["rights_reviewed"]=bool(rights_reviewed);target["metadata"]["governance_approved"]=bool(governance_approved);target["metadata"]["arena_report"]=dict(arena_report_payload or {});path.write_text(json.dumps(payload,indent=2)+"\n");return path
+def promote_model(
+    model_id,
+    *,
+    authority: Literal["shadow", "advisory", "production"],
+    registry_path=None,
+    rights_reviewed=False,
+    governance_approved=False,
+    arena_report_payload=None,
+    human_release_gate_payload=None,
+):
+    path = ensure_default_registry(registry_path)
+    payload = json.loads(path.read_text())
+    target = next(
+        (row for row in payload.get("models", []) if isinstance(row, dict) and row.get("id") == model_id),
+        None,
+    )
+    if target is None:
+        raise ValueError(f"Unknown model id: {model_id}")
+    cp = target.get("checkpoint")
+    if not cp or not Path(cp).expanduser().exists():
+        raise ValueError(f"Checkpoint is not installed for {model_id}.")
+    hp = json.loads(Path(cp).expanduser().read_text())
+    metrics = dict(hp.get("metrics", {}))
+    accuracy = float(metrics.get("validation_accuracy", 0))
+    validation_examples = int(metrics.get("validation_examples", 0))
+    if authority == "advisory" and (validation_examples < 10 or accuracy < 0.55):
+        raise ValueError("Advisory promotion requires >=10 held-out examples and >=55% validation accuracy.")
+    release_gate = dict(human_release_gate_payload or {})
+    if authority == "production":
+        if not rights_reviewed:
+            raise ValueError("Production promotion requires an explicit rights review.")
+        if validation_examples < 50 or accuracy < 0.62:
+            raise ValueError("Production promotion requires >=50 held-out examples and >=62% validation accuracy.")
+        if not governance_approved:
+            raise ValueError("Production promotion requires explicit model-governance approval.")
+        if str(release_gate.get("release_gate_version") or "") != "1.0":
+            raise ValueError("Production promotion requires a Phase 11 locked human release-gate report.")
+        if not bool(release_gate.get("benchmark_locked")):
+            raise ValueError("Production promotion requires a locked human release benchmark.")
+        if not release_gate.get("benchmark_id") or not release_gate.get("locked_sha256"):
+            raise ValueError("Production promotion requires benchmark identity and locked SHA-256.")
+        if not bool(release_gate.get("deployment_ready")):
+            raise ValueError("Production promotion requires a deployment-ready Phase 11 human release gate.")
+
+    target["authority"] = authority
+    target["production_approved"] = authority == "production" and rights_reviewed and governance_approved
+    target["checkpoint_sha256"] = checkpoint_fingerprint(cp)
+    metadata = target.setdefault("metadata", {})
+    metadata["validation_metrics"] = metrics
+    metadata["rights_reviewed"] = bool(rights_reviewed)
+    metadata["governance_approved"] = bool(governance_approved)
+    metadata["arena_report"] = dict(arena_report_payload or {})
+    metadata["human_release_gate"] = release_gate
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+    return path
 
 
 def evaluate_neural_head(task,dataset,model_path,*,require_rights_cleared=False):

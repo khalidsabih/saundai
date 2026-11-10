@@ -253,3 +253,23 @@ class TrainingSnapshotRequest(BaseModel):
 class TrainingLabTrainRequest(BaseModel):
     snapshot_id: str | None = Field(default=None, max_length=96)
     ridge: float = Field(default=0.18, ge=0.001, le=10.0)
+
+
+class HumanReleaseLockRequest(BaseModel):
+    cases_path: str = Field(min_length=1, max_length=1024)
+    incumbent: str = Field(min_length=1, max_length=160)
+    candidate: str = Field(min_length=1, max_length=160)
+    output_path: str | None = Field(default=None, max_length=1024)
+
+
+class HumanReleaseSessionRequest(BaseModel):
+    evaluator: str = Field(min_length=1, max_length=160)
+    cohort: Literal["general_listener", "experienced_dj", "professional_dj"]
+
+
+class HumanReleaseVoteRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=160)
+    choice: Literal["a", "b", "tie", "neither"]
+    catastrophic_a: bool = False
+    catastrophic_b: bool = False
+    reasons: list[str] = Field(default_factory=list, max_length=12)

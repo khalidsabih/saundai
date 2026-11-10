@@ -34,6 +34,7 @@ from .provenance import audit_dataset_registry
 from .rendered_judge_dataset import build_synthetic_rendered_judge_rows
 from .taste_evidence import runtime_evidence_status
 from .human_preference import human_preference_status
+from ..evaluation.human_release_gate import human_release_status
 from .state_move_taste import MINIMUM_STATE_MOVE_COMPARISONS, STATE_MOVE_FEATURES, state_move_taste_status
 
 LAB_DATASET_SCHEMA_VERSION = "1.8.2"
@@ -280,6 +281,7 @@ def training_lab_status(workspace: str | Path) -> dict[str, Any]:
         "live_ranker": ranker,
         "runtime_evidence": runtime_evidence_status(root),
         "human_preference_program": human_preference_status(root),
+        "human_release_gate": human_release_status(root),
         "crate_memory": crate_memory_status(workspace=root),
         "learning_heads": {
             "global_taste_ranker": {

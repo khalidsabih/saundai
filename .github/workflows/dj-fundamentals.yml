@@ -28,6 +28,13 @@ on:
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
       - "src/djai/training/real_taste.py"
+      - "src/djai/evaluation/human_release_gate.py"
+      - "src/djai/intelligence/governance.py"
+      - "src/djai/schemas.py"
+      - "src/djai/api.py"
+      - "src/djai/cli.py"
+      - "tests/test_human_release_gate.py"
+      - "tests/test_neural_brain_5.py"
       - "src/djai/training/neural_heads.py"
       - "src/djai/training/state_move_taste.py"
       - "src/djai/intelligence/transition_ranker.py"
@@ -58,6 +65,7 @@ on:
       - teacher-data-quality
       - human-preference-program
       - real-taste-models
+      - human-release-gate
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -84,6 +92,13 @@ on:
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
       - "src/djai/training/real_taste.py"
+      - "src/djai/evaluation/human_release_gate.py"
+      - "src/djai/intelligence/governance.py"
+      - "src/djai/schemas.py"
+      - "src/djai/api.py"
+      - "src/djai/cli.py"
+      - "tests/test_human_release_gate.py"
+      - "tests/test_neural_brain_5.py"
       - "src/djai/training/neural_heads.py"
       - "src/djai/training/state_move_taste.py"
       - "src/djai/intelligence/transition_ranker.py"
@@ -144,6 +159,8 @@ jobs:
           tests/test_teacher_data_quality.py
           tests/test_human_preference_program.py
           tests/test_real_taste_training.py
+          tests/test_human_release_gate.py
+          tests/test_neural_brain_5.py
           tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py

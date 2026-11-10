@@ -50,7 +50,9 @@ def test_production_promotion_requires_rights(tmp_path):
  cp=tmp_path/"n.json";_head(cp,"next_track_policy",weights=[1],bias=0);reg=_registry(tmp_path,cp,"next_track_policy","shadow");
  with pytest.raises(ValueError):promote_model("next_track_policy",authority="production",registry_path=reg,rights_reviewed=False)
  with pytest.raises(ValueError):promote_model("next_track_policy",authority="production",registry_path=reg,rights_reviewed=True)
- promote_model("next_track_policy",authority="production",registry_path=reg,rights_reviewed=True,governance_approved=True,arena_report_payload={"deployment_ready":True});m=load_model_registry(reg).get("next_track_policy");assert m and m.production_approved
+ with pytest.raises(ValueError):promote_model("next_track_policy",authority="production",registry_path=reg,rights_reviewed=True,governance_approved=True,arena_report_payload={"deployment_ready":True})
+ release_gate={"release_gate_version":"1.0","benchmark_locked":True,"benchmark_id":"human-release-test","locked_sha256":"a"*64,"deployment_ready":True}
+ promote_model("next_track_policy",authority="production",registry_path=reg,rights_reviewed=True,governance_approved=True,human_release_gate_payload=release_gate);m=load_model_registry(reg).get("next_track_policy");assert m and m.production_approved and m.metadata["human_release_gate"]["deployment_ready"]
 
 
 def test_measurement_finalization_marks_only_final_set_signatures(tmp_path):
