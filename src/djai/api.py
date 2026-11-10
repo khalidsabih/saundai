@@ -72,6 +72,13 @@ from .training.source_catalog import source_catalog
 from .training.dataset_builder import create_bootstrap_corpus, dataset_builder_status, train_bootstrap_shadow_models
 from .evaluation.arena import arena_report
 from .evaluation.release_benchmark import benchmark_runtime_status, combine_crate_fingerprints, extract_release_benchmark
+from .evaluation.human_release_gate import (
+    DEFAULT_MANIFEST as HUMAN_RELEASE_DEFAULT_MANIFEST,
+    create_human_release_session,
+    human_release_report,
+    lock_human_release_benchmark,
+    record_human_release_vote,
+)
 from .ratings import append_listening_rating
 from .schemas import (
     AccountLoginRequest,
@@ -94,6 +101,9 @@ from .schemas import (
     PreferenceVoteRequest,
     HumanReviewSessionRequest,
     HumanReviewVoteRequest,
+    HumanReleaseLockRequest,
+    HumanReleaseSessionRequest,
+    HumanReleaseVoteRequest,
     RankerTrainRequest,
     TrainingSnapshotRequest,
     TrainingLabTrainRequest,
@@ -2287,6 +2297,78 @@ def get_real_taste_status() -> dict[str, Any]:
     _require_training_lab()
     return real_taste_status(WORKSPACE)
 
+
+@app.post("/api/training-lab/human-release/lock")
+def lock_training_lab_human_release(request: HumanReleaseLockRequest) -> dict[str, Any]:
+    _require_training_lab()
+    output = Path(request.output_path).expanduser() if request.output_path else WORKSPACE / HUMAN_RELEASE_DEFAULT_MANIFEST
+    if not output.is_absolute():
+        output = WORKSPACE / output
+    try:
+        locked = lock_human_release_benchmark(
+            request.cases_path,
+            output,
+            incumbent=request.incumbent,
+            candidate=request.candidate,
+        )
+        payload = json.loads(locked.read_text(encoding="utf-8"))
+        return {
+            "benchmark_path": _relative(locked),
+            "benchmark_id": payload.get("benchmark_id"),
+            "locked_sha256": payload.get("locked_sha256"),
+            "case_count": payload.get("case_count"),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/training-lab/human-release/session")
+def create_training_lab_human_release_session(request: HumanReleaseSessionRequest) -> dict[str, Any]:
+    _require_training_lab()
+    try:
+        session = create_human_release_session(
+            WORKSPACE,
+            evaluator=request.evaluator,
+            cohort=request.cohort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        **session,
+        "audio": {
+            label: f"/api/media/{_relative(Path(path))}"
+            for label, path in dict(session.get("audio", {})).items()
+        },
+    }
+
+
+@app.post("/api/training-lab/human-release/vote")
+def save_training_lab_human_release_vote(request: HumanReleaseVoteRequest) -> dict[str, Any]:
+    _require_training_lab()
+    try:
+        output = record_human_release_vote(
+            WORKSPACE,
+            session_id=request.session_id,
+            choice=request.choice,
+            catastrophic_a=request.catastrophic_a,
+            catastrophic_b=request.catastrophic_b,
+            reasons=request.reasons,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "votes_path": _relative(output),
+        "report": human_release_report(WORKSPACE),
+    }
+
+
+@app.get("/api/training-lab/human-release/report")
+def get_training_lab_human_release_report() -> dict[str, Any]:
+    _require_training_lab()
+    try:
+        return human_release_report(WORKSPACE)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/live/manifest")
