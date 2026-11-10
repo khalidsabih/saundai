@@ -1,0 +1,59 @@
+name: DJ fundamentals
+
+on:
+  pull_request:
+    paths:
+      - "src/djai/analysis.py"
+      - "src/djai/fallback.py"
+      - "src/djai/decision.py"
+      - "src/djai/set_planner.py"
+      - "tests/test_dj_fundamentals_milestone.py"
+      - "tests/test_set_pipeline.py"
+      - "tests/test_decision_planner.py"
+      - "tests/test_dj_deck_performance_1_2.py"
+      - ".github/workflows/dj-fundamentals.yml"
+  push:
+    branches:
+      - main
+      - dj-fundamentals
+    paths:
+      - "src/djai/analysis.py"
+      - "src/djai/fallback.py"
+      - "src/djai/decision.py"
+      - "src/djai/set_planner.py"
+      - "tests/test_dj_fundamentals_milestone.py"
+      - "tests/test_set_pipeline.py"
+      - "tests/test_decision_planner.py"
+      - "tests/test_dj_deck_performance_1_2.py"
+      - ".github/workflows/dj-fundamentals.yml"
+  workflow_dispatch:
+
+jobs:
+  fundamentals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run DJ fundamentals regression suite
+        run: >
+          python -m pytest
+          tests/test_dj_fundamentals_milestone.py
+          tests/test_set_pipeline.py
+          tests/test_decision_planner.py
+          tests/test_dj_deck_performance_1_2.py::test_variable_deck_tempo_ride_preserves_pitch
+          tests/test_dj_deck_performance_1_2.py::test_transition_plan_matches_then_returns_incoming_deck_to_native_bpm
+          tests/test_dj_deck_performance_1_2.py::test_tempo_release_audio_reaches_native_rate_without_changing_output_length
+          tests/test_dj_deck_performance_1_2.py::test_full_set_uses_native_post_handoff_state_for_next_transition
+          tests/test_dj_deck_performance_1_2.py::test_real_pair_render_executes_tempo_release_segment
+          tests/test_dj_deck_performance_1_2.py::test_live_manifest_exposes_deck_handoff_and_tempo_release
