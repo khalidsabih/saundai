@@ -227,6 +227,20 @@ class PreferenceVoteRequest(BaseModel):
     reasons: list[str] = Field(default_factory=list, max_length=12)
 
 
+class HumanReviewSessionRequest(BaseModel):
+    evaluator: str = Field(min_length=1, max_length=160)
+    cohort: Literal["general_listener", "experienced_dj", "professional_dj"]
+    scenario_id: str | None = Field(default=None, max_length=160)
+
+
+class HumanReviewVoteRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=160)
+    choice: Literal["a", "b", "tie", "neither"]
+    reasons: list[str] = Field(default_factory=list, max_length=12)
+    confidence: float = Field(default=0.75, ge=0.0, le=1.0)
+    experience_years: float | None = Field(default=None, ge=0.0, le=80.0)
+
+
 class RankerTrainRequest(BaseModel):
     preferences_path: str = "ratings/transition-preferences.jsonl"
     output_path: str = "config/transition-ranker.json"
