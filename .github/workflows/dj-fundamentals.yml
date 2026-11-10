@@ -22,6 +22,10 @@ on:
       - "src/djai/performance/mix_contract.py"
       - "src/djai/brain/style_policy.py"
       - "src/djai/brain/technique_policy.py"
+      - "src/djai/training/teacher_dataset.py"
+      - "src/djai/training/teacher_consensus.py"
+      - "src/djai/training/teacher_governance.py"
+      - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
       - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
@@ -38,6 +42,7 @@ on:
       - musical-quality-gate
       - gain-staging
       - style-aware-dj-brain
+      - teacher-data-platform
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -58,6 +63,10 @@ on:
       - "src/djai/performance/mix_contract.py"
       - "src/djai/brain/style_policy.py"
       - "src/djai/brain/technique_policy.py"
+      - "src/djai/training/teacher_dataset.py"
+      - "src/djai/training/teacher_consensus.py"
+      - "src/djai/training/teacher_governance.py"
+      - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
       - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
@@ -93,6 +102,7 @@ jobs:
           tests/test_musical_quality_gate.py
           tests/test_gain_staging.py
           tests/test_style_policy.py
+          tests/test_teacher_data_platform.py
           tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
