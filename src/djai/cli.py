@@ -56,6 +56,12 @@ from .training.dataset_builder import (
 )
 from .training.teacher_consensus import build_consensus_file
 from .training.teacher_governance import teacher_data_status
+from .training.teacher_quality import (
+    build_hard_negative_queue,
+    build_human_review_queue,
+    build_teacher_calibration,
+    write_balanced_scenarios,
+)
 from .training.teacher_dataset import (
     TeacherScenario,
     append_teacher_judgment,
@@ -814,6 +820,29 @@ def build_parser() -> argparse.ArgumentParser:
     teacher_consensus.add_argument("--minimum-teachers", type=int, default=2)
     teacher_consensus.add_argument("--minimum-agreement", type=float, default=0.67)
     teacher_consensus.add_argument("--minimum-confidence", type=float, default=0.55)
+    teacher_consensus.add_argument("--minimum-providers", type=int, default=2)
+    teacher_consensus.add_argument("--minimum-models", type=int, default=2)
+    teacher_consensus.add_argument("--minimum-families", type=int, default=2)
+    teacher_consensus.add_argument("--calibration", help="Optional JSON calibration profile")
+
+    teacher_balance = sub.add_parser("teacher-balance", help="Balance teacher scenarios across task/context/style/technique strata")
+    teacher_balance.add_argument("scenarios", help="Teacher scenarios JSONL")
+    teacher_balance.add_argument("-o", "--output", default="datasets/generated/teacher/scenarios-balanced.jsonl")
+    teacher_balance.add_argument("--maximum-per-stratum", type=int, default=200)
+
+    teacher_calibrate = sub.add_parser("teacher-calibrate", help="Calibrate teacher confidence against held-out human/reference labels")
+    teacher_calibrate.add_argument("judgments", help="Teacher judgments JSONL")
+    teacher_calibrate.add_argument("references", help="JSON object mapping scenario_id to reference choice")
+    teacher_calibrate.add_argument("-o", "--output", default="datasets/generated/teacher/calibration.json")
+
+    teacher_review = sub.add_parser("teacher-review-queue", help="Build active-learning queue for uncertain/diverse teacher disagreements")
+    teacher_review.add_argument("consensus", help="Teacher consensus JSONL")
+    teacher_review.add_argument("-o", "--output", default="datasets/generated/teacher/human-review-queue.jsonl")
+    teacher_review.add_argument("--minimum-priority", type=float, default=0.10)
+
+    teacher_hardneg = sub.add_parser("teacher-hard-negatives", help="Build research hard-negative queue from teacher consensus")
+    teacher_hardneg.add_argument("consensus", help="Teacher consensus JSONL")
+    teacher_hardneg.add_argument("-o", "--output", default="datasets/generated/teacher/hard-negatives.jsonl")
 
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
     synthetic.add_argument("source")
@@ -1133,14 +1162,60 @@ def main(argv: list[str] | None = None) -> None:
             _write_json({"judgments": str(output), "judgment": judgment.to_dict()}, None)
             raise SystemExit(0)
         if args.command == "teacher-consensus":
+            calibration = None
+            if args.calibration:
+                calibration = json.loads(Path(args.calibration).expanduser().resolve().read_text(encoding="utf-8"))
+                if not isinstance(calibration, dict):
+                    raise ValueError("Teacher calibration JSON must contain an object.")
             output = build_consensus_file(
                 args.judgments,
                 args.output,
                 minimum_teachers=args.minimum_teachers,
                 minimum_agreement=args.minimum_agreement,
                 minimum_mean_confidence=args.minimum_confidence,
+                minimum_distinct_providers=args.minimum_providers,
+                minimum_distinct_models=args.minimum_models,
+                minimum_distinct_families=args.minimum_families,
+                calibration=calibration,
             )
             _write_json({"consensus": str(output)}, None)
+            raise SystemExit(0)
+        if args.command == "teacher-balance":
+            scenarios = load_scenarios(args.scenarios)
+            output = write_balanced_scenarios(
+                scenarios,
+                args.output,
+                maximum_per_stratum=args.maximum_per_stratum,
+            )
+            _write_json({"balanced_scenarios": str(output)}, None)
+            raise SystemExit(0)
+        if args.command == "teacher-calibrate":
+            judgments = []
+            with Path(args.judgments).expanduser().resolve().open(encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(row, dict):
+                        judgments.append(row)
+            references = json.loads(Path(args.references).expanduser().resolve().read_text(encoding="utf-8"))
+            if not isinstance(references, dict):
+                raise ValueError("Reference labels JSON must contain a scenario_id -> choice object.")
+            calibration = build_teacher_calibration(judgments, {str(k): str(v) for k, v in references.items()})
+            _write_json(calibration, args.output)
+            raise SystemExit(0)
+        if args.command == "teacher-review-queue":
+            output = build_human_review_queue(
+                args.consensus,
+                args.output,
+                minimum_priority=args.minimum_priority,
+            )
+            _write_json({"human_review_queue": str(output)}, None)
+            raise SystemExit(0)
+        if args.command == "teacher-hard-negatives":
+            output = build_hard_negative_queue(args.consensus, args.output)
+            _write_json({"hard_negatives": str(output)}, None)
             raise SystemExit(0)
         if args.command == "synthetic-failures":
             manifest = generate_synthetic_failure_set(args.source, args.output_dir)
