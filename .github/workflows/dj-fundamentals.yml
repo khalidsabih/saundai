@@ -27,6 +27,11 @@ on:
       - "src/djai/training/teacher_governance.py"
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
+      - "src/djai/training/real_taste.py"
+      - "src/djai/training/neural_heads.py"
+      - "src/djai/training/state_move_taste.py"
+      - "src/djai/intelligence/transition_ranker.py"
+      - "tests/test_real_taste_training.py"
       - "tests/test_human_preference_program.py"
       - "frontend/components/TrainingLab.tsx"
       - "frontend/lib/api.ts"
@@ -52,6 +57,7 @@ on:
       - teacher-data-platform
       - teacher-data-quality
       - human-preference-program
+      - real-taste-models
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -77,6 +83,11 @@ on:
       - "src/djai/training/teacher_governance.py"
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
+      - "src/djai/training/real_taste.py"
+      - "src/djai/training/neural_heads.py"
+      - "src/djai/training/state_move_taste.py"
+      - "src/djai/intelligence/transition_ranker.py"
+      - "tests/test_real_taste_training.py"
       - "tests/test_human_preference_program.py"
       - "frontend/components/TrainingLab.tsx"
       - "frontend/lib/api.ts"
@@ -132,6 +143,7 @@ jobs:
           tests/test_teacher_data_platform.py
           tests/test_teacher_data_quality.py
           tests/test_human_preference_program.py
+          tests/test_real_taste_training.py
           tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
