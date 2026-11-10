@@ -22,6 +22,7 @@ class MusicalExecutionMeasurement:
     energy_intent_fit: float = 0.0
     drop_payoff: float = 0.5
     overall: float = 0.0
+    hard_failures: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -200,6 +201,57 @@ def _drop_payoff(pre: np.ndarray, transition: np.ndarray, post: np.ndarray, plan
     return _clamp(0.62 * contrast + 0.38 * tension_release)
 
 
+def _musical_hard_failures(
+    plan: TransitionPlan,
+    *,
+    rhythm: float,
+    transient: float,
+    groove: float,
+    harmony: float,
+    payoff: float,
+) -> list[str]:
+    """Technique-aware musical failures that should block automatic delivery.
+
+    Reset/cut techniques intentionally break continuity, so blend-style rhythm
+    and groove gates do not apply to them. The hard gates focus on sustained
+    rhythmic overlaps where flam, drift, phrase failure, or harmonic collapse
+    would sound like a mistake rather than an artistic reset.
+    """
+    failures: list[str] = []
+    reset = (
+        plan.technique in {"quick_cut", "backspin", "echo_out_drop_in"}
+        or plan.transition_mode == "emergency_cut"
+    )
+    long_overlap = plan.beatmatched and plan.transition_bars >= 4 and not reset
+    extended_overlap = plan.beatmatched and plan.transition_bars >= 8 and not reset
+
+    if long_overlap and rhythm < 0.20:
+        failures.append(
+            "Rendered beatmatched overlap has severe rhythmic incoherence; automatic delivery must replan."
+        )
+    if long_overlap and transient < 0.16:
+        failures.append(
+            "Rendered overlap contains persistent doubled transients/flam consistent with kick or snare competition."
+        )
+    if extended_overlap and groove < 0.18:
+        failures.append(
+            "Rendered long overlap loses groove continuity relative to the surrounding phrases."
+        )
+    if extended_overlap and harmony < 0.16:
+        failures.append(
+            "Rendered long overlap has severe harmonic discontinuity inconsistent with a transparent blend."
+        )
+    if (
+        payoff < 0.12
+        and (plan.intent in {"energy_lift", "breakdown_to_drop"} or plan.technique == "double_drop")
+        and not reset
+    ):
+        failures.append(
+            "The committed build/drop transition has insufficient rendered payoff for its musical intent."
+        )
+    return failures
+
+
 def measure_musical_execution(
     *,
     pre: np.ndarray,
@@ -233,6 +285,14 @@ def measure_musical_execution(
         + 0.17 * energy_fit
         + 0.08 * payoff
     )
+    hard_failures = _musical_hard_failures(
+        plan,
+        rhythm=rhythm,
+        transient=transient,
+        groove=groove,
+        harmony=harmony,
+        payoff=payoff,
+    )
     warnings: list[str] = []
     if rhythm < 0.30 and plan.beatmatched:
         warnings.append("Rendered rhythmic periodicity is weak for a beatmatched transition.")
@@ -252,5 +312,6 @@ def measure_musical_execution(
         energy_intent_fit=round(energy_fit, 4),
         drop_payoff=round(payoff, 4),
         overall=round(overall, 4),
+        hard_failures=hard_failures,
         warnings=warnings,
     )

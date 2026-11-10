@@ -9,6 +9,11 @@ on:
       - "src/djai/set_planner.py"
       - "src/djai/performance/deck.py"
       - "src/djai/renderer.py"
+      - "src/djai/judge/musical.py"
+      - "src/djai/judge/professional.py"
+      - "src/djai/candidate_renderer.py"
+      - "src/djai/performance/mix_contract.py"
+      - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
       - "tests/test_set_pipeline.py"
@@ -20,6 +25,7 @@ on:
       - main
       - dj-fundamentals
       - beat-integrity
+      - musical-quality-gate
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -27,6 +33,11 @@ on:
       - "src/djai/set_planner.py"
       - "src/djai/performance/deck.py"
       - "src/djai/renderer.py"
+      - "src/djai/judge/musical.py"
+      - "src/djai/judge/professional.py"
+      - "src/djai/candidate_renderer.py"
+      - "src/djai/performance/mix_contract.py"
+      - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
       - "tests/test_set_pipeline.py"
@@ -57,6 +68,7 @@ jobs:
           python -m pytest
           tests/test_dj_fundamentals_milestone.py
           tests/test_beat_integrity.py
+          tests/test_musical_quality_gate.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
           tests/test_dj_deck_performance_1_2.py::test_variable_deck_tempo_ride_preserves_pitch
