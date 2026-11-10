@@ -10,7 +10,7 @@ from .candidate_renderer import (
     QualityGateConfig,
     evaluate_transition_candidates,
 )
-from .compatibility import harmonic_compatibility, score_transition, tempo_compatibility
+from .compatibility import harmonic_compatibility, match_bpm, score_transition, tempo_compatibility
 from .performance.program import attach_performance_program
 from .decision import execution_signature, seal_execution_plan
 from .execution import TransitionRenderContext
@@ -324,6 +324,23 @@ def build_last_resort_plan(
         )
         choreography_reason = "Use a bounded filtered handoff only while tempo, meter, grid and source ownership remain compatible."
 
+    rescue_beatmatched = rescue_kind == "filtered_overlap"
+    if rescue_beatmatched:
+        matched_bpm_b, _, rescue_rate_b = match_bpm(bpm_a, track_b.bpm)
+        rescue_rate_b = max(0.01, float(rescue_rate_b))
+        rescue_effective_bpm_b = float(bpm_a)
+        rescue_rendered_bpm_b = float(matched_bpm_b)
+        rescue_tempo_strategy = "constant_stretch" if abs(rescue_rate_b - 1.0) >= 0.002 else "native_blend"
+        rescue_transition_mode = "beatmatched_blend"
+        rescue_tempo_policy = "safe"
+    else:
+        rescue_rate_b = 1.0
+        rescue_effective_bpm_b = float(track_b.bpm)
+        rescue_rendered_bpm_b = float(track_b.bpm)
+        rescue_tempo_strategy = "native_cut"
+        rescue_transition_mode = "emergency_cut"
+        rescue_tempo_policy = "cut"
+
     desired_source_a = transition_seconds * max(render_rate_a, 1e-6)
     latest_exit = max(0.0, track_a.duration_seconds - desired_source_a)
     remaining = max(0.0, track_a.duration_seconds - source_cursor)
@@ -337,7 +354,7 @@ def build_last_resort_plan(
             source_cursor=source_cursor,
             latest_exit=latest_exit,
             body_target=body_target,
-            transition_seconds=transition_seconds,
+            transition_seconds=transition_seconds * rescue_rate_b,
         )
     if preferred_exit_time is None:
         if natural_exit is not None:
@@ -361,17 +378,18 @@ def build_last_resort_plan(
     entry_template = natural_entry or _fallback_entry_candidate(track_b)
     entry_time = float(entry_template.time_seconds if entry_template else 0.0)
     remaining_b = max(0.0, track_b.duration_seconds - entry_time)
+    required_source_b = transition_seconds * rescue_rate_b
     source_duration_b = min(
         remaining_b,
-        max(0.12, transition_seconds * source_b_fraction),
+        max(0.12, required_source_b * source_b_fraction),
     )
 
     # If a mature cue was too close to the end to sustain the rescue overlap,
     # fall back to an earlier structural cue before shortening the transition.
-    if rescue_kind == "filtered_overlap" and source_duration_b + 1e-6 < transition_seconds:
+    if rescue_kind == "filtered_overlap" and source_duration_b + 1e-6 < required_source_b:
         viable_entries = [
             candidate for candidate in track_b.entry_candidates
-            if candidate.time_seconds <= max(0.0, track_b.duration_seconds - transition_seconds)
+            if candidate.time_seconds <= max(0.0, track_b.duration_seconds - required_source_b)
         ]
         if viable_entries:
             entry_template = max(
@@ -380,7 +398,7 @@ def build_last_resort_plan(
             )
             entry_time = float(entry_template.time_seconds)
             remaining_b = max(0.0, track_b.duration_seconds - entry_time)
-            source_duration_b = min(remaining_b, transition_seconds)
+            source_duration_b = min(remaining_b, required_source_b)
 
     exit_candidate = _fallback_candidate(track_a, kind="exit", time_seconds=exit_time)
     exit_candidate.time_seconds = round(exit_time, 6)
@@ -396,9 +414,9 @@ def build_last_resort_plan(
         feasible=True,
         score=max(0.18, min(0.62, breakdown.overall)),
         transition_bars=transition_bars,
-        beatmatched=False,
-        tempo_strategy="native_cut",
-        transition_mode="emergency_cut",
+        beatmatched=rescue_beatmatched,
+        tempo_strategy=rescue_tempo_strategy,
+        transition_mode=rescue_transition_mode,
         warnings=[reason],
         reasons=[choreography_reason],
     )
@@ -410,18 +428,18 @@ def build_last_resort_plan(
         transition_bars=transition_bars,
         transition_seconds=round(transition_seconds, 6),
         target_bpm=round(bpm_a, 4),
-        time_stretch_rate_b=1.0,
-        time_stretch_applied=False,
+        time_stretch_rate_b=round(rescue_rate_b, 6),
+        time_stretch_applied=abs(rescue_rate_b - 1.0) >= 0.002,
         technique=technique,
         score=round(max(0.22, min(0.58, breakdown.overall)), 4),
         compatibility=breakdown,
-        tempo_policy="cut",
-        tempo_strategy="native_cut",
-        transition_mode="emergency_cut",
-        beatmatched=False,
+        tempo_policy=rescue_tempo_policy,
+        tempo_strategy=rescue_tempo_strategy,
+        transition_mode=rescue_transition_mode,
+        beatmatched=rescue_beatmatched,
         source_bpm_a=round(track_a.bpm, 4),
         source_bpm_b=round(track_b.bpm, 4),
-        rendered_bpm_b=round(track_b.bpm, 4),
+        rendered_bpm_b=round(rescue_rendered_bpm_b, 4),
         warning=reason,
         forced=True,
         style="emergency",
@@ -442,9 +460,9 @@ def build_last_resort_plan(
         technique_score=assessment.score,
         technique_assessments=[assessment],
         effective_bpm_a=round(bpm_a, 4),
-        effective_bpm_b=round(track_b.bpm, 4),
+        effective_bpm_b=round(rescue_effective_bpm_b, 4),
         render_rate_a=round(render_rate_a, 6),
-        render_rate_b=1.0,
+        render_rate_b=round(rescue_rate_b, 6),
         source_duration_a=round(source_duration_a, 6),
         source_duration_b=round(source_duration_b, 6),
         compiled_execution=True,
@@ -461,6 +479,8 @@ def build_last_resort_plan(
             "transition_naturalness_profile": natural_profile,
             "rescue_overlap_safe": overlap_safe,
             "rescue_overlap_risks": list(overlap_risks),
+            "rescue_beatmatched": rescue_beatmatched,
+            "rescue_render_rate_b": round(rescue_rate_b, 6),
             "rescue_duration_source": ("explicit_or_adaptive" if not allow_hard_cut else "hard_cut"),
         },
     )
