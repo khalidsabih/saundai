@@ -262,6 +262,12 @@ def compile_transition_program(plan: TransitionPlan) -> TransitionProgram:
         "post_transition_source_end_b": round(plan.post_transition_source_end_b, 6),
     }
 
+    pair_adaptive = dict(plan.metadata.get("pair_adaptive_mix", {}) or {})
+    if pair_adaptive:
+        annotations["pair_adaptive_mix"] = pair_adaptive
+        annotations["pair_adaptive_variant"] = str(pair_adaptive.get("variant", "balanced"))
+        annotations["pair_adaptive_version"] = str(pair_adaptive.get("version", "1.0"))
+
     technique = plan.technique
     annotations["structural_reset"] = bool(
         professional_mix.get("structural_reset", False)
@@ -542,6 +548,57 @@ def compile_transition_program(plan: TransitionPlan) -> TransitionProgram:
             "layer_quality_confidence": float(plan.metadata.get("layer_quality_confidence", 1.0)),
             "layer_level_ratios": {"a:instrumental": 0.96, "b:instrumental": 0.96},
         })
+
+    if pair_adaptive and not annotations["structural_reset"]:
+        bass_out_start = float(pair_adaptive.get("bass_out_start", 0.36))
+        bass_out_end = float(pair_adaptive.get("bass_out_end", 0.54))
+        bass_in_start = float(pair_adaptive.get("bass_in_start", 0.58))
+        bass_in_end = float(pair_adaptive.get("bass_in_end", 0.76))
+        vocal_out_start = float(pair_adaptive.get("vocal_out_start", 0.42))
+        vocal_out_end = float(pair_adaptive.get("vocal_out_end", 0.62))
+        vocal_in_start = float(pair_adaptive.get("vocal_in_start", 0.70))
+        vocal_in_end = float(pair_adaptive.get("vocal_in_end", 0.92))
+        drums_in_start = float(pair_adaptive.get("drums_in_start", 0.08))
+        drums_in_end = float(pair_adaptive.get("drums_in_end", 0.42))
+        bed_out_start = float(pair_adaptive.get("bed_out_start", 0.30))
+        bed_out_end = float(pair_adaptive.get("bed_out_end", 0.76))
+        bed_in_start = float(pair_adaptive.get("bed_in_start", 0.24))
+        bed_in_end = float(pair_adaptive.get("bed_in_end", 0.72))
+
+        # Master-mode EQ ownership remains explicit in the IR even when stems
+        # are unavailable. Stem/layer modes additionally receive role-specific
+        # curves below.
+        curves["deck_a_low_gain"] = _smooth_out(bass_out_start, bass_out_end)
+        curves["deck_b_low_gain"] = _smooth_in(bass_in_start, bass_in_end)
+
+        stem_a["bass"] = _smooth_out(bass_out_start, bass_out_end)
+        stem_b["bass"] = _smooth_in(bass_in_start, bass_in_end)
+        stem_a["vocals"] = _smooth_out(vocal_out_start, vocal_out_end)
+        stem_b["vocals"] = _smooth_in(vocal_in_start, vocal_in_end)
+        stem_b["drums"] = _smooth_in(drums_in_start, drums_in_end)
+        stem_a["other"] = _smooth_out(bed_out_start, bed_out_end)
+        stem_b["other"] = _smooth_in(bed_in_start, bed_in_end)
+
+        if source_mode == "layers":
+            # Apply the same ownership intent to whichever separated buses are
+            # actually available. Missing buses simply retain the technique's
+            # original choreography.
+            if "instrumental" in layer_a:
+                layer_a["instrumental"] = _smooth_out(bed_out_start, bed_out_end)
+            if "instrumental" in layer_b:
+                layer_b["instrumental"] = _smooth_in(bed_in_start, bed_in_end)
+            if "vocals" in layer_a:
+                layer_a["vocals"] = _smooth_out(vocal_out_start, vocal_out_end)
+            if "vocals" in layer_b:
+                layer_b["vocals"] = _smooth_in(vocal_in_start, vocal_in_end)
+
+        annotations["choreography"] = (
+            str(annotations.get("choreography", "continuous handoff"))
+            + "; pair-adaptive ownership timings applied"
+        )
+        annotations["single_bass_owner"] = True
+        annotations["avoid_dual_lead_vocals"] = True
+        annotations["renderer_contract"] = "execute_pair_adaptive_program_ir_exactly"
 
     _apply_structural_curve_operations(stem_a, stem_b, deck_operations)
 
