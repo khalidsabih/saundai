@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass
 
 from .compatibility import match_bpm
@@ -296,10 +297,9 @@ def _tempo_context(
     meter_a = int(track_a.time_signature or 0)
     meter_b = int(track_b.time_signature or 0)
     meter_ok = meter_a in {3, 4, 6} and meter_a == meter_b
-    grid_ok = (
-        breakdown.beat_grid >= 0.38
-        and not track_a.variable_tempo
-        and not track_b.variable_tempo
+    phase_warp_enabled = os.environ.get("DJAI_DECK_PHASE_WARP", "1").strip().lower() not in {"0", "false", "no", "off"}
+    grid_ok = breakdown.beat_grid >= 0.38 and (
+        phase_warp_enabled or (not track_a.variable_tempo and not track_b.variable_tempo)
     )
     if tempo_policy == "safe":
         range_ok = SAFE_RATE_RANGE[0] <= rate_b <= SAFE_RATE_RANGE[1]
@@ -313,9 +313,13 @@ def _tempo_context(
     if not meter_ok:
         warnings.append("The tracks use unknown or incompatible estimated meters, so transparent beatmatching is disabled.")
     if track_a.variable_tempo:
-        warnings.append("The outgoing track has variable tempo, so a constant beatmatched blend is unsafe.")
+        warnings.append(
+            "The outgoing track has variable tempo; continuous Beat Integrity must prove the overlap can stay locked."
+        )
     if track_b.variable_tempo:
-        warnings.append("The incoming track has variable tempo, so a constant beatmatched blend is unsafe.")
+        warnings.append(
+            "The incoming track has variable tempo; continuous Beat Integrity must prove the overlap can stay locked."
+        )
     if breakdown.beat_grid < 0.38:
         warnings.append("The local beat grid is too uncertain for a transparent blend.")
     if difference > SAFE_TEMPO_DIFFERENCE:
