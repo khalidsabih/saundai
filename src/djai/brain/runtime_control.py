@@ -198,6 +198,26 @@ class PerformanceHorizonController:
             status="prepared_committed",
             replannable=False,
         )
+        hot_backup: dict[str, Any] | None = None
+        emergency: dict[str, Any] | None = None
+        if edge_position < len(self._transitions):
+            edge = self._transitions[edge_position]
+            primary_signature = str(edge.plan.execution_signature or "")
+            for candidate in edge.alternatives:
+                signature = str(candidate.execution_signature or "")
+                if not signature or signature == primary_signature:
+                    continue
+                record = {
+                    "execution_signature": signature,
+                    "style": str(candidate.style),
+                    "technique": str(candidate.technique),
+                    "target_track": int(edge.to_index),
+                    "prepared": True,
+                }
+                if str(candidate.style) == "emergency" and emergency is None:
+                    emergency = record
+                elif hot_backup is None:
+                    hot_backup = record
         future: list[dict[str, Any]] = []
         for offset in range(1, self.future_depth + 1):
             slot = self._edge_slot(
@@ -222,5 +242,9 @@ class PerformanceHorizonController:
             "playback_state": playback.to_dict(),
             "now": now.to_dict(),
             "next": next_slot.to_dict(),
+            "hot_backup": hot_backup,
+            "emergency": emergency,
+            "hot_backup_ready": hot_backup is not None,
+            "emergency_ready": emergency is not None,
             "future": future,
         }
