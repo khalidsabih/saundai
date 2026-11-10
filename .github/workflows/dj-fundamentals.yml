@@ -9,6 +9,13 @@ on:
       - "src/djai/set_planner.py"
       - "src/djai/performance/deck.py"
       - "src/djai/renderer.py"
+      - "src/djai/loudness.py"
+      - "src/djai/execution.py"
+      - "src/djai/set_renderer.py"
+      - "src/djai/measurement.py"
+      - "src/djai/models.py"
+      - "tests/test_gain_staging.py"
+      - "tests/test_measurement_quality.py"
       - "src/djai/judge/musical.py"
       - "src/djai/judge/professional.py"
       - "src/djai/candidate_renderer.py"
@@ -26,6 +33,7 @@ on:
       - dj-fundamentals
       - beat-integrity
       - musical-quality-gate
+      - gain-staging
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -33,6 +41,13 @@ on:
       - "src/djai/set_planner.py"
       - "src/djai/performance/deck.py"
       - "src/djai/renderer.py"
+      - "src/djai/loudness.py"
+      - "src/djai/execution.py"
+      - "src/djai/set_renderer.py"
+      - "src/djai/measurement.py"
+      - "src/djai/models.py"
+      - "tests/test_gain_staging.py"
+      - "tests/test_measurement_quality.py"
       - "src/djai/judge/musical.py"
       - "src/djai/judge/professional.py"
       - "src/djai/candidate_renderer.py"
@@ -69,6 +84,8 @@ jobs:
           tests/test_dj_fundamentals_milestone.py
           tests/test_beat_integrity.py
           tests/test_musical_quality_gate.py
+          tests/test_gain_staging.py
+          tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
           tests/test_dj_deck_performance_1_2.py::test_variable_deck_tempo_ride_preserves_pitch

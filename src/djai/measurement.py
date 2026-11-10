@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .loudness import integrated_lufs, loudness_headroom_db, true_peak_dbtp
 from .models import TransitionMeasurement, TransitionPlan
 from .version import MEASUREMENT_VERSION
 
@@ -27,6 +28,9 @@ class MeasurementPolicy:
     artifact_weight: float = 0.14
     silence_weight: float = 0.07
     maximum_loudness_jump_db: float = 14.0
+    maximum_loudness_jump_lu: float = 8.0
+    preferred_true_peak_dbtp: float = -1.0
+    maximum_true_peak_dbtp: float = 0.5
     maximum_low_buildup_db: float = 12.0
     maximum_clipping_fraction: float = 0.001
     minimum_phase_correlation: float = -0.85
@@ -187,9 +191,19 @@ def measure_transition_audio(
         abs(transition_head_db - pre_db),
         abs(post_db - transition_tail_db),
     )
+
+    pre_lufs = integrated_lufs(pre_tail, sample_rate)
+    transition_head_lufs = integrated_lufs(transition_head, sample_rate)
+    transition_tail_lufs = integrated_lufs(transition_tail, sample_rate)
+    post_lufs = integrated_lufs(post_head, sample_rate)
+    transition_lufs = integrated_lufs(audio, sample_rate)
+    loudness_jump_lu = max(
+        abs(transition_head_lufs - pre_lufs),
+        abs(post_lufs - transition_tail_lufs),
+    )
     loudness_tolerance = 5.0 if plan.transition_mode == "emergency_cut" else 3.0
     loudness_continuity = _clamp(
-        math.exp(-((max(0.0, loudness_jump_db - loudness_tolerance) / 7.0) ** 2))
+        math.exp(-((max(0.0, loudness_jump_lu - loudness_tolerance) / 7.0) ** 2))
     )
 
     pre_spectrum = _band_energy(pre_tail, sample_rate)
@@ -224,10 +238,23 @@ def measure_transition_audio(
     phase_safety = _clamp((phase_correlation + 0.80) / 1.80)
 
     peak = float(np.max(np.abs(audio)))
+    transition_true_peak_dbtp = true_peak_dbtp(audio)
+    true_peak_headroom = loudness_headroom_db(
+        transition_true_peak_dbtp,
+        policy.preferred_true_peak_dbtp,
+    )
     clipping_fraction = float(np.mean(np.abs(audio) >= 0.999))
     boundary_jump = max(_boundary_jump(pre, audio), _boundary_jump(audio, post))
     clipping_score = _clamp(1.0 - min(1.0, clipping_fraction / 0.002))
-    peak_score = _clamp(1.0 - max(0.0, peak - 0.985) / 0.015)
+    peak_score = _clamp(
+        math.exp(
+            -(
+                max(0.0, transition_true_peak_dbtp - policy.preferred_true_peak_dbtp)
+                / 2.5
+            )
+            ** 2
+        )
+    )
     boundary_score = _clamp(
         math.exp(-((max(0.0, boundary_jump - 3.0) / 8.0) ** 2))
     )
@@ -256,10 +283,33 @@ def measure_transition_audio(
     warnings: list[str] = []
     if loudness_jump_db > policy.maximum_loudness_jump_db:
         hard_failures.append(
-            f"Rendered loudness changes by {loudness_jump_db:.1f} dB at a transition boundary."
+            f"Rendered RMS level changes by {loudness_jump_db:.1f} dB at a transition boundary."
         )
     elif loudness_jump_db > 8.0:
-        warnings.append(f"Rendered loudness changes by {loudness_jump_db:.1f} dB.")
+        warnings.append(f"Rendered RMS level changes by {loudness_jump_db:.1f} dB.")
+
+    loudness_jump_limit = (
+        policy.maximum_loudness_jump_lu + 2.0
+        if plan.transition_mode == "emergency_cut"
+        else policy.maximum_loudness_jump_lu
+    )
+    if loudness_jump_lu > loudness_jump_limit:
+        hard_failures.append(
+            f"Rendered short-term loudness changes by {loudness_jump_lu:.1f} LU at a transition boundary."
+        )
+    elif loudness_jump_lu > 4.5:
+        warnings.append(
+            f"Rendered short-term loudness changes by {loudness_jump_lu:.1f} LU."
+        )
+
+    if transition_true_peak_dbtp > policy.maximum_true_peak_dbtp:
+        hard_failures.append(
+            f"Rendered true peak reaches {transition_true_peak_dbtp:.2f} dBTP."
+        )
+    elif transition_true_peak_dbtp > -0.5:
+        warnings.append(
+            f"Rendered true peak is {transition_true_peak_dbtp:.2f} dBTP; preferred headroom is {policy.preferred_true_peak_dbtp:.1f} dBTP."
+        )
     if low_buildup_db > policy.maximum_low_buildup_db:
         hard_failures.append(
             f"Low-frequency buildup reaches {low_buildup_db:.1f} dB above surrounding audio."
@@ -306,6 +356,10 @@ def measure_transition_audio(
         clipping_fraction=round(clipping_fraction, 8),
         phase_correlation=round(phase_correlation, 4),
         loudness_jump_db=round(loudness_jump_db, 4),
+        loudness_jump_lu=round(loudness_jump_lu, 4),
+        transition_lufs=round(transition_lufs, 4),
+        true_peak_dbtp=round(transition_true_peak_dbtp, 4),
+        true_peak_headroom_db=round(true_peak_headroom, 4),
         low_frequency_buildup_db=round(low_buildup_db, 4),
         silence_fraction=round(silence_fraction, 6),
         boundary_jump=round(boundary_jump, 4),

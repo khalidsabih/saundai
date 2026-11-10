@@ -61,7 +61,7 @@ from .candidate_renderer import QualityLoopConfig, measure_and_select_transition
 from .fallback import build_last_resort_plan, select_automatic_transition
 from .confirmation import create_confirmation_token
 from .decision import CUT_TECHNIQUES, seal_execution_plan, validate_execution_plan
-from .execution import TransitionRenderContext, normalization_gain
+from .execution import TransitionRenderContext, professional_normalization_gain
 from .evaluation.full_set import FULL_SET_BENCHMARK_VERSION, evaluate_full_set
 from .models import QualityClass, TrackAnalysis, TransitionCandidate, TransitionPlan
 from .measurement_store import finalize_measurement_run, measurement_log_offset
@@ -1865,8 +1865,8 @@ def _compile_sequence_edges(
         edge_render_context = (
             TransitionRenderContext(
                 sample_rate=quality_loop.sample_rate,
-                gain_a=normalization_gain(track_a.loudness_dbfs),
-                gain_b=normalization_gain(track_b.loudness_dbfs),
+                gain_a=professional_normalization_gain(integrated_lufs=track_a.integrated_lufs, true_peak_dbtp=track_a.true_peak_dbtp, legacy_loudness_dbfs=track_a.loudness_dbfs),
+                gain_b=professional_normalization_gain(integrated_lufs=track_b.integrated_lufs, true_peak_dbtp=track_b.true_peak_dbtp, legacy_loudness_dbfs=track_b.loudness_dbfs),
             )
             if quality_loop is not None and quality_loop.enabled
             else None

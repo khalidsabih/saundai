@@ -16,6 +16,7 @@ numpy>=1.26,<3
 scipy>=1.11,<2
 librosa>=0.10.2,<0.12
 soundfile>=0.12,<0.14
+pyloudnorm>=0.1.1,<0.2
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 python-multipart>=0.0.9,<1

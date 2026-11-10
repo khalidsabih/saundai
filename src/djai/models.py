@@ -145,6 +145,8 @@ class TrackAnalysis:
     energy: float
     brightness: float
     percussive_ratio: float
+    integrated_lufs: float = -80.0
+    true_peak_dbtp: float = -80.0
     beat_grid_confidence: float = 0.0
     beat_interval_cv: float = 1.0
     downbeat_confidence: float = 0.0
@@ -240,6 +242,10 @@ class TransitionMeasurement:
     clipping_fraction: float = 0.0
     phase_correlation: float = 1.0
     loudness_jump_db: float = 0.0
+    loudness_jump_lu: float = 0.0
+    transition_lufs: float = -80.0
+    true_peak_dbtp: float = -80.0
+    true_peak_headroom_db: float = 0.0
     low_frequency_buildup_db: float = 0.0
     silence_fraction: float = 0.0
     boundary_jump: float = 0.0

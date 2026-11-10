@@ -12,6 +12,7 @@ import librosa
 import numpy as np
 
 from .audio import load_audio, rms_dbfs
+from .loudness import integrated_lufs, true_peak_dbtp
 from .key_detection import estimate_key_from_chroma
 from .models import (
     BarFeature,
@@ -35,7 +36,7 @@ LOCAL_SOURCE_BARS = 8
 MIN_LOCAL_HARMONIC_FRAMES = 12
 MIN_LOCAL_SOURCE_FRAMES = 12
 SOURCE_N_FFT = 2048
-ANALYSIS_VERSION = "5.1.0"
+ANALYSIS_VERSION = "5.2.0"
 
 
 @dataclass(slots=True)
@@ -1484,7 +1485,8 @@ def _make_candidates(
 def analyze_track(path: str | Path) -> TrackAnalysis:
     """Analyze one track using local signal processing and structural novelty."""
     resolved = Path(path).expanduser().resolve()
-    y, sr = load_audio(resolved, sample_rate=ANALYSIS_SAMPLE_RATE, mono=True)
+    source_audio, sr = load_audio(resolved, sample_rate=ANALYSIS_SAMPLE_RATE, mono=False)
+    y = librosa.to_mono(source_audio)
     duration = float(librosa.get_duration(y=y, sr=sr))
     if duration < 4.0:
         raise ValueError("Track is too short. DJAI requires at least 4 seconds of audio.")
@@ -1573,6 +1575,8 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     percussive_rms_frames = librosa.feature.rms(y=percussive, hop_length=HOP_LENGTH)[0]
     rms_times = librosa.times_like(rms_frames, sr=sr, hop_length=HOP_LENGTH)
     loudness = rms_dbfs(y)
+    track_lufs = integrated_lufs(source_audio, sr)
+    track_true_peak = true_peak_dbtp(source_audio)
     energy = _normalized_energy_from_db(loudness)
 
     centroid = librosa.feature.spectral_centroid(
@@ -1782,6 +1786,8 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         energy=round(energy, 4),
         brightness=round(brightness, 4),
         percussive_ratio=round(percussive_ratio, 4),
+        integrated_lufs=round(track_lufs, 4),
+        true_peak_dbtp=round(track_true_peak, 4),
         beat_grid_confidence=round(beat_grid_confidence, 4),
         beat_interval_cv=round(beat_interval_cv, 6),
         downbeat_confidence=round(downbeat_confidence, 4),
