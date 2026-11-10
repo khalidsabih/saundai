@@ -34,6 +34,8 @@ class SafetyLimits:
     maximum_cpu_ratio: float = 0.98
     minimum_buffer_seconds: float = 0.25
     minimum_deadline_seconds: float = 0.15
+    maximum_disk_stall_seconds: float = 0.75
+    maximum_prefetch_seconds: float = 2.5
     require_local_assets: bool = True
 
     @classmethod
@@ -56,6 +58,8 @@ class SafetyLimits:
             maximum_cpu_ratio=max(0.10, min(4.0, number("DJAI_SAFETY_MAX_CPU_RATIO", 0.98))),
             minimum_buffer_seconds=max(0.0, number("DJAI_SAFETY_MIN_BUFFER_SECONDS", 0.25)),
             minimum_deadline_seconds=max(0.0, number("DJAI_SAFETY_MIN_DEADLINE_SECONDS", 0.15)),
+            maximum_disk_stall_seconds=max(0.05, number("DJAI_SAFETY_MAX_DISK_STALL_SECONDS", 0.75)),
+            maximum_prefetch_seconds=max(0.05, number("DJAI_SAFETY_MAX_PREFETCH_SECONDS", 2.5)),
             require_local_assets=flag("DJAI_SAFETY_REQUIRE_LOCAL_ASSETS", True),
         )
 
@@ -73,6 +77,9 @@ class SafetyTelemetry:
     buffer_seconds: float | None = None
     deadline_seconds: float | None = None
     prefetch_ready: bool | None = None
+    prefetch_latency_seconds: float | None = None
+    disk_stall_seconds: float | None = None
+    audio_underruns: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -198,6 +205,40 @@ class SafetyGovernor:
         telemetry = telemetry or SafetyTelemetry()
         checks = telemetry.to_dict()
 
+        if int(telemetry.audio_underruns) > 0:
+            action = SafetyAction.USE_BACKUP if backup_available else SafetyAction.HOLD
+            return self._record(
+                action,
+                "audio underrun observed; do not advance into unprotected material",
+                command_kind=command_kind,
+                command_id=command_id,
+                checks=checks,
+            )
+        if (
+            telemetry.disk_stall_seconds is not None
+            and telemetry.disk_stall_seconds > self.limits.maximum_disk_stall_seconds
+        ):
+            action = SafetyAction.USE_BACKUP if backup_available else SafetyAction.HOLD
+            return self._record(
+                action,
+                "storage read stall exceeds configured venue safety envelope",
+                command_kind=command_kind,
+                command_id=command_id,
+                checks=checks,
+            )
+        if (
+            telemetry.prefetch_latency_seconds is not None
+            and telemetry.prefetch_latency_seconds > self.limits.maximum_prefetch_seconds
+            and telemetry.prefetch_ready is False
+        ):
+            action = SafetyAction.USE_BACKUP if backup_available else SafetyAction.HOLD
+            return self._record(
+                action,
+                "incoming asset prefetch is too slow for the live safety envelope",
+                command_kind=command_kind,
+                command_id=command_id,
+                checks=checks,
+            )
         if telemetry.cpu_ratio is not None and telemetry.cpu_ratio > self.limits.maximum_cpu_ratio:
             action = SafetyAction.USE_BACKUP if backup_available else SafetyAction.HOLD
             return self._record(
