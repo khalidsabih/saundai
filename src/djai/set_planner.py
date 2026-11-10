@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterable, Sequence
 
 from .cache import AnalysisBatchStats, analyze_folder, analyze_tracks
 from .brain.set_state import SetState, build_set_state, next_track_context_score, set_story_report
-from .brain.timing import SetTimingIntent, build_timing_state
+from .brain.timing import SetTimingIntent, build_timing_state, timing_candidate_adjustment
 from .brain.candidate_retrieval import CandidateRetrievalResult, retrieve_candidate_tracks
 from .brain.crowd_state import CrowdDirective, crowd_directive_from_payload
 from .brain.director import direct_set_intent, intent_track_score, set_director_report
@@ -1091,7 +1091,19 @@ def _choose_complete_move_with_lookahead(
         next_remaining.discard(candidate.next_index)
         projected_path = (candidate.next_index,)
         realized_depth = 1
-        score = float(candidate.selection_score)
+        timing_adjustment, timing_evidence = timing_candidate_adjustment(
+            timing_state,
+            analyses[candidate.next_index],
+        )
+        score = float(candidate.selection_score) + timing_adjustment
+        candidate.plan.metadata = {
+            **candidate.plan.metadata,
+            "set_timing": {
+                **timing_state.to_dict(),
+                "candidate_adjustment": round(timing_adjustment, 6),
+                "candidate_evidence": timing_evidence,
+            },
+        }
 
         if depth > 1 and next_remaining:
             projected = candidate.move.projected_state
