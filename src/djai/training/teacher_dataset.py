@@ -105,12 +105,11 @@ def _sanitize_value(value: Any) -> Any:
     return str(value)
 
 
-def teacher_candidate(plan) -> dict[str, Any]:
-    """Return an interpretable, score-blind plan payload for LLM teachers."""
-    raw = plan_features(plan)
+def teacher_candidate_from_mapping(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Sanitize a candidate mapping for teacher use without leaking SAUND scores."""
     candidate = {
         key: value
-        for key, value in raw.items()
+        for key, value in dict(raw).items()
         if key not in _FORBIDDEN_CANDIDATE_KEYS
     }
     measurement = candidate.get("measurement")
@@ -130,14 +129,19 @@ def teacher_candidate(plan) -> dict[str, Any]:
     return _sanitize_value(candidate)
 
 
-def transition_preference_scenario(
-    plan_a,
-    plan_b,
+def teacher_candidate(plan) -> dict[str, Any]:
+    """Return an interpretable, score-blind plan payload for LLM teachers."""
+    return teacher_candidate_from_mapping(plan_features(plan))
+
+
+def transition_preference_scenario_from_mappings(
+    candidate_a_raw: Mapping[str, Any],
+    candidate_b_raw: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
 ) -> TeacherScenario:
-    candidate_a = teacher_candidate(plan_a)
-    candidate_b = teacher_candidate(plan_b)
+    candidate_a = teacher_candidate_from_mapping(candidate_a_raw)
+    candidate_b = teacher_candidate_from_mapping(candidate_b_raw)
     if candidate_a.get("execution_signature") == candidate_b.get("execution_signature"):
         raise ValueError("Teacher comparison candidates must be different transitions.")
     scenario_context = _sanitize_value(dict(context or {}))
@@ -160,6 +164,19 @@ def transition_preference_scenario(
             "reason_codes",
             "short_rationale",
         ),
+    )
+
+
+def transition_preference_scenario(
+    plan_a,
+    plan_b,
+    *,
+    context: Mapping[str, Any] | None = None,
+) -> TeacherScenario:
+    return transition_preference_scenario_from_mappings(
+        plan_features(plan_a),
+        plan_features(plan_b),
+        context=context,
     )
 
 
@@ -288,3 +305,64 @@ def append_teacher_judgment(path: str | Path, judgment: TeacherJudgment) -> Path
     with destination.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(judgment.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
     return destination
+
+
+def scenarios_from_rehearsal_evidence(
+    evidence_path: str | Path,
+    *,
+    maximum_pairs_per_event: int = 3,
+) -> list[TeacherScenario]:
+    """Create score-blind teacher comparisons from real SAUND rehearsal populations."""
+    source = Path(evidence_path).expanduser().resolve()
+    if not source.exists():
+        return []
+
+    events: dict[str, list[dict[str, Any]]] = {}
+    contexts: dict[str, dict[str, Any]] = {}
+    with source.open(encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, dict):
+                continue
+            event_id = str(row.get("event_id") or "")
+            candidate = row.get("candidate")
+            if not event_id or not isinstance(candidate, Mapping):
+                continue
+            events.setdefault(event_id, []).append(dict(candidate))
+            if isinstance(row.get("context"), Mapping):
+                contexts[event_id] = dict(row["context"])
+
+    output: list[TeacherScenario] = []
+    for event_id in sorted(events):
+        seen: set[str] = set()
+        candidates: list[dict[str, Any]] = []
+        for raw in events[event_id]:
+            signature = str(raw.get("execution_signature") or "")
+            if not signature or signature in seen:
+                continue
+            seen.add(signature)
+            candidates.append(raw)
+        pairs = 0
+        for left_index in range(len(candidates)):
+            for right_index in range(left_index + 1, len(candidates)):
+                context = {
+                    **contexts.get(event_id, {}),
+                    "source_event_id": event_id,
+                    "teacher_task_origin": "real_rehearsal_candidate_population",
+                }
+                output.append(
+                    transition_preference_scenario_from_mappings(
+                        candidates[left_index],
+                        candidates[right_index],
+                        context=context,
+                    )
+                )
+                pairs += 1
+                if pairs >= max(1, int(maximum_pairs_per_event)):
+                    break
+            if pairs >= max(1, int(maximum_pairs_per_event)):
+                break
+    return output
