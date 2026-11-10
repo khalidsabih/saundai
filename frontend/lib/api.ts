@@ -537,6 +537,46 @@ export async function trainTransitionRanker() {
   });
 }
 
+export async function getHumanReviewStatus() {
+  return request<import("./types").HumanReviewStatus>("/api/training-lab/human-review/status");
+}
+
+export async function createHumanReviewSession(input: {
+  evaluator: string;
+  cohort: "general_listener" | "experienced_dj" | "professional_dj";
+  scenarioId?: string;
+}) {
+  return request<import("./types").HumanReviewSession>("/api/training-lab/human-review/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      evaluator: input.evaluator,
+      cohort: input.cohort,
+      scenario_id: input.scenarioId ?? null,
+    }),
+  });
+}
+
+export async function saveHumanReviewVote(input: {
+  sessionId: string;
+  choice: "a" | "b" | "tie" | "neither";
+  reasons?: string[];
+  confidence?: number;
+  experienceYears?: number;
+}) {
+  return request<{ preferences_path: string; status: import("./types").HumanReviewStatus }>("/api/training-lab/human-review/vote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: input.sessionId,
+      choice: input.choice,
+      reasons: input.reasons ?? [],
+      confidence: input.confidence ?? 0.75,
+      experience_years: input.experienceYears ?? null,
+    }),
+  });
+}
+
 export async function getTrainingLabStatus() {
   return request<import("./types").TrainingLabStatus>("/api/training-lab/status");
 }
