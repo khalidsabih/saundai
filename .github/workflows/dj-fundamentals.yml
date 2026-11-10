@@ -26,6 +26,8 @@ on:
       - "src/djai/training/teacher_consensus.py"
       - "src/djai/training/teacher_governance.py"
       - "src/djai/training/teacher_quality.py"
+      - "src/djai/training/human_preference.py"
+      - "tests/test_human_preference_program.py"
       - "tests/test_teacher_data_quality.py"
       - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
@@ -46,6 +48,7 @@ on:
       - style-aware-dj-brain
       - teacher-data-platform
       - teacher-data-quality
+      - human-preference-program
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -70,6 +73,8 @@ on:
       - "src/djai/training/teacher_consensus.py"
       - "src/djai/training/teacher_governance.py"
       - "src/djai/training/teacher_quality.py"
+      - "src/djai/training/human_preference.py"
+      - "tests/test_human_preference_program.py"
       - "tests/test_teacher_data_quality.py"
       - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
@@ -109,6 +114,7 @@ jobs:
           tests/test_style_policy.py
           tests/test_teacher_data_platform.py
           tests/test_teacher_data_quality.py
+          tests/test_human_preference_program.py
           tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
