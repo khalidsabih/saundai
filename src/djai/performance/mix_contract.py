@@ -5,7 +5,7 @@ from typing import Any
 
 from ..models import TransitionPlan
 
-PROFESSIONAL_MIX_CONTRACT_VERSION = "1.0.0"
+PROFESSIONAL_MIX_CONTRACT_VERSION = "1.1.0"
 
 RESET_TECHNIQUES = {"echo_out_drop_in", "quick_cut", "backspin"}
 
