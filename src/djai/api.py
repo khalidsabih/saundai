@@ -60,6 +60,11 @@ from .training.lab_dataset import (
     training_lab_status,
 )
 from .training.taste_learning import train_taste_learning_heads, taste_learning_status
+from .training.human_preference import (
+    create_human_review_session,
+    human_preference_status,
+    record_human_review_vote,
+)
 from .performance.deck import deck_runtime_status
 from .performance.mix_contract import professional_mix_contract_status
 from .training.source_catalog import source_catalog
@@ -86,6 +91,8 @@ from .schemas import (
     StemRequest,
     ListeningSessionRequest,
     PreferenceVoteRequest,
+    HumanReviewSessionRequest,
+    HumanReviewVoteRequest,
     RankerTrainRequest,
     TrainingSnapshotRequest,
     TrainingLabTrainRequest,
@@ -2047,6 +2054,55 @@ def save_intelligence_preference(request: PreferenceVoteRequest) -> dict[str, An
             )
             rejection_paths.append(_relative(rejected))
     return {"preferences_path": _relative(output), "rejection_paths": rejection_paths}
+
+
+@app.get("/api/training-lab/human-review/status")
+def get_human_review_status() -> dict[str, Any]:
+    _require_training_lab()
+    return human_preference_status(WORKSPACE)
+
+
+@app.post("/api/training-lab/human-review/session")
+def create_training_lab_human_review_session(request: HumanReviewSessionRequest) -> dict[str, Any]:
+    _require_training_lab()
+    manifest = create_human_review_session(
+        WORKSPACE,
+        evaluator=request.evaluator,
+        cohort=request.cohort,
+        scenario_id=request.scenario_id,
+    )
+    items = []
+    for item in manifest.get("candidates", []):
+        audio = Path(str(item["audio_path"]))
+        items.append({
+            "label": item["label"],
+            "audio_url": f"/api/media/{_relative(audio)}",
+        })
+    return {
+        "session_id": manifest["session_id"],
+        "teacher_scenario_id": manifest["teacher_scenario_id"],
+        "queue_priority": manifest.get("queue_priority", 0.0),
+        "queue_reasons": manifest.get("queue_reasons", []),
+        "evaluator_cohort": manifest.get("evaluator_cohort"),
+        "candidates": items,
+    }
+
+
+@app.post("/api/training-lab/human-review/vote")
+def save_training_lab_human_review_vote(request: HumanReviewVoteRequest) -> dict[str, Any]:
+    _require_training_lab()
+    output = record_human_review_vote(
+        WORKSPACE,
+        session_id=request.session_id,
+        choice=request.choice,
+        reasons=request.reasons,
+        confidence=request.confidence,
+        experience_years=request.experience_years,
+    )
+    return {
+        "preferences_path": _relative(output),
+        "status": human_preference_status(WORKSPACE),
+    }
 
 
 @app.post("/api/intelligence/ranker/train")

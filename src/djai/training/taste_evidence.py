@@ -13,6 +13,7 @@ from ..models import TransitionPlan
 
 TASTE_EVIDENCE_SCHEMA_VERSION = "1.8.1"
 DEFAULT_EVIDENCE_PATH = "ratings/runtime-candidate-evidence.jsonl"
+DEFAULT_REVIEW_CACHE = "output/human-review-cache"
 
 
 def _enabled() -> bool:
@@ -92,6 +93,7 @@ def capture_rehearsal_evidence(
     event_id = "rehearsal-" + hashlib.sha256(event_seed.encode("utf-8")).hexdigest()[:20]
     safe_context = _safe_context(context)
 
+    cache_candidates: list[dict[str, Any]] = []
     with destination.open("a", encoding="utf-8") as handle:
         for rank, plan in enumerate(plans, start=1):
             candidate = _candidate_payload(plan)
@@ -107,6 +109,35 @@ def capture_rehearsal_evidence(
                 "context": safe_context,
             }
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+            cache_candidates.append(
+                {
+                    "execution_signature": plan.execution_signature,
+                    "plan": plan.to_dict(),
+                }
+            )
+
+    # Local-only replay material for active-learning human review. This cache
+    # may contain local asset paths and full executable plans, so it stays
+    # under output/ and is never copied into teacher datasets or snapshots.
+    cache_root = _workspace() / DEFAULT_REVIEW_CACHE
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_root / f"{event_id}.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": TASTE_EVIDENCE_SCHEMA_VERSION,
+                "event_id": event_id,
+                "selected_signature": selected_signature,
+                "candidates": cache_candidates,
+                "local_only": True,
+                "training_export_allowed": False,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return destination
 
 
@@ -144,4 +175,6 @@ def runtime_evidence_status(workspace: str | Path) -> dict[str, Any]:
         "modes": dict(modes),
         "raw_audio_stored": False,
         "track_paths_stored": False,
+        "local_review_cache": DEFAULT_REVIEW_CACHE,
+        "review_cache_training_export_allowed": False,
     }

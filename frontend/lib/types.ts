@@ -482,6 +482,35 @@ export type ListeningLabCandidate = {
   audio_url: string;
 };
 
+export type HumanReviewStatus = {
+  schema_version: string;
+  queue_total: number;
+  queue_reviewable: number;
+  queue_outstanding: number;
+  reviewed_scenarios: number;
+  active_learning_votes: number;
+  cohorts: Record<string, number>;
+  top_reasons: { reason: string; count: number }[];
+  mean_human_confidence: number | null;
+  policy: {
+    blind_ab_required: boolean;
+    exact_queued_transition_replay: boolean;
+    teacher_scores_hidden_from_reviewers: boolean;
+    local_review_cache_exported_to_training_data: boolean;
+    human_labels_are_ground_truth_anchor: boolean;
+    human_labels_bypass_hard_safety: boolean;
+  };
+};
+
+export type HumanReviewSession = {
+  session_id: string;
+  teacher_scenario_id: string;
+  queue_priority: number;
+  queue_reasons: string[];
+  evaluator_cohort: "general_listener" | "experienced_dj" | "professional_dj";
+  candidates: ListeningLabCandidate[];
+};
+
 export type ListeningLabSession = {
   session_id: string;
   candidates: ListeningLabCandidate[];
@@ -553,6 +582,7 @@ export type TrainingLabStatus = {
   train_ready: boolean;
   train_blockers: string[];
   live_ranker: RankerStatus;
+  human_preference_program?: HumanReviewStatus;
   runtime_evidence: {
     schema_version: string;
     path: string;
