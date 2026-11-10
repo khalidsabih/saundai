@@ -2396,15 +2396,17 @@ def _compile_sequence_edges(
                     source_cursor=source_cursor,
                     preferred_exit_time=required_exit,
                     reason=(
-                        f"Automatic continuous-mix policy replaced {rejected_technique} with a rendered filtered overlap."
+                        f"Automatic policy re-evaluated {rejected_technique} through the compatibility-aware rescue hierarchy."
                     ),
                     render_context=edge_render_context,
                     verify_audio=bool(quality_loop is not None and quality_loop.enabled),
                 )
+                rescue_kind = str(chosen.metadata.get("rescue_transition_kind", "unknown"))
                 chosen.metadata = {
                     **chosen.metadata,
                     "replaced_automatic_cut": rejected_technique,
-                    "continuous_mix_policy": True,
+                    "continuous_mix_policy": rescue_kind == "filtered_overlap",
+                    "automatic_rescue_policy": "compatibility_aware",
                 }
             chosen.requires_confirmation = False
             chosen.auto_approved = True
