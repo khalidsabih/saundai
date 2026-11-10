@@ -179,3 +179,48 @@ def test_phase15_future_asset_failure_replans_without_touching_now(tmp_path: Pat
         next_edge=edge,
     )
     assert decision.action == RecoveryAction.REPLAN_FUTURE.value
+
+
+def test_phase15_six_hour_virtual_watchdog_soak_stays_healthy() -> None:
+    watchdog = VenueWatchdog()
+    # One observation per simulated second for six hours. This is intentionally
+    # virtual time so CI can exercise long-session state without wall-clock delay.
+    for second in range(6 * 60 * 60):
+        decision = watchdog.evaluate(
+            WatchdogObservation(
+                monotonic_seconds=float(second),
+                heartbeat_age_seconds=0.05,
+                audio_progress_age_seconds=0.05,
+                buffer_seconds=1.0,
+                cpu_ratio=0.55,
+                fallback_ready=True,
+            )
+        )
+        assert decision.action == RecoveryAction.CONTINUE.value
+
+
+def test_phase15_resource_pressure_degrades_before_audio_failure(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    governor = SafetyGovernor(plan, sample_rate=44_100)
+
+    cpu = governor.evaluate_telemetry(
+        SafetyTelemetry(cpu_ratio=1.25, buffer_seconds=1.0),
+        backup_available=False,
+    )
+    assert cpu.action == "hold"
+
+    disk = governor.evaluate_telemetry(
+        SafetyTelemetry(disk_stall_seconds=2.0, buffer_seconds=1.0),
+        backup_available=True,
+    )
+    assert disk.action == "use_backup"
+
+    prefetch = governor.evaluate_telemetry(
+        SafetyTelemetry(
+            prefetch_latency_seconds=5.0,
+            prefetch_ready=False,
+            deadline_seconds=0.1,
+        ),
+        backup_available=True,
+    )
+    assert prefetch.action == "use_backup"
