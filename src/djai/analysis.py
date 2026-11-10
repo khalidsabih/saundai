@@ -35,7 +35,7 @@ LOCAL_SOURCE_BARS = 8
 MIN_LOCAL_HARMONIC_FRAMES = 12
 MIN_LOCAL_SOURCE_FRAMES = 12
 SOURCE_N_FFT = 2048
-ANALYSIS_VERSION = "5.0.0"
+ANALYSIS_VERSION = "5.1.0"
 
 
 @dataclass(slots=True)
@@ -153,8 +153,16 @@ def _estimate_time_signature(
     onset_envelope: np.ndarray,
     beat_grid_confidence: float,
 ) -> tuple[int, float]:
+    """Estimate meter before any bar/downbeat construction.
+
+    A return value of 0 means unknown/irregular. 4/4 remains the conservative
+    default for a stable but weakly accented grid, while 3/4 and 6/8 require
+    clearer periodic accent evidence.
+    """
     if beat_frames.size < 12:
-        return 4, 0.2
+        if beat_grid_confidence < 0.30:
+            return 0, 0.12
+        return 4, 0.20
 
     def meter_score(meter: int) -> float:
         phase_scores: list[float] = []
@@ -168,13 +176,28 @@ def _estimate_time_signature(
 
     score_3 = meter_score(3)
     score_4 = meter_score(4)
-    # 4/4 is the conservative default for the current supported DJ genres.
-    if score_3 > score_4 * 1.18 and score_3 > 0.08:
+    score_6 = meter_score(6)
+    strongest = max(score_3, score_4, score_6)
+
+    if beat_grid_confidence < 0.28 and strongest < 0.08:
+        return 0, _clamp(0.35 * beat_grid_confidence)
+
+    if (
+        score_6 > 0.08
+        and score_6 > score_4 * 1.15
+        and score_6 > score_3 * 1.08
+    ):
+        meter = 6
+        runner_up = max(score_3, score_4)
+    elif score_3 > 0.08 and score_3 > score_4 * 1.18 and score_3 >= score_6 * 0.96:
         meter = 3
-        contrast = (score_3 - score_4) / max(score_3, 1e-8)
+        runner_up = max(score_4, score_6)
     else:
         meter = 4
-        contrast = max(0.0, (score_4 - score_3) / max(score_4, 1e-8))
+        runner_up = max(score_3, score_6)
+
+    selected = {3: score_3, 4: score_4, 6: score_6}[meter]
+    contrast = max(0.0, (selected - runner_up) / max(selected, 1e-8))
     confidence = _clamp(0.55 * contrast + 0.45 * beat_grid_confidence)
     return meter, confidence
 
@@ -496,6 +519,7 @@ def _populate_local_source_context(
     global_bpm: float,
     fallback_vocal: float,
     fallback_bass: float,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> None:
     """Populate source activity for the actual material after every cue."""
     frame_count = features.frame_times.size
@@ -507,7 +531,8 @@ def _populate_local_source_context(
 
     for candidate in candidates:
         bpm = candidate.local_bpm or global_bpm
-        bar_seconds = BEATS_PER_BAR * 60.0 / max(float(bpm), 1.0)
+        meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
+        bar_seconds = meter * 60.0 / max(float(bpm), 1.0)
         usable_bars = max(1, min(LOCAL_SOURCE_BARS, int(candidate.available_bars)))
         start_seconds = max(0.0, min(float(candidate.time_seconds), duration))
         end_seconds = min(duration, start_seconds + usable_bars * bar_seconds)
@@ -541,15 +566,18 @@ def _populate_local_source_context(
 def _estimate_downbeats(
     beat_frames: np.ndarray,
     onset_envelope: np.ndarray,
+    *,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> tuple[np.ndarray, float]:
+    meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
     if beat_frames.size == 0:
         return np.array([], dtype=int), 0.0
-    if beat_frames.size < BEATS_PER_BAR:
+    if beat_frames.size < meter:
         return beat_frames.astype(int), 0.25
 
     phase_scores: list[float] = []
-    for phase in range(BEATS_PER_BAR):
-        phase_beats = beat_frames[phase::BEATS_PER_BAR]
+    for phase in range(meter):
+        phase_beats = beat_frames[phase::meter]
         valid = phase_beats[phase_beats < len(onset_envelope)]
         score = float(np.mean(onset_envelope[valid])) if valid.size else 0.0
         phase_scores.append(score)
@@ -562,7 +590,7 @@ def _estimate_downbeats(
     mean_score = float(np.mean(phase_scores))
     prominence = (best - mean_score) / max(abs(best) + abs(mean_score), 1e-8)
     confidence = _clamp(0.70 * contrast + 0.30 * max(0.0, prominence))
-    return beat_frames[best_phase::BEATS_PER_BAR].astype(int), confidence
+    return beat_frames[best_phase::meter].astype(int), confidence
 
 
 def _beat_grid_diagnostics(
@@ -590,12 +618,14 @@ def _local_beat_grid(
     global_bpm: float,
     *,
     window_bars: int = 8,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> tuple[float, float]:
     if beat_times.size < 4:
         return global_bpm, 0.0
 
     beat_seconds = 60.0 / max(global_bpm, 1.0)
-    half_window = max(4.0, window_bars * BEATS_PER_BAR * beat_seconds / 2.0)
+    meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
+    half_window = max(4.0, window_bars * meter * beat_seconds / 2.0)
     local = beat_times[
         (beat_times >= center_seconds - half_window)
         & (beat_times <= center_seconds + half_window)
@@ -683,6 +713,7 @@ def _local_harmonic_context(
     duration: float,
     bpm: float,
     available_bars: int,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> tuple[KeyEstimate | None, list[float], float]:
     """Estimate key, chroma profile, and harmonic stability after a cue.
 
@@ -693,7 +724,8 @@ def _local_harmonic_context(
     if chroma.ndim != 2 or chroma.shape[0] != 12 or chroma.shape[1] == 0:
         return None, [], 0.0
 
-    bar_seconds = BEATS_PER_BAR * 60.0 / max(float(bpm), 1.0)
+    meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
+    bar_seconds = meter * 60.0 / max(float(bpm), 1.0)
     usable_bars = max(1, min(LOCAL_HARMONIC_BARS, int(available_bars)))
     start_seconds = max(0.0, min(float(cue_seconds), duration))
     end_seconds = min(duration, start_seconds + usable_bars * bar_seconds)
@@ -764,6 +796,7 @@ def _populate_local_harmony(
     sr: int,
     duration: float,
     global_bpm: float,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> None:
     """Populate local harmonic fields for all transition candidates in place."""
     for candidate in candidates:
@@ -774,6 +807,7 @@ def _populate_local_harmony(
             duration=duration,
             bpm=candidate.local_bpm or global_bpm,
             available_bars=candidate.available_bars,
+            beats_per_bar=beats_per_bar,
         )
         stability *= 1.0 - 0.22 * _clamp(candidate.harmonic_change)
 
@@ -1041,6 +1075,7 @@ def _structural_boundaries(
     bar_energies: np.ndarray,
     bar_rhythms: np.ndarray,
     bar_chroma: np.ndarray,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> list[_BoundaryFeatures]:
     total_bars = len(downbeat_times)
     if total_bars == 0:
@@ -1079,7 +1114,8 @@ def _structural_boundaries(
     rhythm_novelty = _normalize_novelty(rhythm_changes)
     harmonic_novelty = _normalize_novelty(harmonic_changes)
     median_energy = float(np.median(bar_energies)) if bar_energies.size else 0.5
-    bar_duration = 4.0 * 60.0 / max(bpm, 1.0)
+    meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
+    bar_duration = meter * 60.0 / max(bpm, 1.0)
     boundaries: list[_BoundaryFeatures] = []
 
     for index, time_seconds in enumerate(downbeat_times):
@@ -1120,6 +1156,7 @@ def _structural_boundaries(
             beat_times,
             float(time_seconds),
             bpm,
+            beats_per_bar=meter,
         )
         available_bars = max(0, int((duration - float(time_seconds)) // bar_duration))
         context_energy_before, context_energy_after, rhythm_before, rhythm_after = (
@@ -1353,8 +1390,10 @@ def _make_candidates(
     bpm: float,
     rms_times: np.ndarray,
     rms_values: np.ndarray,
+    beats_per_bar: int = BEATS_PER_BAR,
 ) -> list[TransitionCandidate]:
-    bar_duration = 4.0 * 60.0 / max(bpm, 1.0)
+    meter = beats_per_bar if beats_per_bar in {3, 4, 6} else BEATS_PER_BAR
+    bar_duration = meter * 60.0 / max(bpm, 1.0)
     window_seconds = min(16.0 * bar_duration, max(4.0, duration * 0.35))
     candidates: list[TransitionCandidate] = []
 
