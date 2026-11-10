@@ -8,9 +8,11 @@ from typing import Any, Mapping
 
 import numpy as np
 
+from .loudness import loudness_normalization_gain
+
 # Bump this whenever deterministic DSP semantics change in a way that can
 # change rendered samples for an otherwise identical transition program.
-RENDER_ENGINE_VERSION = "6.2.0"
+RENDER_ENGINE_VERSION = "6.3.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +42,29 @@ class TransitionRenderContext:
 
 
 def normalization_gain(loudness_dbfs: float, target_dbfs: float = -13.0) -> float:
-    """Return the bounded full-set normalization gain for one source track."""
+    """Legacy RMS normalization fallback for old cached/serialized analyses."""
 
     db = float(np.clip(float(target_dbfs) - float(loudness_dbfs), -6.0, 6.0))
     return float(10.0 ** (db / 20.0))
+
+
+def professional_normalization_gain(
+    *,
+    integrated_lufs: float,
+    true_peak_dbtp: float,
+    legacy_loudness_dbfs: float,
+    target_lufs: float = -12.0,
+    true_peak_ceiling_dbtp: float = -1.0,
+) -> float:
+    """Prefer LUFS/true-peak normalization, falling back to legacy RMS metadata."""
+    if integrated_lufs <= -70.0 or true_peak_dbtp <= -70.0:
+        return normalization_gain(legacy_loudness_dbfs, -13.0)
+    return loudness_normalization_gain(
+        integrated_lufs,
+        true_peak_dbtp,
+        target_lufs=target_lufs,
+        true_peak_ceiling_dbtp=true_peak_ceiling_dbtp,
+    )
 
 
 @lru_cache(maxsize=4096)
