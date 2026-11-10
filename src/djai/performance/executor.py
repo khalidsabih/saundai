@@ -16,7 +16,7 @@ from ..brain.runtime_control import PerformanceHorizonController
 from ..decision import validate_execution_plan
 from ..set_models import SetPlan, TransitionEdge
 from .safety import SafetyGovernor, SafetyTelemetry
-from .reliability import SessionJournal
+from .reliability import SessionJournal, decide_asset_recovery, inspect_track_asset
 
 EXECUTOR_CONTRACT_VERSION = "1.0"
 
@@ -570,6 +570,26 @@ class DeterministicSetExecutor:
             ),
         )
 
+    def asset_failure_recovery(self, track_index: int) -> dict[str, Any]:
+        """Return the bounded recovery action for an unavailable runtime asset."""
+
+        next_edge = (
+            self.transitions[self.edge_position]
+            if self.edge_position < len(self.transitions)
+            else None
+        )
+        health = inspect_track_asset(self.plan, int(track_index))
+        decision = decide_asset_recovery(
+            failed_track=int(track_index),
+            current_track=self.current_track,
+            next_edge=next_edge,
+        )
+        payload = decision.to_dict()
+        payload["asset_health"] = health.to_dict()
+        payload["schedule_generation"] = self.schedule_generation
+        payload["edge_position"] = self.edge_position
+        return payload
+
     def begin_body(self, *, edge_position: int, source_cursor: float) -> ExecutionCommand:
         if edge_position != self.edge_position or edge_position >= len(self.transitions):
             raise ExecutorProtocolError("Body command does not match the current committed edge.")
@@ -772,6 +792,7 @@ class DeterministicSetExecutor:
                 "deadline_protected": True,
                 "underrun_protected": True,
                 "storage_stall_protected": True,
+                "asset_failure_recovery": "now_hold_next_backup_future_replan",
             },
             "continuous_replanning": self.continuous_replanning,
             "schedule_generation": self.schedule_generation,
