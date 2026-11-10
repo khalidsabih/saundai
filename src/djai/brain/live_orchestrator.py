@@ -78,8 +78,8 @@ class LiveReplanRequest:
     journey: str
     listener: str
     reason: str
-    issued_monotonic: float
-    planning_deadline_monotonic: float
+    issued_monotonic: float = 0.0
+    planning_deadline_monotonic: float = float("inf")
     crowd_state: dict[str, Any] = field(default_factory=dict)
     crowd_directive: dict[str, Any] = field(default_factory=dict)
 
