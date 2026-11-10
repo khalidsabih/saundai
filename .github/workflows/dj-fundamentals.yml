@@ -28,6 +28,9 @@ on:
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
       - "tests/test_human_preference_program.py"
+      - "frontend/components/TrainingLab.tsx"
+      - "frontend/lib/api.ts"
+      - "frontend/lib/types.ts"
       - "tests/test_teacher_data_quality.py"
       - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
@@ -75,6 +78,9 @@ on:
       - "src/djai/training/teacher_quality.py"
       - "src/djai/training/human_preference.py"
       - "tests/test_human_preference_program.py"
+      - "frontend/components/TrainingLab.tsx"
+      - "frontend/lib/api.ts"
+      - "frontend/lib/types.ts"
       - "tests/test_teacher_data_quality.py"
       - "tests/test_teacher_data_platform.py"
       - "tests/test_style_policy.py"
@@ -104,6 +110,17 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Run DJ fundamentals regression suite
         run: >
           python -m pytest
@@ -124,3 +141,7 @@ jobs:
           tests/test_dj_deck_performance_1_2.py::test_full_set_uses_native_post_handoff_state_for_next_transition
           tests/test_dj_deck_performance_1_2.py::test_real_pair_render_executes_tempo_release_segment
           tests/test_dj_deck_performance_1_2.py::test_live_manifest_exposes_deck_handoff_and_tempo_release
+
+      - name: Typecheck Training Lab frontend
+        working-directory: frontend
+        run: npm run typecheck
