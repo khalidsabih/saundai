@@ -54,6 +54,15 @@ from .training.dataset_builder import (
     import_source_dataset,
     train_bootstrap_shadow_models,
 )
+from .training.teacher_consensus import build_consensus_file
+from .training.teacher_governance import teacher_data_status
+from .training.teacher_dataset import (
+    TeacherScenario,
+    append_teacher_judgment,
+    load_scenarios,
+    teacher_prompt_payload,
+    validate_teacher_judgment,
+)
 from .environment import current_environment
 
 
@@ -773,6 +782,32 @@ def build_parser() -> argparse.ArgumentParser:
     taste_train.add_argument("--ridge", type=float, default=0.18)
     sub.add_parser("training-taste-status", help="Show runtime evidence and both taste-learning shadow heads")
 
+    teacher_status = sub.add_parser("teacher-status", help="Show provider-neutral LLM teacher-data status and governance")
+    teacher_status.add_argument("--workspace")
+
+    teacher_prompt = sub.add_parser("teacher-prompt", help="Render a provider-neutral prompt payload for one teacher scenario")
+    teacher_prompt.add_argument("scenarios", help="Teacher scenarios JSONL")
+    teacher_prompt.add_argument("scenario_id")
+    teacher_prompt.add_argument("-o", "--output")
+
+    teacher_ingest = sub.add_parser("teacher-ingest", help="Validate and append one external LLM teacher judgment")
+    teacher_ingest.add_argument("scenarios", help="Teacher scenarios JSONL")
+    teacher_ingest.add_argument("scenario_id")
+    teacher_ingest.add_argument("judgment", help="JSON file containing choice/ranking/confidence/reasons")
+    teacher_ingest.add_argument("--provider", required=True)
+    teacher_ingest.add_argument("--model", required=True)
+    teacher_ingest.add_argument("--model-version", default="")
+    teacher_ingest.add_argument("--temperature", type=float)
+    teacher_ingest.add_argument("--seed")
+    teacher_ingest.add_argument("-o", "--output", default="datasets/generated/teacher/judgments.jsonl")
+
+    teacher_consensus = sub.add_parser("teacher-consensus", help="Build consensus weak labels from teacher judgments")
+    teacher_consensus.add_argument("judgments", help="Teacher judgments JSONL")
+    teacher_consensus.add_argument("-o", "--output", default="datasets/generated/teacher/consensus.jsonl")
+    teacher_consensus.add_argument("--minimum-teachers", type=int, default=2)
+    teacher_consensus.add_argument("--minimum-agreement", type=float, default=0.67)
+    teacher_consensus.add_argument("--minimum-confidence", type=float, default=0.55)
+
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
     synthetic.add_argument("source")
     synthetic.add_argument("-o", "--output-dir", default="datasets/generated/synthetic-failures")
@@ -1049,6 +1084,48 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(0)
         if args.command == "training-taste-status":
             _write_json(taste_learning_status(current_environment().workspace), None)
+            raise SystemExit(0)
+        if args.command == "teacher-status":
+            workspace = args.workspace or current_environment().workspace
+            _write_json(teacher_data_status(workspace), None)
+            raise SystemExit(0)
+        if args.command == "teacher-prompt":
+            rows = load_scenarios(args.scenarios)
+            selected = next((row for row in rows if str(row.get("scenario_id")) == args.scenario_id), None)
+            if selected is None:
+                raise ValueError(f"Teacher scenario not found: {args.scenario_id}")
+            payload = teacher_prompt_payload(selected)
+            _write_json(payload, args.output)
+            raise SystemExit(0)
+        if args.command == "teacher-ingest":
+            rows = load_scenarios(args.scenarios)
+            selected = next((row for row in rows if str(row.get("scenario_id")) == args.scenario_id), None)
+            if selected is None:
+                raise ValueError(f"Teacher scenario not found: {args.scenario_id}")
+            response = json.loads(Path(args.judgment).expanduser().resolve().read_text(encoding="utf-8"))
+            if not isinstance(response, dict):
+                raise ValueError("Teacher judgment JSON must contain an object.")
+            judgment = validate_teacher_judgment(
+                selected,
+                response,
+                provider=args.provider,
+                model=args.model,
+                model_version=args.model_version,
+                temperature=args.temperature,
+                seed=args.seed,
+            )
+            output = append_teacher_judgment(args.output, judgment)
+            _write_json({"judgments": str(output), "judgment": judgment.to_dict()}, None)
+            raise SystemExit(0)
+        if args.command == "teacher-consensus":
+            output = build_consensus_file(
+                args.judgments,
+                args.output,
+                minimum_teachers=args.minimum_teachers,
+                minimum_agreement=args.minimum_agreement,
+                minimum_mean_confidence=args.minimum_confidence,
+            )
+            _write_json({"consensus": str(output)}, None)
             raise SystemExit(0)
         if args.command == "synthetic-failures":
             manifest = generate_synthetic_failure_set(args.source, args.output_dir)
