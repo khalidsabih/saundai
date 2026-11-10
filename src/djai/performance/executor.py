@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Sequence
@@ -15,6 +16,7 @@ from ..brain.runtime_control import PerformanceHorizonController
 from ..decision import validate_execution_plan
 from ..set_models import SetPlan, TransitionEdge
 from .safety import SafetyGovernor, SafetyTelemetry
+from .reliability import SessionJournal
 
 EXECUTOR_CONTRACT_VERSION = "1.0"
 
@@ -151,6 +153,8 @@ class DeterministicSetExecutor:
             plan,
             continuous_replanning=self.continuous_replanning,
         )
+        journal_path = os.environ.get("DJAI_SESSION_JOURNAL", "").strip()
+        self._session_journal = SessionJournal(journal_path) if journal_path else None
 
     @property
     def pending(self) -> ExecutionCommand | None:
@@ -258,6 +262,35 @@ class DeterministicSetExecutor:
             schedule_generation=self.schedule_generation,
             advance_version=action in {"command_completed", "execution_complete", "execution_failed"},
         )
+        if self._session_journal is not None and action in {
+            "armed",
+            "command_completed",
+            "future_schedule_replaced",
+            "execution_complete",
+        }:
+            next_track = None
+            backup_signatures: list[str] = []
+            if self.edge_position < len(self.transitions):
+                edge = self.transitions[self.edge_position]
+                next_track = int(edge.to_index)
+                primary = str(edge.plan.execution_signature or "")
+                backup_signatures = [
+                    str(candidate.execution_signature or "")
+                    for candidate in edge.alternatives
+                    if str(candidate.execution_signature or "")
+                    and str(candidate.execution_signature or "") != primary
+                ]
+            self._session_journal.write(
+                plan_id=self.plan.plan_id,
+                commit_digest=self.commit_digest,
+                schedule_generation=self.schedule_generation,
+                current_track=self.current_track,
+                next_track=next_track,
+                source_cursor=self.source_cursor,
+                set_time=set_time,
+                edge_position=self.edge_position,
+                prepared_backup_signatures=backup_signatures,
+            )
 
     def arm(self) -> None:
         if self.phase is not ExecutorPhase.IDLE:
@@ -744,6 +777,8 @@ class DeterministicSetExecutor:
             "schedule_generation": self.schedule_generation,
             "active_order": list(self.active_order),
             "live_future_commits": list(self._live_future_commits),
+            "session_journal_enabled": self._session_journal is not None,
+            "restart_recovery_semantics": "safe_boundary_only",
             "current_track": self.current_track,
             "source_cursor": round(float(self.source_cursor), 6),
             "edge_position": self.edge_position,
