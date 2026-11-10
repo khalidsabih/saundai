@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from ..brain.move_generator import CompleteMoveCandidate
+from ..brain.pair_adaptive_mixing import pair_adaptive_variants
 from ..brain.set_state import SetState
 from ..candidate_renderer import (
     MeasuredTransitionError,
@@ -390,11 +391,18 @@ def listen_to_complete_moves(
         track_b = analyses[candidate.next_index]
         render_error: str | None = None
         try:
+            adaptive_plans = pair_adaptive_variants(
+                track_a,
+                track_b,
+                candidate.plan,
+                maximum_variants=3,
+            )
+            adaptive_gate = replace(gate, top_k=max(1, len(adaptive_plans)))
             measured = measure_and_select_transition(
                 track_a,
                 track_b,
-                [candidate.plan],
-                config=gate,
+                adaptive_plans,
+                config=adaptive_gate,
                 context={
                     "mode": "ai_headphones",
                     "capture_render_embeddings": True,
@@ -402,9 +410,25 @@ def listen_to_complete_moves(
                     "next_index": candidate.next_index,
                     "journey": journey,
                     "journey_progress": round(float(progress), 6),
+                    "pair_adaptive_mixing": True,
+                    "pair_adaptive_variant_count": len(adaptive_plans),
                 },
             )
             plan = measured.selected
+            plan.metadata = {
+                **plan.metadata,
+                "pair_adaptive_rehearsal": {
+                    "variant_count": len(adaptive_plans),
+                    "rendered_variant_count": len(measured.evaluated),
+                    "selected_variant": str(
+                        dict(plan.metadata.get("pair_adaptive_mix", {}) or {}).get(
+                            "variant",
+                            "legacy",
+                        )
+                    ),
+                    "selected_by_real_audio_quality_gate": True,
+                },
+            }
         except Exception as exc:  # render/measure failure is evidence, not a crash
             plan, render_error = _failed_plan(candidate, exc)
         judgement = judge_transition(
@@ -443,6 +467,10 @@ def listen_to_complete_moves(
                 "feasible": bool(judgement.feasible),
                 "render_error": render_error,
                 "hard_audio_safety_authoritative": True,
+                "pair_adaptive_mixing": bool(plan.metadata.get("pair_adaptive_mix")),
+                "pair_adaptive_selected_variant": str(
+                    dict(plan.metadata.get("pair_adaptive_mix", {}) or {}).get("variant", "legacy")
+                ),
             },
         }
         evaluations.append(
