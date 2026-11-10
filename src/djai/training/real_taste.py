@@ -8,7 +8,7 @@ from typing import Any, Iterable, Mapping
 
 from ..intelligence.preferences import comparison_id, load_preferences
 from ..intelligence.transition_ranker import evaluate_transition_ranker, train_transition_ranker
-from .state_move_taste import train_state_move_taste_shadow
+from .state_move_taste import evaluate_state_move_taste_model, train_state_move_taste_shadow
 from .lab_dataset import _rendered_judge_training_rows
 from .neural_heads import evaluate_neural_head, train_neural_head
 from .teacher_dataset import load_scenarios
@@ -406,15 +406,29 @@ def train_real_taste_models(
 
     state_move_stage: dict[str, Any]
     try:
+        trained_state_move = train_state_move_taste_shadow(
+            root,
+            preferences_path=split["fit_path"],
+            dataset_id=f"{dataset_id}-human-fit",
+            ridge=ridge,
+        )
+        state_eval = {
+            "status": "blocked",
+            "reason": "No held-out human state-move comparisons are available.",
+        }
+        if split["heldout_examples"] > 0:
+            state_eval = {
+                "status": "evaluated",
+                **evaluate_state_move_taste_model(
+                    split["heldout_path"],
+                    root / trained_state_move["model_path"],
+                ),
+            }
         state_move_stage = {
             "status": "trained",
-            **train_state_move_taste_shadow(
-                root,
-                preferences_path=split["fit_path"],
-                dataset_id=f"{dataset_id}-human-fit",
-                ridge=ridge,
-            ),
+            **trained_state_move,
             "heldout_reserved": split["heldout_examples"],
+            "heldout_human_evaluation": state_eval,
         }
     except ValueError as exc:
         state_move_stage = {
