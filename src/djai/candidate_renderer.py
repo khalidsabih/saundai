@@ -311,6 +311,7 @@ def _rehearse_one_candidate(
     measurement.energy_intent_fit = musical.energy_intent_fit
     measurement.drop_payoff = musical.drop_payoff
     measurement.musical_overall = musical.overall
+    measurement.hard_failures.extend(musical.hard_failures)
     measurement.warnings.extend(musical.warnings)
 
     if capture_render_embeddings:
