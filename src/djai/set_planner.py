@@ -2394,6 +2394,8 @@ def _compile_sequence_edges(
             phase_integrity = dict(deck_performance.get("phase_integrity", {}) or {})
             if chosen.beatmatched and phase_integrity and not bool(phase_integrity.get("safe", True)):
                 rejected_signature = chosen.execution_signature
+                previous_move = chosen.metadata.get("dj_move")
+                previous_state = chosen.metadata.get("dj_state_before_move")
                 chosen = build_last_resort_plan(
                     track_a,
                     track_b,
@@ -2412,6 +2414,8 @@ def _compile_sequence_edges(
                     **chosen.metadata,
                     "beat_integrity_replanned": True,
                     "rejected_phase_integrity_signature": rejected_signature,
+                    **({"dj_move": previous_move} if previous_move is not None else {}),
+                    **({"dj_state_before_move": previous_state} if previous_state is not None else {}),
                 }
             if not allow_hard_cuts and chosen.technique in CUT_TECHNIQUES:
                 rejected_technique = chosen.technique
