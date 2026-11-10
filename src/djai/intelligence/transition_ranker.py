@@ -258,7 +258,15 @@ def _sigmoid(values: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-values))
 
 
-def _fit_logistic(x: np.ndarray, y: np.ndarray, weights: np.ndarray, *, ridge: float) -> tuple[np.ndarray, float]:
+def _fit_logistic(
+    x: np.ndarray,
+    y: np.ndarray,
+    weights: np.ndarray,
+    *,
+    ridge: float,
+    initial_coef: np.ndarray | None = None,
+    initial_intercept: float | None = None,
+) -> tuple[np.ndarray, float]:
     if x.size == 0:
         raise ValueError("No preference rows are available.")
     mean = x.mean(axis=0)
@@ -279,6 +287,11 @@ def _fit_logistic(x: np.ndarray, y: np.ndarray, weights: np.ndarray, *, ridge: f
         return loss, np.concatenate([grad_coef, [grad_intercept]])
 
     initial = np.zeros(z.shape[1] + 1, dtype=np.float64)
+    if initial_coef is not None and np.asarray(initial_coef).size == z.shape[1]:
+        raw_coef = np.asarray(initial_coef, dtype=np.float64)
+        initial[:-1] = raw_coef * scale
+        raw_intercept = float(initial_intercept or 0.0)
+        initial[-1] = raw_intercept + float(np.dot(mean, raw_coef))
     result = minimize(lambda p: objective(p)[0], initial, jac=lambda p: objective(p)[1], method="L-BFGS-B")
     if not result.success:
         raise RuntimeError(f"Transition ranker optimization failed: {result.message}")
@@ -345,12 +358,38 @@ def train_transition_ranker(
     output_path: str | Path = "config/transition-ranker.json",
     *,
     ridge: float = 0.18,
+    initial_model_path: str | Path | None = None,
 ) -> Path:
     records = load_preferences(preferences_path)
     x, y, sample_weights, groups = _pair_rows(records)
     if len(y) < MINIMUM_COMPARISONS:
         raise ValueError(f"At least {MINIMUM_COMPARISONS} decisive A/B preferences are required.")
-    coef, intercept = _fit_logistic(x, y, sample_weights, ridge=ridge)
+    initial_coef = None
+    initial_intercept = None
+    initial_model_id = None
+    if initial_model_path is not None:
+        initial_source = Path(initial_model_path).expanduser().resolve()
+        if initial_source.exists():
+            try:
+                initial_payload = json.loads(initial_source.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                initial_payload = {}
+            if (
+                isinstance(initial_payload, dict)
+                and initial_payload.get("feature_names") == FEATURE_NAMES
+                and len(initial_payload.get("weights", [])) == len(FEATURE_NAMES)
+            ):
+                initial_coef = np.asarray(initial_payload["weights"], dtype=np.float64)
+                initial_intercept = float(initial_payload.get("intercept", 0.0) or 0.0)
+                initial_model_id = str(initial_payload.get("model_id") or initial_source.stem)
+    coef, intercept = _fit_logistic(
+        x,
+        y,
+        sample_weights,
+        ridge=ridge,
+        initial_coef=initial_coef,
+        initial_intercept=initial_intercept,
+    )
     metrics = _metrics(x, y, sample_weights, groups, ridge=ridge)
     sample_factor = float(np.clip((len(y) - MINIMUM_COMPARISONS) / max(1, FULL_TRUST_COMPARISONS - MINIMUM_COMPARISONS), 0.0, 1.0))
     quality_factor = float(np.clip(float(metrics["cv_skill"]) / 0.10, 0.0, 1.0))
@@ -389,6 +428,7 @@ def train_transition_ranker(
         "ridge": ridge,
         "authority": authority,
         "maximum_authority": MAXIMUM_RANKER_AUTHORITY,
+        "fine_tuned_from_model_id": initial_model_id,
         "acceptability": acceptability,
         **metrics,
     }
@@ -507,3 +547,63 @@ def rank_transition_plans(plans: Sequence[TransitionPlan], model: dict[str, Any]
         ranked.append((prediction.blended_score, plan))
     ranked.sort(key=lambda item: (item[0], item[1].score, item[1].execution_signature), reverse=True)
     return [item[1] for item in ranked]
+
+
+def evaluate_transition_ranker(
+    preferences_path: str | Path,
+    model_path: str | Path,
+) -> dict[str, Any]:
+    """Evaluate an already-trained ranker on a frozen human preference set."""
+    records = load_preferences(preferences_path)
+    model = json.loads(Path(model_path).expanduser().resolve().read_text(encoding="utf-8"))
+    decisive = [
+        row for row in records
+        if str(row.get("choice", "")).lower() in {"a", "b"}
+        and isinstance(row.get("candidate_a"), dict)
+        and isinstance(row.get("candidate_b"), dict)
+    ]
+    if not decisive:
+        return {
+            "examples": 0,
+            "accuracy": None,
+            "baseline_accuracy": None,
+            "log_loss": None,
+            "cohorts": {},
+        }
+    weights = np.asarray([max(0.05, float(row.get("weight", 1.0) or 1.0)) for row in decisive], dtype=np.float64)
+    targets = np.asarray([1.0 if row.get("choice") == "a" else 0.0 for row in decisive], dtype=np.float64)
+    vectors = np.vstack([
+        feature_vector(row["candidate_a"]) - feature_vector(row["candidate_b"])
+        for row in decisive
+    ])
+    coef = np.asarray(model.get("weights", []), dtype=np.float64)
+    intercept = float(model.get("intercept", 0.0) or 0.0)
+    if coef.size != vectors.shape[1]:
+        raise ValueError("Held-out evaluation feature schema does not match ranker.")
+    probs = _sigmoid(vectors @ coef + intercept)
+    accuracy = float(np.average((probs >= 0.5) == (targets >= 0.5), weights=weights))
+    positive_share = float(np.average(targets >= 0.5, weights=weights))
+    baseline = max(positive_share, 1.0 - positive_share)
+    losses = -(targets * np.log(np.clip(probs, 1e-8, 1.0 - 1e-8)) + (1.0 - targets) * np.log(np.clip(1.0 - probs, 1e-8, 1.0 - 1e-8)))
+    log_loss = float(np.average(losses, weights=weights))
+
+    cohort_rows: dict[str, list[int]] = {}
+    for index, row in enumerate(decisive):
+        context = row.get("context") if isinstance(row.get("context"), dict) else {}
+        cohort = str(context.get("evaluator_cohort") or "unknown")
+        cohort_rows.setdefault(cohort, []).append(index)
+    cohorts: dict[str, dict[str, float | int]] = {}
+    for cohort, indices in cohort_rows.items():
+        idx = np.asarray(indices, dtype=int)
+        cohorts[cohort] = {
+            "examples": int(len(idx)),
+            "accuracy": round(float(np.average((probs[idx] >= 0.5) == (targets[idx] >= 0.5), weights=weights[idx])), 6),
+        }
+    return {
+        "examples": int(len(decisive)),
+        "accuracy": round(accuracy, 6),
+        "baseline_accuracy": round(baseline, 6),
+        "improvement_vs_baseline": round(accuracy - baseline, 6),
+        "log_loss": round(log_loss, 6),
+        "cohorts": cohorts,
+    }
