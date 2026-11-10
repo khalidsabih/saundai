@@ -31,13 +31,16 @@ import type {
 } from "@/lib/types";
 
 const REASONS = [
-  "Wrong next track",
-  "Left too early",
-  "Left too late",
-  "Transition too long",
-  "Tempo felt forced",
+  "Beat alignment",
+  "Phrasing",
   "Vocal clash",
+  "Bass handoff",
   "Energy wrong",
+  "Harmony",
+  "Naturalness",
+  "Creativity",
+  "Too abrupt",
+  "Transition too long",
   "Great payoff",
 ];
 
