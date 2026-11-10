@@ -470,3 +470,31 @@ def human_release_report(
             "promotion_requires_deployment_ready": True,
         },
     }
+
+
+
+def human_release_status(workspace: str | Path) -> dict[str, Any]:
+    root = Path(workspace).expanduser().resolve()
+    manifest = root / DEFAULT_MANIFEST
+    if not manifest.exists():
+        return {
+            "release_gate_version": HUMAN_RELEASE_GATE_VERSION,
+            "available": False,
+            "benchmark_locked": False,
+            "deployment_ready": False,
+            "reason": "no locked human release benchmark",
+        }
+    try:
+        report = human_release_report(root)
+    except ValueError as exc:
+        return {
+            "release_gate_version": HUMAN_RELEASE_GATE_VERSION,
+            "available": False,
+            "benchmark_locked": False,
+            "deployment_ready": False,
+            "reason": str(exc),
+        }
+    return {
+        "available": True,
+        **report,
+    }
