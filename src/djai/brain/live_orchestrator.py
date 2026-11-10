@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Sequence
 
@@ -19,6 +20,14 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
     try:
         value = int(os.environ.get(name, str(default)))
@@ -34,6 +43,7 @@ class LiveExecutiveConfig:
     replan_every_edges: int = 1
     max_replans: int = 2
     minimum_future_tracks: int = 2
+    maximum_planning_seconds: float = 20.0
 
     @classmethod
     def from_environment(cls) -> "LiveExecutiveConfig":
@@ -43,6 +53,12 @@ class LiveExecutiveConfig:
             replan_every_edges=_env_int("DJAI_LIVE_REPLAN_EVERY_EDGES", 1, minimum=1, maximum=8),
             max_replans=_env_int("DJAI_LIVE_MAX_REPLANS", 2, minimum=0, maximum=8),
             minimum_future_tracks=_env_int("DJAI_LIVE_MIN_FUTURE_TRACKS", 2, minimum=1, maximum=8),
+            maximum_planning_seconds=_env_float(
+                "DJAI_LIVE_MAX_PLANNING_SECONDS",
+                20.0,
+                minimum=0.25,
+                maximum=120.0,
+            ),
         )
 
 
@@ -62,6 +78,8 @@ class LiveReplanRequest:
     journey: str
     listener: str
     reason: str
+    issued_monotonic: float
+    planning_deadline_monotonic: float
     crowd_state: dict[str, Any] = field(default_factory=dict)
     crowd_directive: dict[str, Any] = field(default_factory=dict)
 
@@ -198,6 +216,7 @@ class LiveExecutiveController:
         fixed_closer = int(remaining[-1]) if remaining else None
         crowd_payload = dict(crowd_state or {})
         crowd_directive = crowd_directive_from_mapping(crowd_payload)
+        issued_monotonic = time.monotonic()
         request = LiveReplanRequest(
             cycle=self._cycle,
             schedule_generation=int(schedule_generation),
@@ -218,6 +237,11 @@ class LiveExecutiveController:
             journey=str(journey),
             listener=str(listener),
             reason=str(reason),
+            issued_monotonic=round(issued_monotonic, 6),
+            planning_deadline_monotonic=round(
+                issued_monotonic + self.config.maximum_planning_seconds,
+                6,
+            ),
             crowd_state=crowd_payload,
             crowd_directive=crowd_directive.to_dict(),
         )
@@ -245,6 +269,9 @@ class LiveExecutiveController:
         *,
         current_schedule_generation: int,
     ) -> LiveFutureCommitResult | None:
+        if time.monotonic() > float(request.planning_deadline_monotonic):
+            self.discard(request, reason="planner result missed the live commit deadline")
+            return None
         if candidate.cycle != request.cycle:
             self.discard(request, reason="planner result belongs to a different Executive cycle")
             return None
@@ -302,6 +329,8 @@ class LiveExecutiveController:
             "future_depth": self.config.future_depth,
             "replan_every_edges": self.config.replan_every_edges,
             "max_replans": self.config.max_replans,
+            "maximum_planning_seconds": self.config.maximum_planning_seconds,
+            "deadline_policy": "discard_late_result_keep_prepared_schedule",
             "cycle": self._cycle,
             "last_committed_generation": self._last_committed_generation,
             "events": [event.to_dict() for event in self._events],
