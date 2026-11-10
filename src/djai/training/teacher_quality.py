@@ -288,3 +288,64 @@ def build_human_review_queue(
             handle.write(json.dumps(item.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
     temporary.replace(destination)
     return destination
+
+
+
+def write_balanced_scenarios(
+    scenarios: Iterable[Mapping[str, Any]],
+    output_path: str | Path,
+    *,
+    maximum_per_stratum: int = 200,
+) -> Path:
+    selected = balance_scenarios(scenarios, maximum_per_stratum=maximum_per_stratum)
+    destination = Path(output_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        for scenario in selected:
+            handle.write(json.dumps(scenario, ensure_ascii=False, sort_keys=True) + "\n")
+    temporary.replace(destination)
+    return destination
+
+
+def build_hard_negative_queue(
+    consensus_path: str | Path,
+    output_path: str | Path,
+) -> Path:
+    source = Path(consensus_path).expanduser().resolve()
+    rows: list[dict[str, Any]] = []
+    if source.exists():
+        with source.open(encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                item = human_review_item(payload)
+                if not item.hard_negative_candidate:
+                    continue
+                rows.append(
+                    {
+                        "schema_version": TEACHER_QUALITY_SCHEMA_VERSION,
+                        "scenario_id": item.scenario_id,
+                        "task": item.task,
+                        "consensus_choice": item.consensus_choice,
+                        "agreement": item.agreement,
+                        "calibrated_confidence": item.calibrated_confidence,
+                        "reason_codes": list(payload.get("reason_codes") or []),
+                        "label_source": "llm_teacher_hard_negative_research",
+                        "human_preference": False,
+                        "production_authority": False,
+                    }
+                )
+    rows.sort(key=lambda row: str(row["scenario_id"]))
+    destination = Path(output_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    temporary.replace(destination)
+    return destination
