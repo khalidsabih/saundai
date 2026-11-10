@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - main
+      - dj-fundamentals
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
