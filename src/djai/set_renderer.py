@@ -13,7 +13,7 @@ import soundfile as sf
 from .audio import load_audio, write_audio
 from .brain.authority import record_execution_result, record_runtime_feedback, validate_set_commit_receipt
 from .decision import validate_execution_plan
-from .execution import TransitionRenderContext, normalization_gain
+from .execution import TransitionRenderContext, professional_normalization_gain
 from .models import TransitionPlan
 from .performance.executor import DeterministicSetExecutor
 from .performance.program import transition_program_from_dict
@@ -163,10 +163,15 @@ def _render_pre_transition_body(
     return body, events
 
 
-def _track_gain(loudness_dbfs: float, target_dbfs: float = -13.0) -> float:
-    # Kept as a private compatibility alias; normalization policy lives in the
-    # shared execution contract so rehearsal and final rendering cannot drift.
-    return normalization_gain(loudness_dbfs, target_dbfs)
+def _track_gain(track) -> float:
+    # Set-level gain is determined from integrated loudness, bounded by true
+    # peak headroom. Legacy analyses without LUFS/true-peak metadata fall back
+    # to the previous RMS policy inside professional_normalization_gain().
+    return professional_normalization_gain(
+        integrated_lufs=float(getattr(track, "integrated_lufs", -80.0)),
+        true_peak_dbtp=float(getattr(track, "true_peak_dbtp", -80.0)),
+        legacy_loudness_dbfs=float(track.loudness_dbfs),
+    )
 
 
 def prepare_render_edge_state(
@@ -195,7 +200,7 @@ def prepare_render_edge_state(
         track_index=edge.to_index,
         rate=selected.post_transition_rate_b,
         effective_bpm=(selected.post_transition_bpm_b or next_analysis.bpm * selected.post_transition_rate_b),
-        gain=_track_gain(next_analysis.loudness_dbfs),
+        gain=_track_gain(next_analysis),
     )
     return RenderEdgeState(edge, selected, current, next_state)
 
@@ -213,7 +218,7 @@ def prepare_render_sequence(plan: SetPlan) -> tuple[list[RenderTrackState], list
 
     if not plan.transitions:
         first = plan.tracks[plan.order[0]]
-        return [RenderTrackState(plan.order[0], 1.0, first.bpm, _track_gain(first.loudness_dbfs))], []
+        return [RenderTrackState(plan.order[0], 1.0, first.bpm, _track_gain(first))], []
 
     states: list[RenderTrackState] = []
     edge_states: list[RenderEdgeState] = []
@@ -223,7 +228,7 @@ def prepare_render_sequence(plan: SetPlan) -> tuple[list[RenderTrackState], list
         track_index=plan.order[0],
         rate=first_plan.render_rate_a,
         effective_bpm=first_plan.effective_bpm_a,
-        gain=_track_gain(plan.tracks[plan.order[0]].loudness_dbfs),
+        gain=_track_gain(plan.tracks[plan.order[0]]),
     )
     states.append(first_state)
 
