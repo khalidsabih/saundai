@@ -9,6 +9,8 @@ from typing import Any, Iterable, Mapping
 from ..intelligence.preferences import comparison_id, load_preferences
 from ..intelligence.transition_ranker import evaluate_transition_ranker, train_transition_ranker
 from .state_move_taste import train_state_move_taste_shadow
+from .lab_dataset import _rendered_judge_training_rows
+from .neural_heads import evaluate_neural_head, train_neural_head
 from .teacher_dataset import load_scenarios
 
 REAL_TASTE_SCHEMA_VERSION = "1.0"
@@ -290,6 +292,115 @@ def train_real_taste_models(
                 **evaluate_transition_ranker(split["heldout_path"], human_model),
             }
 
+    snapshot_root = root / "datasets" / "training-lab" / dataset_id
+    rendered_source = snapshot_root / "rendered_judge.jsonl"
+    rendered_rows = _read_jsonl(rendered_source)
+    synthetic_rendered_rows = [
+        row for row in rendered_rows
+        if str(row.get("label_source") or "").startswith("synthetic")
+    ]
+    fit_human_rendered = _rendered_judge_training_rows(
+        fit_rows,
+        rights_cleared=False,
+    )
+    heldout_human_rendered = _rendered_judge_training_rows(
+        heldout_rows,
+        rights_cleared=False,
+    )
+    synthetic_path = _write_jsonl(stage_root / "rendered-synthetic-pretrain.jsonl", synthetic_rendered_rows)
+    fit_rendered_path = _write_jsonl(stage_root / "rendered-human-fit.jsonl", fit_human_rendered)
+    heldout_rendered_path = _write_jsonl(stage_root / "rendered-human-heldout.jsonl", heldout_human_rendered)
+
+    rendered_teacher_model = model_root / f"rendered-dj-judge-synthetic-{dataset_id}.json"
+    rendered_human_model = model_root / f"rendered-dj-judge-human-{dataset_id}.json"
+    rendered_pretrain: dict[str, Any]
+    try:
+        trained = train_neural_head(
+            "rendered_judge",
+            synthetic_path,
+            rendered_teacher_model,
+            require_rights_cleared=False,
+            iterations=900,
+            learning_rate=0.03,
+            l2=0.003,
+        )
+        rendered_pretrain = {
+            "status": "trained",
+            "model_path": str(trained.relative_to(root)),
+            "examples": len(synthetic_rendered_rows),
+        }
+    except ValueError as exc:
+        rendered_pretrain = {
+            "status": "blocked",
+            "reason": str(exc),
+            "examples": len(synthetic_rendered_rows),
+        }
+
+    rendered_finetune: dict[str, Any]
+    try:
+        trained = train_neural_head(
+            "rendered_judge",
+            fit_rendered_path,
+            rendered_human_model,
+            require_rights_cleared=False,
+            iterations=700,
+            learning_rate=0.02,
+            l2=0.003,
+            initial_model_path=rendered_teacher_model if rendered_pretrain["status"] == "trained" else None,
+        )
+        payload = json.loads(trained.read_text(encoding="utf-8"))
+        payload.update(
+            {
+                "model_id": f"rendered-dj-judge-real-{dataset_id}",
+                "learning_head": "rendered_dj_judge",
+                "training_dataset_id": dataset_id,
+                "training_hierarchy": [
+                    "synthetic_audio_pretrain",
+                    "human_blind_preference_finetune",
+                    "heldout_human_evaluation",
+                ],
+                "shadow_only": True,
+                "authority": 0.0,
+                "promoted_to_live": False,
+                "safety_contract": "Rendered DJ Judge is preference evidence only; hard audio failures remain authoritative.",
+            }
+        )
+        trained.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (model_root / "RENDERED_JUDGE_LATEST").write_text(trained.name + "\n", encoding="utf-8")
+        rendered_finetune = {
+            "status": "trained",
+            "model_path": str(trained.relative_to(root)),
+            "fit_examples": len(fit_human_rendered),
+            "fine_tuned_from_synthetic": rendered_pretrain["status"] == "trained",
+        }
+    except ValueError as exc:
+        rendered_finetune = {
+            "status": "blocked",
+            "reason": str(exc),
+            "fit_examples": len(fit_human_rendered),
+        }
+
+    rendered_heldout: dict[str, Any] = {
+        "status": "blocked",
+        "reason": "rendered human fine-tune model unavailable",
+    }
+    if rendered_finetune["status"] == "trained":
+        if heldout_human_rendered:
+            rendered_heldout = {
+                "status": "evaluated",
+                **evaluate_neural_head(
+                    "rendered_judge",
+                    heldout_rendered_path,
+                    rendered_human_model,
+                    require_rights_cleared=False,
+                ),
+            }
+        else:
+            rendered_heldout = {
+                "status": "blocked",
+                "reason": "No held-out human rendered-judge rows are available.",
+            }
+
     state_move_stage: dict[str, Any]
     try:
         state_move_stage = {
@@ -318,6 +429,11 @@ def train_real_taste_models(
         "teacher_pretraining": teacher_stage,
         "human_fine_tuning": human_stage,
         "heldout_human_evaluation": heldout_evaluation,
+        "rendered_dj_judge": {
+            "synthetic_pretraining": rendered_pretrain,
+            "human_fine_tuning": rendered_finetune,
+            "heldout_human_evaluation": rendered_heldout,
+        },
         "state_move_taste": state_move_stage,
         "data": {
             "teacher": teacher,
