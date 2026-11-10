@@ -144,24 +144,27 @@ def _continuous_rescue_safe(track_a: TrackAnalysis, track_b: TrackAnalysis) -> t
     short structural reset instead.
     """
     tempo_score, _ = tempo_compatibility(track_a.bpm, track_b.bpm)
+    harmonic_score = harmonic_compatibility(track_a.key, track_b.key)
     grid = min(float(track_a.beat_grid_confidence), float(track_b.beat_grid_confidence))
     meter_a = int(track_a.time_signature or 0)
     meter_b = int(track_b.time_signature or 0)
     meter_compatible = meter_a in {3, 4, 6} and meter_a == meter_b
-    vocal_conflict = float(track_a.vocal_probability) * float(track_b.vocal_probability)
+    vocal_conflict = min(float(track_a.vocal_probability), float(track_b.vocal_probability))
     bass_conflict = min(float(track_a.bass_activity), float(track_b.bass_activity))
 
     reasons: list[str] = []
     if tempo_score < 0.58:
         reasons.append("tempo relationship is too distant for a native-tempo rhythmic overlap")
+    if harmonic_score < 0.44:
+        reasons.append("harmonic relationship is too weak for a full-record rescue overlap")
     if grid < 0.52:
         reasons.append("one or both beat grids are too weak for a rescue blend")
     if track_a.variable_tempo or track_b.variable_tempo:
         reasons.append("variable-tempo material cannot rely on a static rescue overlap")
     if not meter_compatible:
         reasons.append("meter is unknown or incompatible across the pair")
-    if vocal_conflict >= 0.44:
-        reasons.append("lead-vocal coexistence risk is too high")
+    if vocal_conflict >= 0.58:
+        reasons.append("both records carry too much lead-vocal energy for a rescue overlap")
     if bass_conflict >= 0.70:
         reasons.append("low-frequency ownership conflict is too high")
     return not reasons, tuple(reasons)
