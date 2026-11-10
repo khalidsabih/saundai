@@ -20,6 +20,9 @@ on:
       - "src/djai/judge/professional.py"
       - "src/djai/candidate_renderer.py"
       - "src/djai/performance/mix_contract.py"
+      - "src/djai/brain/style_policy.py"
+      - "src/djai/brain/technique_policy.py"
+      - "tests/test_style_policy.py"
       - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
@@ -34,6 +37,7 @@ on:
       - beat-integrity
       - musical-quality-gate
       - gain-staging
+      - style-aware-dj-brain
     paths:
       - "src/djai/analysis.py"
       - "src/djai/fallback.py"
@@ -52,6 +56,9 @@ on:
       - "src/djai/judge/professional.py"
       - "src/djai/candidate_renderer.py"
       - "src/djai/performance/mix_contract.py"
+      - "src/djai/brain/style_policy.py"
+      - "src/djai/brain/technique_policy.py"
+      - "tests/test_style_policy.py"
       - "tests/test_musical_quality_gate.py"
       - "tests/test_beat_integrity.py"
       - "tests/test_dj_fundamentals_milestone.py"
@@ -85,6 +92,7 @@ jobs:
           tests/test_beat_integrity.py
           tests/test_musical_quality_gate.py
           tests/test_gain_staging.py
+          tests/test_style_policy.py
           tests/test_measurement_quality.py
           tests/test_set_pipeline.py
           tests/test_decision_planner.py
