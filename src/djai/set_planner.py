@@ -2390,6 +2390,29 @@ def _compile_sequence_edges(
 
         if automatic_delivery:
             allow_hard_cuts = os.environ.get("DJAI_ALLOW_HARD_CUTS", "0").strip().lower() in {"1", "true", "yes", "on"}
+            deck_performance = dict(chosen.metadata.get("deck_performance", {}) or {})
+            phase_integrity = dict(deck_performance.get("phase_integrity", {}) or {})
+            if chosen.beatmatched and phase_integrity and not bool(phase_integrity.get("safe", True)):
+                rejected_signature = chosen.execution_signature
+                chosen = build_last_resort_plan(
+                    track_a,
+                    track_b,
+                    effective_bpm_a=current_effective_bpm,
+                    render_rate_a=current_rate,
+                    source_cursor=source_cursor,
+                    preferred_exit_time=required_exit,
+                    reason=(
+                        "Beat Integrity rejected the selected rhythmic overlap because "
+                        "bounded continuous phase correction could not hold lock."
+                    ),
+                    render_context=edge_render_context,
+                    verify_audio=bool(quality_loop is not None and quality_loop.enabled),
+                )
+                chosen.metadata = {
+                    **chosen.metadata,
+                    "beat_integrity_replanned": True,
+                    "rejected_phase_integrity_signature": rejected_signature,
+                }
             if not allow_hard_cuts and chosen.technique in CUT_TECHNIQUES:
                 rejected_technique = chosen.technique
                 chosen = build_last_resort_plan(
