@@ -146,6 +146,58 @@ def _time_stretch_rate_curve(
     return np.asarray(output, dtype=np.float32)
 
 
+def _time_stretch_phase_warp(
+    y: np.ndarray,
+    *,
+    sample_rate: int,
+    base_rate: float,
+    target_length: int,
+    correction_points: list[dict[str, float]],
+) -> np.ndarray:
+    """Pitch-preserving time warp around a base rate using bounded source offsets."""
+    if target_length <= 0:
+        return np.zeros((y.shape[0], 0), dtype=np.float32)
+    if not correction_points:
+        return _time_stretch(y, base_rate, target_length)
+    n_fft = 2048
+    hop_length = 512
+    source = np.asarray(y, dtype=np.float32)
+    if source.shape[-1] < n_fft + hop_length * 2:
+        return _time_stretch(source, base_rate, target_length)
+
+    spectrum = librosa.stft(source, n_fft=n_fft, hop_length=hop_length)
+    output_frames = max(2, 1 + int(np.ceil(target_length / hop_length)))
+    fractions = np.linspace(0.0, 1.0, output_frames, dtype=np.float64)
+    point_x = np.asarray([float(p.get("fraction", 0.0)) for p in correction_points], dtype=np.float64)
+    point_y = np.asarray([float(p.get("source_offset_seconds", 0.0)) for p in correction_points], dtype=np.float64)
+    offsets_seconds = np.interp(fractions, point_x, point_y)
+    base_steps = np.arange(output_frames, dtype=np.float64) * max(float(base_rate), 0.01)
+    correction_steps = offsets_seconds * float(sample_rate) / hop_length
+    time_steps = np.maximum.accumulate(base_steps + correction_steps)
+    maximum_step = max(0.0, spectrum.shape[-1] - 2.001)
+    time_steps = np.clip(time_steps, 0.0, maximum_step)
+
+    shape = list(spectrum.shape)
+    shape[-1] = output_frames
+    stretched = np.zeros(shape, dtype=spectrum.dtype)
+    phi_advance = hop_length * librosa.fft_frequencies(sr=2 * np.pi, n_fft=n_fft)
+    phase_acc = np.angle(spectrum[..., 0])
+    padding = [(0, 0) for _ in spectrum.shape]
+    padding[-1] = (0, 2)
+    padded = np.pad(spectrum, padding, mode="constant")
+    for index, step in enumerate(time_steps):
+        base = int(step)
+        columns = padded[..., base : base + 2]
+        alpha = float(np.mod(step, 1.0))
+        magnitude = (1.0 - alpha) * np.abs(columns[..., 0]) + alpha * np.abs(columns[..., 1])
+        stretched[..., index] = magnitude * np.exp(1j * phase_acc)
+        dphase = np.angle(columns[..., 1]) - np.angle(columns[..., 0]) - phi_advance
+        dphase -= 2.0 * np.pi * np.round(dphase / (2.0 * np.pi))
+        phase_acc += phi_advance + dphase
+    output = librosa.istft(stretched, hop_length=hop_length, length=target_length)
+    return np.asarray(output, dtype=np.float32)
+
+
 def _render_tempo_release(
     audio: np.ndarray,
     sample_rate: int,
@@ -647,15 +699,39 @@ def _render_transition_window(
         )
         alignment = str(program.annotations.get("incoming_alignment", "full"))
         incoming_length = rendered_b_length if alignment == "tail" else target_length
-        incoming = _render_segment(
-            audio_b,
-            sample_rate,
-            plan.source_start_b,
-            plan.source_end_b,
-            rate=plan.render_rate_b,
-            gain=1.0,
-            target_length=incoming_length,
+        phase_integrity = dict(program.annotations.get("deck_performance", {}) or {}).get("phase_integrity", {})
+        phase_points = (
+            list(phase_integrity.get("points", []))
+            if isinstance(phase_integrity, dict)
+            and bool(phase_integrity.get("enabled", False))
+            and bool(phase_integrity.get("safe", False))
+            and alignment == "full"
+            else []
         )
+        if phase_points:
+            source = _extract_with_padding(
+                audio_b,
+                sample_rate,
+                plan.source_start_b,
+                plan.source_duration_b,
+            )
+            incoming = _time_stretch_phase_warp(
+                source,
+                sample_rate=sample_rate,
+                base_rate=plan.render_rate_b,
+                target_length=incoming_length,
+                correction_points=phase_points,
+            )
+        else:
+            incoming = _render_segment(
+                audio_b,
+                sample_rate,
+                plan.source_start_b,
+                plan.source_end_b,
+                rate=plan.render_rate_b,
+                gain=1.0,
+                target_length=incoming_length,
+            )
         if alignment == "tail" and incoming_length < target_length:
             part_b = np.zeros_like(part_a)
             part_b[:, target_length - incoming_length :] = incoming[:, -incoming_length:]
