@@ -90,6 +90,79 @@ def _phase_nudge(
     return float(source_nudge)
 
 
+def _phase_integrity_profile(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    plan: TransitionPlan,
+    *,
+    phase_nudge_seconds_b: float,
+) -> dict[str, object]:
+    """Predict bounded deck-B phase corrections across the complete overlap."""
+    if not _enabled("DJAI_DECK_PHASE_WARP", "1") or not plan.beatmatched:
+        return {"enabled": False, "safe": True, "reason": "not applicable", "points": [], "max_phase_error_ms": 0.0, "max_residual_ms": 0.0, "source_delta_seconds_b": 0.0}
+
+    confidence = min(float(track_a.beat_grid_confidence), float(track_b.beat_grid_confidence))
+    if confidence < 0.55 or len(track_a.beats_seconds) < 4 or len(track_b.beats_seconds) < 4:
+        return {"enabled": False, "safe": False, "reason": "beat evidence is too weak for continuous phase control", "points": [], "max_phase_error_ms": 0.0, "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
+
+    beat_seconds = 60.0 / max(float(plan.target_bpm), 1.0)
+    radius = min(0.32, beat_seconds * 0.48)
+    max_correction = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0) / 1000.0
+    max_step = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_STEP_MAX_MS", "18")), 5.0, 35.0) / 1000.0
+    residual_limit_ms = _clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0)
+    samples = max(5, min(17, int(os.environ.get("DJAI_DECK_PHASE_WARP_SAMPLES", "9"))))
+
+    points: list[dict[str, float]] = []
+    previous = 0.0
+    max_error = 0.0
+    max_residual = 0.0
+    missing = 0
+    rate_a = max(float(plan.render_rate_a), 1e-9)
+    rate_b = max(float(plan.render_rate_b), 1e-9)
+
+    for index in range(samples):
+        fraction = index / max(1, samples - 1)
+        output_seconds = float(plan.transition_seconds) * fraction
+        source_a = float(plan.exit_time_a) + output_seconds * rate_a
+        source_b = float(plan.entry_time_b) + float(phase_nudge_seconds_b) + output_seconds * rate_b
+        offset_a = _nearest_offset(track_a.beats_seconds, source_a, radius=radius)
+        offset_b = _nearest_offset(track_b.beats_seconds, source_b, radius=radius)
+        if offset_a is None or offset_b is None:
+            missing += 1
+            continue
+        phase_error = offset_b / rate_b - offset_a / rate_a
+        max_error = max(max_error, abs(phase_error))
+        correction = 0.0 if index == 0 else _clamp(-phase_error, -max_correction, max_correction)
+        correction = _clamp(correction, previous - max_step, previous + max_step)
+        previous = correction
+        residual = phase_error + correction
+        max_residual = max(max_residual, abs(residual))
+        points.append({
+            "fraction": round(fraction, 6),
+            "source_offset_seconds": round(correction * rate_b, 7),
+            "phase_error_ms": round(phase_error * 1000.0, 3),
+            "residual_ms": round(residual * 1000.0, 3),
+        })
+
+    if missing > samples // 3 or len(points) < 4:
+        return {"enabled": False, "safe": False, "reason": "insufficient beat matches across overlap", "points": points, "max_phase_error_ms": round(max_error * 1000.0, 3), "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
+
+    source_delta = float(points[-1]["source_offset_seconds"])
+    available_delta = max(0.0, float(track_b.duration_seconds) - (float(plan.entry_time_b) + float(phase_nudge_seconds_b) + float(plan.source_duration_b)))
+    source_available = source_delta <= available_delta + 1e-6 if source_delta > 0.0 else True
+    safe = bool(max_residual * 1000.0 <= residual_limit_ms and source_available)
+    return {
+        "enabled": True,
+        "safe": safe,
+        "reason": "bounded continuous phase lock" if safe else "required correction exceeds bounded phase-lock envelope",
+        "points": points,
+        "max_phase_error_ms": round(max_error * 1000.0, 3),
+        "max_residual_ms": round(max_residual * 1000.0, 3),
+        "residual_limit_ms": round(residual_limit_ms, 3),
+        "source_delta_seconds_b": round(source_delta if safe else 0.0, 7),
+    }
+
+
 def _release_bars(rate_delta: float, vocal_probability: float, section: str) -> int:
     # More exposed incoming vocals get a slower tempo ride; instrumental and
     # breakdown sections can absorb a shorter release cleanly.
