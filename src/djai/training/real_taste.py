@@ -292,6 +292,9 @@ def train_real_taste_models(
                 **evaluate_transition_ranker(split["heldout_path"], human_model),
             }
 
+    fit_rows = load_preferences(split["fit_path"])
+    heldout_rows = load_preferences(split["heldout_path"])
+
     snapshot_root = root / "datasets" / "training-lab" / dataset_id
     rendered_source = snapshot_root / "rendered_judge.jsonl"
     rendered_rows = _read_jsonl(rendered_source)
@@ -421,8 +424,6 @@ def train_real_taste_models(
             "heldout_reserved": split["heldout_examples"],
         }
 
-    fit_rows = load_preferences(split["fit_path"])
-    heldout_rows = load_preferences(split["heldout_path"])
     result = {
         "schema_version": REAL_TASTE_SCHEMA_VERSION,
         "dataset_id": dataset_id,
