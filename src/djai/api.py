@@ -76,6 +76,7 @@ from .evaluation.human_release_gate import (
     DEFAULT_MANIFEST as HUMAN_RELEASE_DEFAULT_MANIFEST,
     create_human_release_session,
     human_release_report,
+    human_release_status,
     lock_human_release_benchmark,
     record_human_release_vote,
 )
@@ -2181,6 +2182,7 @@ def professional_brain_status() -> dict[str, Any]:
         "rejection_memory_count": len(load_rejections(rejection_path)),
         "crate_memory": crate_memory_status(workspace=WORKSPACE),
         "release_benchmarks": benchmark_runtime_status(WORKSPACE),
+        "human_release_gate": human_release_status(WORKSPACE),
         "production_data_ready": bool(production_audit.get("ready")),
         "production_data_blockers": production_audit.get("blockers", []),
         "arena": arena_report(WORKSPACE / "ratings" / "arena.jsonl"),
