@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildBootstrapCorpus,
+  createHumanReviewSession,
   createListeningSession,
   createTrainingSnapshot,
   getBrainStatus,
   getDatasetBuilderStatus,
   getTrainingLabStatus,
   listTracks,
+  saveHumanReviewVote,
   saveListeningPreference,
   trainTrainingLabShadowModel,
   trainBootstrapShadowModels,
@@ -18,6 +20,7 @@ import type {
   DatasetBuilderStatus,
   ListeningLabCandidate,
   ListeningLabSession,
+  HumanReviewSession,
   TrackRecord,
   TrainingLabStatus,
   TrainingLabTrainResult,
@@ -80,17 +83,24 @@ export function TrainingLab() {
   const [session, setSession] = useState<ListeningLabSession | null>(null);
   const [pairIndex, setPairIndex] = useState(0);
   const [reasons, setReasons] = useState<string[]>([]);
+  const [reviewSession, setReviewSession] = useState<HumanReviewSession | null>(null);
+  const [reviewCohort, setReviewCohort] = useState<"general_listener" | "experienced_dj" | "professional_dj">("experienced_dj");
+  const [reviewReasons, setReviewReasons] = useState<string[]>([]);
+  const [reviewConfidence, setReviewConfidence] = useState(0.75);
+  const [reviewerId, setReviewerId] = useState("training-reviewer");
   const [status, setStatus] = useState<TrainingLabStatus | null>(null);
   const [builder, setBuilder] = useState<DatasetBuilderStatus | null>(null);
   const [brain, setBrain] = useState<BrainStatus | null>(null);
   const [trainResult, setTrainResult] = useState<TrainingLabTrainResult | null>(null);
   const [bootstrapTrainResult, setBootstrapTrainResult] = useState<BootstrapTrainingResult | null>(null);
-  const [busy, setBusy] = useState<"load" | "generate" | "vote" | "snapshot" | "train" | "upload" | "corpus" | "bootstrap-train" | null>("load");
+  const [busy, setBusy] = useState<"load" | "generate" | "vote" | "review-load" | "review-vote" | "snapshot" | "train" | "upload" | "corpus" | "bootstrap-train" | null>("load");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [generateElapsed, setGenerateElapsed] = useState(0);
   const audioA = useRef<HTMLAudioElement | null>(null);
   const audioB = useRef<HTMLAudioElement | null>(null);
+  const reviewAudioA = useRef<HTMLAudioElement | null>(null);
+  const reviewAudioB = useRef<HTMLAudioElement | null>(null);
 
   const refresh = useCallback(async () => {
     const [trackRows, labStatus, builderStatus, brainStatus] = await Promise.all([listTracks("audio"), getTrainingLabStatus(), getDatasetBuilderStatus(), getBrainStatus()]);
@@ -200,6 +210,48 @@ export function TrainingLab() {
         setPairIndex(0);
         setNotice("Session complete. Generate another track pair when you are ready.");
       }
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function loadHumanReview() {
+    setBusy("review-load");
+    setError(null);
+    setNotice(null);
+    try {
+      const created = await createHumanReviewSession({
+        evaluator: reviewerId.trim() || "training-reviewer",
+        cohort: reviewCohort,
+      });
+      setReviewSession(created);
+      setReviewReasons([]);
+      setReviewConfidence(0.75);
+      setNotice(`Active-learning review ready · priority ${Math.round(created.queue_priority * 100)}%. Teacher metadata stays hidden while you listen.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function voteHumanReview(choice: "a" | "b" | "tie" | "neither") {
+    if (!reviewSession || reviewSession.candidates.length !== 2) return;
+    setBusy("review-vote");
+    setError(null);
+    try {
+      const result = await saveHumanReviewVote({
+        sessionId: reviewSession.session_id,
+        choice,
+        reasons: reviewReasons,
+        confidence: reviewConfidence,
+      });
+      setReviewSession(null);
+      setReviewReasons([]);
+      setNotice(`Human preference recorded. ${result.status.queue_outstanding} reviewable active-learning cases remain.`);
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -335,6 +387,78 @@ export function TrainingLab() {
           <article><span>Blind choices</span><strong>{status?.preferences.decisive ?? 0}</strong><small>{status?.preferences.unique_track_pairs ?? 0} track pairs</small></article>
           <article><span>Rendered</span><strong>{status?.rendered_candidates ?? 0}</strong><small>candidate transitions</small></article>
           <article><span>Taste heads</span><strong>{trainedTasteHeads} / 3</strong><small>{status?.runtime_evidence.candidates ?? 0} runtime candidates captured</small></article>
+        </section>
+
+        <section className="lab-panel lab-listen-panel" aria-label="Active-learning human review">
+          <div className="lab-panel__number">H</div>
+          <div className="lab-panel__title lab-panel__title--row">
+            <div>
+              <span>HUMAN GROUND TRUTH / ACTIVE LEARNING</span>
+              <h2>Review what the teachers disagree on.</h2>
+              <p>Exact queued transitions are replayed blind. Your cohort, reasons and confidence are stored as human preference evidence; teacher scores remain hidden.</p>
+            </div>
+            <small>{status?.human_preference_program?.queue_outstanding ?? 0} outstanding / {status?.human_preference_program?.active_learning_votes ?? 0} reviewed</small>
+          </div>
+
+          <div className="lab-track-pair">
+            <label>
+              <span>REVIEWER</span>
+              <input value={reviewerId} onChange={(event) => setReviewerId(event.target.value)} disabled={busy !== null || Boolean(reviewSession)} />
+              <strong>Pseudonymized before storage</strong>
+            </label>
+            <label>
+              <span>COHORT</span>
+              <select value={reviewCohort} onChange={(event) => setReviewCohort(event.target.value as typeof reviewCohort)} disabled={busy !== null || Boolean(reviewSession)}>
+                <option value="general_listener">General listener</option>
+                <option value="experienced_dj">Experienced DJ</option>
+                <option value="professional_dj">Professional DJ</option>
+              </select>
+              <strong>{reviewCohort.replaceAll("_", " ")}</strong>
+            </label>
+          </div>
+
+          {reviewSession ? (
+            <>
+              <div className="lab-listen-grid">
+                <article className="lab-listen-card">
+                  <div className="lab-listen-card__head"><span>Candidate</span><strong>A</strong></div>
+                  <div className="lab-listen-card__center" aria-hidden="true"><span>A</span></div>
+                  <audio ref={reviewAudioA} className="lab-audio" controls preload="metadata" src={reviewSession.candidates[0]?.audio_url} onPlay={() => { if (reviewAudioB.current && !reviewAudioB.current.paused) reviewAudioB.current.pause(); }} />
+                </article>
+                <article className="lab-listen-card">
+                  <div className="lab-listen-card__head"><span>Candidate</span><strong>B</strong></div>
+                  <div className="lab-listen-card__center" aria-hidden="true"><span>B</span></div>
+                  <audio ref={reviewAudioB} className="lab-audio" controls preload="metadata" src={reviewSession.candidates[1]?.audio_url} onPlay={() => { if (reviewAudioA.current && !reviewAudioA.current.paused) reviewAudioA.current.pause(); }} />
+                </article>
+              </div>
+              <div className="lab-reasons">
+                <span>Why? <em>optional</em></span>
+                <div>
+                  {REASONS.map((reason) => {
+                    const tag = reason.toLowerCase().replace(/\s+/g, "_");
+                    const active = reviewReasons.includes(tag);
+                    return <button type="button" key={`review-${reason}`} className={active ? "is-active" : ""} aria-pressed={active} onClick={() => setReviewReasons((current) => active ? current.filter((item) => item !== tag) : [...current, tag])}>{reason}</button>;
+                  })}
+                </div>
+              </div>
+              <label>
+                <span>Confidence {Math.round(reviewConfidence * 100)}%</span>
+                <input type="range" min="0" max="1" step="0.05" value={reviewConfidence} onChange={(event) => setReviewConfidence(Number(event.target.value))} />
+              </label>
+              <div className="lab-vote-row">
+                <button type="button" onClick={() => void voteHumanReview("a")} disabled={busy !== null}><span>A</span><strong>Feels better</strong></button>
+                <button type="button" onClick={() => void voteHumanReview("b")} disabled={busy !== null}><span>B</span><strong>Feels better</strong></button>
+                <button type="button" className="lab-vote-row__quiet" onClick={() => void voteHumanReview("tie")} disabled={busy !== null}>Tie</button>
+                <button type="button" className="lab-vote-row__quiet" onClick={() => void voteHumanReview("neither")} disabled={busy !== null}>Neither</button>
+              </div>
+            </>
+          ) : (
+            <div className="lab-actions">
+              <button type="button" className="lab-primary" onClick={() => void loadHumanReview()} disabled={busy !== null || !(status?.human_preference_program?.queue_outstanding ?? 0)}>
+                {busy === "review-load" ? "Rendering queued review…" : "Open next active review"}<span>→</span>
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="lab-learning-map" aria-label="SAUND learning lifecycle">
