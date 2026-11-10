@@ -5,6 +5,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+import math
 from typing import Callable
 
 import numpy as np
@@ -725,6 +726,9 @@ def render_set(
                 "rendered_bpm": round(state.effective_bpm, 4),
                 "time_stretch_rate": round(state.rate, 6),
                 "gain": round(state.gain, 6),
+                "integrated_lufs": round(float(getattr(plan.tracks[state.track_index], "integrated_lufs", -80.0)), 4),
+                "true_peak_dbtp": round(float(getattr(plan.tracks[state.track_index], "true_peak_dbtp", -80.0)), 4),
+                "gain_db": round(20.0 * math.log10(max(state.gain, 1e-12)), 4),
             }
             for state in states
         ],
