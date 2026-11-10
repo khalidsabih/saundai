@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .audio import load_audio
-from .execution import TransitionRenderContext, normalization_gain
+from .execution import TransitionRenderContext, professional_normalization_gain
 from .decision import validate_execution_plan
 from .measurement import DEFAULT_MEASUREMENT_POLICY, MeasurementPolicy, measure_transition_audio
 from .judge.musical import measure_musical_execution
@@ -645,8 +645,8 @@ def measure_and_select_transition(
     if render_context is None and hasattr(track_a, "loudness_dbfs") and hasattr(track_b, "loudness_dbfs"):
         render_context = TransitionRenderContext(
             sample_rate=config.normalized().sample_rate,
-            gain_a=normalization_gain(float(getattr(track_a, "loudness_dbfs"))),
-            gain_b=normalization_gain(float(getattr(track_b, "loudness_dbfs"))),
+            gain_a=professional_normalization_gain(integrated_lufs=float(getattr(track_a, "integrated_lufs", -80.0)), true_peak_dbtp=float(getattr(track_a, "true_peak_dbtp", -80.0)), legacy_loudness_dbfs=float(getattr(track_a, "loudness_dbfs"))),
+            gain_b=professional_normalization_gain(integrated_lufs=float(getattr(track_b, "integrated_lufs", -80.0)), true_peak_dbtp=float(getattr(track_b, "true_peak_dbtp", -80.0)), legacy_loudness_dbfs=float(getattr(track_b, "loudness_dbfs"))),
         )
     scores = {
         plan.execution_signature: float(
