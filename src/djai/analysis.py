@@ -1508,16 +1508,23 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
 
     if bpm <= 0.0:
         bpm = 120.0
+    beat_grid_confidence, beat_interval_cv = _beat_grid_diagnostics(beat_times, duration)
+    time_signature, time_signature_confidence = _estimate_time_signature(
+        beat_frames,
+        onset_envelope,
+        beat_grid_confidence,
+    )
+    beats_per_bar = time_signature if time_signature in {3, 4, 6} else BEATS_PER_BAR
     downbeat_frames, downbeat_confidence = _estimate_downbeats(
         beat_frames,
         onset_envelope,
+        beats_per_bar=beats_per_bar,
     )
     downbeat_times = librosa.frames_to_time(
         downbeat_frames,
         sr=sr,
         hop_length=HOP_LENGTH,
     )
-    beat_grid_confidence, beat_interval_cv = _beat_grid_diagnostics(beat_times, duration)
 
     # DJAI 5.0 Neural Ears. Beat This! is optional and registry-gated: shadow
     # predictions are retained as evidence, while an advisory/production grid
@@ -1537,6 +1544,12 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
             beat_grid_confidence, beat_interval_cv = _beat_grid_diagnostics(beat_times, duration)
             beat_grid_confidence = max(beat_grid_confidence, float(neural_beats.confidence))
             downbeat_confidence = max(downbeat_confidence, float(neural_beats.confidence))
+            time_signature, time_signature_confidence = _estimate_time_signature(
+                beat_frames,
+                onset_envelope,
+                beat_grid_confidence,
+            )
+            beats_per_bar = time_signature if time_signature in {3, 4, 6} else BEATS_PER_BAR
     except Exception as exc:
         neural_evidence["beat_downbeat"] = {"available": False, "used": False, "reason": f"neural beat adapter unavailable: {exc}"}
 
@@ -1579,7 +1592,7 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     percussive_ratio = _clamp(percussive_rms / max(harmonic_rms + percussive_rms, 1e-8))
 
     if downbeat_frames.size < 2:
-        bar_duration = 4.0 * 60.0 / max(bpm, 1.0)
+        bar_duration = beats_per_bar * 60.0 / max(bpm, 1.0)
         synthetic_times = np.arange(0.0, duration, bar_duration)
         downbeat_times = synthetic_times
         downbeat_frames = librosa.time_to_frames(
@@ -1617,6 +1630,7 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         bar_energies=bar_energies,
         bar_rhythms=bar_rhythms,
         bar_chroma=bar_chroma,
+        beats_per_bar=beats_per_bar,
     )
     bar_features = _build_bar_features(
         boundaries=boundaries,
@@ -1638,6 +1652,7 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         bpm=bpm,
         rms_times=rms_times,
         rms_values=rms_frames,
+        beats_per_bar=beats_per_bar,
     )
     exit_candidates = _make_candidates(
         kind="exit",
@@ -1646,9 +1661,10 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         bpm=bpm,
         rms_times=rms_times,
         rms_values=rms_frames,
+        beats_per_bar=beats_per_bar,
     )
 
-    bar_duration = 4.0 * 60.0 / bpm
+    bar_duration = beats_per_bar * 60.0 / bpm
     if not entry_candidates:
         desired_entry = min(max(4.0 * bar_duration, 0.0), max(0.0, duration * 0.18))
         if downbeat_times.size:
@@ -1719,9 +1735,6 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     )
 
     tempo_curve, variable_tempo = _tempo_curve(beat_times, bpm, duration)
-    time_signature, time_signature_confidence = _estimate_time_signature(
-        beat_frames, onset_envelope, beat_grid_confidence
-    )
     vocal_probability, bass_activity, spectral_rolloff, onset_density = (
         _source_characteristics(
             y,
@@ -1744,6 +1757,7 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         global_bpm=bpm,
         fallback_vocal=vocal_probability,
         fallback_bass=bass_activity,
+        beats_per_bar=beats_per_bar,
     )
 
     _populate_local_harmony(
@@ -1752,6 +1766,7 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
         sr=sr,
         duration=duration,
         global_bpm=bpm,
+        beats_per_bar=beats_per_bar,
     )
 
     analysis = TrackAnalysis(
