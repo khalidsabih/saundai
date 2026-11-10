@@ -9,7 +9,7 @@ from typing import Any, Iterable, Mapping
 from ..intelligence.preferences import comparison_id, load_preferences
 from ..intelligence.transition_ranker import evaluate_transition_ranker, train_transition_ranker
 from .state_move_taste import evaluate_state_move_taste_model, train_state_move_taste_shadow
-from .lab_dataset import _rendered_judge_training_rows
+from .lab_dataset import _rendered_judge_training_rows, _resolve_snapshot
 from .neural_heads import evaluate_neural_head, train_neural_head
 from .teacher_dataset import load_scenarios
 
@@ -469,3 +469,68 @@ def train_real_taste_models(
     report_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     result["report_path"] = str(report_path.relative_to(root))
     return result
+
+
+
+def train_real_taste_from_snapshot(
+    workspace: str | Path,
+    *,
+    snapshot_id: str | None = None,
+    ridge: float = 0.18,
+) -> dict[str, Any]:
+    root = Path(workspace).expanduser().resolve()
+    snapshot = _resolve_snapshot(root, snapshot_id)
+    manifest = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
+    dataset_id = str(manifest.get("dataset_id") or snapshot.name)
+    scenarios = root / "datasets/generated/teacher/scenarios.jsonl"
+    consensus = root / "datasets/generated/teacher/consensus.jsonl"
+    return train_real_taste_models(
+        root,
+        preferences_path=snapshot / "preferences.jsonl",
+        scenarios_path=scenarios,
+        consensus_path=consensus,
+        dataset_id=dataset_id,
+        ridge=ridge,
+    )
+
+
+def real_taste_status(workspace: str | Path) -> dict[str, Any]:
+    root = Path(workspace).expanduser().resolve()
+    dataset_root = root / "datasets/training-lab"
+    latest = dataset_root / "LATEST"
+    if not latest.exists():
+        return {
+            "schema_version": REAL_TASTE_SCHEMA_VERSION,
+            "available": False,
+            "reason": "no training snapshot",
+        }
+    dataset_id = latest.read_text(encoding="utf-8").strip()
+    report = dataset_root / dataset_id / "real-taste/training-report.json"
+    if not report.exists():
+        return {
+            "schema_version": REAL_TASTE_SCHEMA_VERSION,
+            "available": False,
+            "dataset_id": dataset_id,
+            "reason": "real taste model training has not run for latest snapshot",
+        }
+    try:
+        payload = json.loads(report.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "schema_version": REAL_TASTE_SCHEMA_VERSION,
+            "available": False,
+            "dataset_id": dataset_id,
+            "reason": "training report unreadable",
+        }
+    return {
+        "schema_version": REAL_TASTE_SCHEMA_VERSION,
+        "available": True,
+        "dataset_id": dataset_id,
+        "report_path": str(report.relative_to(root)),
+        "teacher_pretraining": payload.get("teacher_pretraining", {}),
+        "human_fine_tuning": payload.get("human_fine_tuning", {}),
+        "heldout_human_evaluation": payload.get("heldout_human_evaluation", {}),
+        "rendered_dj_judge": payload.get("rendered_dj_judge", {}),
+        "state_move_taste": payload.get("state_move_taste", {}),
+        "policy": payload.get("policy", {}),
+    }
