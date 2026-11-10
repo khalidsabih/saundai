@@ -167,12 +167,18 @@ class DeterministicSetExecutor:
         buffer_seconds: float | None = None,
         deadline_seconds: float | None = None,
         prefetch_ready: bool | None = None,
+        prefetch_latency_seconds: float | None = None,
+        disk_stall_seconds: float | None = None,
+        audio_underruns: int = 0,
     ) -> dict[str, Any]:
         self._telemetry = SafetyTelemetry(
             cpu_ratio=cpu_ratio,
             buffer_seconds=buffer_seconds,
             deadline_seconds=deadline_seconds,
             prefetch_ready=prefetch_ready,
+            prefetch_latency_seconds=prefetch_latency_seconds,
+            disk_stall_seconds=disk_stall_seconds,
+            audio_underruns=max(0, int(audio_underruns)),
         )
         decision = self.safety.evaluate_telemetry(
             self._telemetry,
@@ -727,6 +733,13 @@ class DeterministicSetExecutor:
             "safety_governor": self.safety.to_dict(),
             "performance_horizons": self.horizons.snapshot(),
             "runtime_feedback_ready": True,
+            "live_safety": {
+                "telemetry": self._telemetry.to_dict(),
+                "hot_backup_available": self._backup_available(self.edge_position),
+                "deadline_protected": True,
+                "underrun_protected": True,
+                "storage_stall_protected": True,
+            },
             "continuous_replanning": self.continuous_replanning,
             "schedule_generation": self.schedule_generation,
             "active_order": list(self.active_order),
