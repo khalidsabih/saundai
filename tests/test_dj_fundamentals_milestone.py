@@ -110,9 +110,13 @@ def test_compatible_stable_pair_keeps_compact_filtered_rescue(
     plan = build_last_resort_plan(track_a, track_b)
 
     assert plan.technique == "filter_build"
+    assert plan.beatmatched is True
+    assert plan.render_rate_b == pytest.approx(124.0 / 126.0, rel=1e-4)
+    assert plan.effective_bpm_b == pytest.approx(124.0, abs=0.02)
     assert plan.metadata["rescue_transition_kind"] == "filtered_overlap"
     assert plan.metadata["continuous_mix_required"] is True
     assert plan.metadata["rescue_overlap_safe"] is True
+    assert plan.metadata["rescue_beatmatched"] is True
 
 
 def test_explicit_hard_cut_policy_still_allows_quick_cut(
