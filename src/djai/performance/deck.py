@@ -114,6 +114,7 @@ def _phase_integrity_profile(
 
     points: list[dict[str, float]] = []
     previous = 0.0
+    baseline_error: float | None = None
     max_error = 0.0
     max_residual = 0.0
     missing = 0
@@ -131,16 +132,19 @@ def _phase_integrity_profile(
             missing += 1
             continue
         phase_error = offset_b / rate_b - offset_a / rate_a
-        max_error = max(max_error, abs(phase_error))
-        correction = 0.0 if index == 0 else _clamp(-phase_error, -max_correction, max_correction)
+        if baseline_error is None:
+            baseline_error = phase_error
+        drift_error = phase_error - baseline_error
+        max_error = max(max_error, abs(drift_error))
+        correction = _clamp(-drift_error, -max_correction, max_correction)
         correction = _clamp(correction, previous - max_step, previous + max_step)
         previous = correction
-        residual = phase_error + correction
+        residual = drift_error + correction
         max_residual = max(max_residual, abs(residual))
         points.append({
             "fraction": round(fraction, 6),
             "source_offset_seconds": round(correction * rate_b, 7),
-            "phase_error_ms": round(phase_error * 1000.0, 3),
+            "phase_error_ms": round(drift_error * 1000.0, 3),
             "residual_ms": round(residual * 1000.0, 3),
         })
 
