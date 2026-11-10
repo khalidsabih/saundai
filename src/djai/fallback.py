@@ -135,6 +135,38 @@ _SECTION_HANDOFF_FIT: dict[tuple[str, str], float] = {
 }
 
 
+def _continuous_rescue_safe(track_a: TrackAnalysis, track_b: TrackAnalysis) -> tuple[bool, tuple[str, ...]]:
+    """Return whether a rhythmic full-record rescue overlap is defensible.
+
+    This is intentionally conservative. A last-resort transition must never
+    turn "avoid a cut" into several seconds of unrelated kicks/bass fighting
+    at native tempo. When coexistence is unsafe, automatic delivery uses a
+    short structural reset instead.
+    """
+    tempo_score, _ = tempo_compatibility(track_a.bpm, track_b.bpm)
+    grid = min(float(track_a.beat_grid_confidence), float(track_b.beat_grid_confidence))
+    meter_a = int(track_a.time_signature or 0)
+    meter_b = int(track_b.time_signature or 0)
+    meter_compatible = meter_a in {3, 4, 6} and meter_a == meter_b
+    vocal_conflict = float(track_a.vocal_probability) * float(track_b.vocal_probability)
+    bass_conflict = min(float(track_a.bass_activity), float(track_b.bass_activity))
+
+    reasons: list[str] = []
+    if tempo_score < 0.58:
+        reasons.append("tempo relationship is too distant for a native-tempo rhythmic overlap")
+    if grid < 0.52:
+        reasons.append("one or both beat grids are too weak for a rescue blend")
+    if track_a.variable_tempo or track_b.variable_tempo:
+        reasons.append("variable-tempo material cannot rely on a static rescue overlap")
+    if not meter_compatible:
+        reasons.append("meter is unknown or incompatible across the pair")
+    if vocal_conflict >= 0.44:
+        reasons.append("lead-vocal coexistence risk is too high")
+    if bass_conflict >= 0.70:
+        reasons.append("low-frequency ownership conflict is too high")
+    return not reasons, tuple(reasons)
+
+
 def _rescue_bars(track_a: TrackAnalysis, track_b: TrackAnalysis) -> tuple[int, str]:
     explicit = os.environ.get("DJAI_AUTO_RESCUE_BARS")
     if explicit not in {None, ""}:
@@ -239,27 +271,42 @@ def build_last_resort_plan(
 ) -> TransitionPlan:
     """Construct the final automatic rescue transition.
 
-    Automatic delivery defaults to an audible multi-second filtered overlap.
-    A literal hard cut is available only when DJAI_ALLOW_HARD_CUTS=1.  This
-    makes the product contract match what a user means by "create a DJ set":
-    failure of the learned/analytical policy may simplify the transition, but
-    must not silently turn the junction into stop-A/start-B.
+    Automatic delivery prefers a compact musical overlap only when tempo,
+    meter, beat-grid and source coexistence make that defensible. If rhythmic
+    coexistence is unsafe, the fallback becomes a short structural reset
+    instead of manufacturing an unbeatmatched multi-second blend. A literal
+    quick cut remains available when DJAI_ALLOW_HARD_CUTS=1.
     """
     resolved = policy or AutomaticFallbackPolicy.from_environment()
     bpm_a = float(effective_bpm_a or track_a.bpm or 120.0)
     allow_hard_cut = _hard_cuts_allowed()
+    overlap_safe, overlap_risks = _continuous_rescue_safe(track_a, track_b)
 
     if allow_hard_cut:
         transition_bars = 1
         transition_seconds = min(
             resolved.emergency_seconds,
-            max(0.45, 4.0 * 60.0 / max(bpm_a, 1.0)),
+            max(0.45, float(track_a.time_signature or 4) * 60.0 / max(bpm_a, 1.0)),
         )
         technique = "quick_cut"
         source_b_fraction = 0.28
         rescue_kind = "hard_cut"
+        natural_profile = "hard_cut"
         rationale_action = "A short native-tempo cut was selected because hard cuts were explicitly enabled."
         choreography_reason = "An explicitly enabled structural cut avoids an unsafe long overlap."
+    elif not overlap_safe:
+        transition_bars = 1
+        bar_seconds = max(0.5, float(track_a.time_signature or 4) * 60.0 / max(bpm_a, 1.0))
+        transition_seconds = min(resolved.emergency_seconds, max(0.75, bar_seconds))
+        technique = "echo_out_drop_in"
+        incoming_beat = 60.0 / max(float(track_b.bpm or 120.0), 1.0)
+        source_b_fraction = min(1.0, incoming_beat / max(transition_seconds, 1e-6))
+        rescue_kind = "structural_reset"
+        natural_profile = "structural_reset"
+        rationale_action = (
+            "A short echo/drop structural reset was selected because rhythmic coexistence is unsafe."
+        )
+        choreography_reason = "; ".join(overlap_risks) or "The pair is unsafe for a native-tempo rescue blend."
     else:
         transition_bars, natural_profile = _rescue_bars(track_a, track_b)
         bar_seconds = max(0.5, float(track_a.time_signature or 4) * 60.0 / max(bpm_a, 1.0))
@@ -270,9 +317,9 @@ def build_last_resort_plan(
         rationale_action = (
             "A compact phrase-aligned filtered handoff was selected because a longer overlap would sound forced."
             if natural_profile == "compact"
-            else "A phrase-aligned filtered overlap was selected so automatic delivery remains a real DJ transition."
+            else "A phrase-aligned filtered overlap was selected because the pair can safely coexist rhythmically."
         )
-        choreography_reason = "Use an audible filtered handoff rather than silently degrading to a splice."
+        choreography_reason = "Use a bounded filtered handoff only while tempo, meter, grid and source ownership remain compatible."
 
     desired_source_a = transition_seconds * max(render_rate_a, 1e-6)
     latest_exit = max(0.0, track_a.duration_seconds - desired_source_a)
@@ -280,7 +327,7 @@ def build_last_resort_plan(
     body_target = source_cursor + max(20.0, min(150.0, remaining * 0.58))
     natural_exit: TransitionCandidate | None = None
     natural_entry: TransitionCandidate | None = None
-    if not allow_hard_cut:
+    if rescue_kind == "filtered_overlap":
         natural_exit, natural_entry = _natural_rescue_pair(
             track_a,
             track_b,
@@ -318,7 +365,7 @@ def build_last_resort_plan(
 
     # If a mature cue was too close to the end to sustain the rescue overlap,
     # fall back to an earlier structural cue before shortening the transition.
-    if not allow_hard_cut and source_duration_b + 1e-6 < transition_seconds:
+    if rescue_kind == "filtered_overlap" and source_duration_b + 1e-6 < transition_seconds:
         viable_entries = [
             candidate for candidate in track_b.entry_candidates
             if candidate.time_seconds <= max(0.0, track_b.duration_seconds - transition_seconds)
@@ -407,8 +454,10 @@ def build_last_resort_plan(
             "fallback_level": 5,
             "fallback_reason": reason,
             "rescue_transition_kind": rescue_kind,
-            "continuous_mix_required": not allow_hard_cut,
-            "transition_naturalness_profile": ("hard_cut" if allow_hard_cut else natural_profile),
+            "continuous_mix_required": rescue_kind == "filtered_overlap",
+            "transition_naturalness_profile": natural_profile,
+            "rescue_overlap_safe": overlap_safe,
+            "rescue_overlap_risks": list(overlap_risks),
             "rescue_duration_source": ("explicit_or_adaptive" if not allow_hard_cut else "hard_cut"),
         },
     )
@@ -445,7 +494,7 @@ def build_last_resort_plan(
                 "automatic_delivery": True,
                 "fallback_level": 5,
                 "technical_fallback_validation": True,
-                "continuous_mix_required": not allow_hard_cut,
+                "continuous_mix_required": rescue_kind == "filtered_overlap",
             },
             render_context=exact_context,
         ).selected
@@ -474,8 +523,10 @@ def build_last_resort_plan(
         "fallback_validation_pending": False,
         "fallback_validation_sample_rate": exact_context.sample_rate,
         "rescue_transition_kind": rescue_kind,
-        "continuous_mix_required": not allow_hard_cut,
-        "transition_naturalness_profile": ("hard_cut" if allow_hard_cut else natural_profile),
+        "continuous_mix_required": rescue_kind == "filtered_overlap",
+        "transition_naturalness_profile": natural_profile,
+        "rescue_overlap_safe": overlap_safe,
+        "rescue_overlap_risks": list(overlap_risks),
     }
     return verified
 
