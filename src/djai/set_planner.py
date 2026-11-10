@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, Sequence
 
 from .cache import AnalysisBatchStats, analyze_folder, analyze_tracks
 from .brain.set_state import SetState, build_set_state, next_track_context_score, set_story_report
+from .brain.timing import SetTimingIntent, build_timing_state
 from .brain.candidate_retrieval import CandidateRetrievalResult, retrieve_candidate_tracks
 from .brain.crowd_state import CrowdDirective, crowd_directive_from_payload
 from .brain.director import direct_set_intent, intent_track_score, set_director_report
@@ -1029,6 +1030,7 @@ def _choose_complete_move_with_lookahead(
     ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None,
     depth: int,
     crowd_directive: CrowdDirective | None = None,
+    timing_intent: SetTimingIntent | None = None,
 ) -> _LookaheadChoice | None:
     available = sorted(remaining)
     if end_index is not None and end_index in available and len(available) > 1:
@@ -1036,8 +1038,16 @@ def _choose_complete_move_with_lookahead(
     if not available:
         return None
 
-    progress = len(played_order) / max(1, len(analyses) - 1)
+    fallback_progress = len(played_order) / max(1, len(analyses) - 1)
+    timing_state = build_timing_state(
+        [analyses[index] for index in played_order],
+        played_plans,
+        intent=timing_intent,
+        fallback_progress=fallback_progress,
+    )
+    progress = timing_state.progress
     set_state = build_set_state([analyses[index] for index in played_order], played_plans)
+    set_state.elapsed_seconds = timing_state.elapsed_seconds
     width = min(len(available), config.lazy_candidate_width)
 
     while True:
@@ -1111,6 +1121,7 @@ def _choose_complete_move_with_lookahead(
                 ensure_pairs=ensure_pairs,
                 depth=depth - 1,
                 crowd_directive=crowd_directive,
+                timing_intent=timing_intent,
             )
             if future is not None:
                 discount = float(config.lookahead_discount)
@@ -1153,6 +1164,7 @@ def _complete_move_route_from_opener(
     headphones_config: AIHeadphonesConfig,
     listener: str | None = None,
     ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None = None,
+    timing_intent: SetTimingIntent | None = None,
 ) -> _CompleteMoveRoute:
     order = [opener]
     plans: list[TransitionPlan] = []
@@ -1200,6 +1212,7 @@ def _complete_move_route_from_opener(
             config=config,
             ensure_pairs=ensure_pairs,
             depth=initial_depth,
+            timing_intent=timing_intent,
         )
         if choice is None:
             return _CompleteMoveRoute(
@@ -1245,6 +1258,7 @@ def _complete_move_route_from_opener(
                 config=config,
                 ensure_pairs=ensure_pairs,
                 depth=provisional_budget.lookahead_target,
+                timing_intent=timing_intent,
             )
             if deeper is not None:
                 choice = deeper
@@ -1299,7 +1313,12 @@ def _complete_move_route_from_opener(
                 analyses=analyses,
                 set_state=current_set_state,
                 journey=journey,
-                progress=len(order) / max(1, len(analyses) - 1),
+                progress=build_timing_state(
+                    [analyses[index] for index in order],
+                    plans,
+                    intent=timing_intent,
+                    fallback_progress=len(order) / max(1, len(analyses) - 1),
+                ).progress,
                 listener=listener,
                 config=decision_headphones_config,
             )
@@ -1405,6 +1424,7 @@ def build_complete_move_route(
     headphones_config: AIHeadphonesConfig | None = None,
     listener: str | None = None,
     ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None = None,
+    timing_intent: SetTimingIntent | None = None,
 ) -> _CompleteMoveRoute:
     """Build a route with lazy retrieval and 2-3 complete-move lookahead.
 
@@ -1457,6 +1477,7 @@ def build_complete_move_route(
             headphones_config=scouting_headphones,
             listener=listener,
             ensure_pairs=ensure_pairs,
+            timing_intent=timing_intent,
         )
         for opener in openers
     ]
@@ -1485,6 +1506,7 @@ def build_complete_move_route(
         headphones_config=headphones_cfg,
         listener=listener,
         ensure_pairs=ensure_pairs,
+        timing_intent=timing_intent,
     )
     return committed if committed.completed else best_scout
 
@@ -2991,6 +3013,7 @@ def make_set_plan(
     quality_loop: QualityLoopConfig | None = None,
     automatic_delivery: bool = True,
     listener: str = "local",
+    timing_intent: SetTimingIntent | None = None,
 ) -> SetPlan:
     journey = normalize_journey(journey)
     listener_profile = get_listener_profile(listener)
@@ -3067,6 +3090,7 @@ def make_set_plan(
                 headphones_config=headphones_cfg,
                 listener=listener,
                 ensure_pairs=_ensure_graph_pairs if lazy_graph_authority else None,
+                timing_intent=timing_intent,
             )
             complete_move_runs.append(route)
             if complete_move_cfg.mode == "move_authoritative" and route.completed:
@@ -3309,6 +3333,13 @@ def make_set_plan(
             else None
         ),
     }
+    final_timing_state = build_timing_state(
+        [analyses[index] for index in order],
+        [edge.plan for edge in transitions],
+        intent=timing_intent,
+        projected_total_seconds=estimate_set_duration(order, analyses, transitions),
+        fallback_progress=1.0,
+    )
     plan = SetPlan(
         plan_id=plan_id,
         tracks=analyses,
@@ -3328,6 +3359,11 @@ def make_set_plan(
             "tempo_policy": tempo_policy,
             "preferred_style": preferred_style,
             "journey": journey,
+            "timing": {
+                "intent": (timing_intent or SetTimingIntent()).normalized().to_dict(),
+                "state": final_timing_state.to_dict(),
+                "time_aware_progress": timing_intent is not None and timing_intent.target_duration_seconds is not None,
+            },
             "journey_arc": journey_metadata(order, analyses, journey=journey),
             "professional_story": set_story_report(order, analyses, journey=journey),
             "set_director_story": set_director_report(order, analyses, transitions, journey=journey),
