@@ -41,3 +41,37 @@ NOW
 ## Production evidence is separate from code completion
 
 SAUND.AI 1.0 does not fabricate trained checkpoints or benchmark wins. External training data is production-default-deny. DJ-specific heads may remain shadow until real rights-cleared held-out and blind Arena evidence satisfies governance. Hard audio safety remains non-overridable at every authority level.
+
+
+## Phase 13 — Time/Event-Aware Set Intelligence
+
+Implemented on the current architecture as an optional event-timing layer. Set planning can now receive a target duration, peak fraction, closing window and ending-energy intent. Complete-move search derives journey progress from the performance clock when a target duration is present, while retaining historical track-position progress when it is absent.
+
+Timing authority is bounded: it may bias route/move ranking for duration overshoot and closing-energy fit, but it cannot bypass transition feasibility, rendered-audio judgement, execution signatures or hard safety.
+
+Set metadata records the normalized timing intent and final timing state, including elapsed/projected time, target duration, planned peak, remaining time, closing-window state, duration error and timing urgency.
+
+## Phase 14 — Live Autonomous Performance Hardening
+
+The existing NOW/NEXT/FUTURE architecture is hardened rather than replaced.
+
+- NOW and NEXT remain immutable.
+- FUTURE replans carry a schedule generation and a monotonic planning deadline.
+- Late or stale work is discarded while the prepared schedule continues.
+- Horizon telemetry exposes prepared hot-backup and emergency programs.
+- Safety telemetry now treats audio underruns, slow prefetch and storage stalls as execution barriers in addition to CPU, buffer and deadline pressure.
+- Executor status exposes the active safety telemetry and backup readiness.
+
+The release invariant is that planning failure or lateness must not force advancement into unsafe material.
+
+## Phase 15 — Venue / Production Reliability
+
+Venue reliability is implemented as a separate non-musical layer.
+
+- VenueWatchdog evaluates heartbeat, audio-progress, buffer and CPU state without choosing music.
+- SessionJournal atomically records safe execution boundaries for restart recovery.
+- Recovery semantics distinguish NOW, NEXT and FUTURE asset failures.
+- Runtime journals intentionally promise safe-boundary recovery, not sample-exact restoration of arbitrary DSP state.
+- Asset-health helpers classify missing, unreadable and empty files without giving them musical authority.
+
+The deterministic Executor can optionally persist a safe-boundary journal through DJAI_SESSION_JOURNAL. External supervision can consume the same recovery semantics without sharing the DJ Executive's musical decision logic.
