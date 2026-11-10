@@ -98,6 +98,10 @@ class SetPlanRequest(BaseModel):
     tempo_policy: Literal["safe", "stretch", "cut"] = "safe"
     preferred_style: Literal["auto", "safe", "creative", "emergency"] = "auto"
     journey: JourneyName = "balanced"
+    target_duration_seconds: float | None = Field(default=None, ge=300.0, le=43200.0)
+    peak_fraction: float = Field(default=0.65, ge=0.15, le=0.95)
+    closing_window_seconds: float = Field(default=600.0, ge=30.0, le=7200.0)
+    ending_energy: float = Field(default=0.45, ge=0.0, le=1.0)
     start_track: str | None = None
     end_track: str | None = None
     minimum_body_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
@@ -120,6 +124,10 @@ class SetPlanRequest(BaseModel):
 class AutomaticSetRequest(BaseModel):
     track_paths: list[str] = Field(min_length=2)
     journey: JourneyName = "balanced"
+    target_duration_seconds: float | None = Field(default=None, ge=300.0, le=43200.0)
+    peak_fraction: float = Field(default=0.65, ge=0.15, le=0.95)
+    closing_window_seconds: float = Field(default=600.0, ge=30.0, le=7200.0)
+    ending_energy: float = Field(default=0.45, ge=0.0, le=1.0)
     listener: str = "local"
     output_name: str = "djai-set.wav"
     minimum_body_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
