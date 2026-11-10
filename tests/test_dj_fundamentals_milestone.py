@@ -160,3 +160,55 @@ def test_two_strong_vocals_do_not_get_full_record_rescue_overlap(
 
     assert plan.metadata["rescue_transition_kind"] == "structural_reset"
     assert any("lead-vocal" in reason for reason in plan.metadata["rescue_overlap_risks"])
+
+
+
+def _kick_track(seconds: float, bpm: float, sample_rate: int) -> np.ndarray:
+    frames = int(round(seconds * sample_rate))
+    mono = np.zeros(frames, dtype=np.float32)
+    beat = max(1, int(round(sample_rate * 60.0 / bpm)))
+    decay = np.exp(-np.arange(min(900, frames), dtype=np.float32) / 120.0)
+    for start in range(0, frames, beat):
+        end = min(frames, start + decay.size)
+        mono[start:end] += 0.65 * decay[: end - start]
+    return np.stack([mono, mono])
+
+
+def test_wide_bpm_structural_reset_executes_through_production_renderer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from djai.renderer import render_transition_audio_from_loaded
+
+    monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
+    track_a = _track(tmp_path, "render-slow", 92.0)
+    track_b = _track(tmp_path, "render-fast", 148.0)
+    track_a.duration_seconds = 20.0
+    track_b.duration_seconds = 20.0
+    for candidate in track_a.exit_candidates:
+        candidate.time_seconds = 10.0
+        candidate.available_bars = 4
+    for candidate in track_b.entry_candidates:
+        candidate.time_seconds = 3.0
+        candidate.available_bars = 4
+
+    plan = build_last_resort_plan(
+        track_a,
+        track_b,
+        preferred_exit_time=10.0,
+    )
+    assert plan.technique == "echo_out_drop_in"
+
+    sample_rate = 8_000
+    rendered = render_transition_audio_from_loaded(
+        _kick_track(20.0, 92.0, sample_rate),
+        _kick_track(20.0, 148.0, sample_rate),
+        plan,
+        sample_rate=sample_rate,
+        pre_roll_seconds=1.0,
+        post_roll_seconds=1.0,
+    )
+
+    assert rendered.transition.shape[-1] == int(round(plan.transition_seconds * sample_rate))
+    assert np.isfinite(rendered.transition).all()
+    assert float(np.max(np.abs(rendered.transition))) <= 0.986
