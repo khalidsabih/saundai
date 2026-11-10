@@ -293,8 +293,14 @@ def _tempo_context(
 ) -> tuple[bool, float, float, list[str]]:
     matched_b, difference, rate_b = match_bpm(effective_bpm_a, track_b.bpm)
     warnings: list[str] = []
-    meter_ok = track_a.time_signature == track_b.time_signature
-    grid_ok = breakdown.beat_grid >= 0.38 and not track_b.variable_tempo
+    meter_a = int(track_a.time_signature or 0)
+    meter_b = int(track_b.time_signature or 0)
+    meter_ok = meter_a in {3, 4, 6} and meter_a == meter_b
+    grid_ok = (
+        breakdown.beat_grid >= 0.38
+        and not track_a.variable_tempo
+        and not track_b.variable_tempo
+    )
     if tempo_policy == "safe":
         range_ok = SAFE_RATE_RANGE[0] <= rate_b <= SAFE_RATE_RANGE[1]
         blend_allowed = difference <= SAFE_TEMPO_DIFFERENCE and range_ok and meter_ok and grid_ok
@@ -305,7 +311,9 @@ def _tempo_context(
         blend_allowed = False
 
     if not meter_ok:
-        warnings.append("The tracks use different estimated meters, so transparent beatmatching is disabled.")
+        warnings.append("The tracks use unknown or incompatible estimated meters, so transparent beatmatching is disabled.")
+    if track_a.variable_tempo:
+        warnings.append("The outgoing track has variable tempo, so a constant beatmatched blend is unsafe.")
     if track_b.variable_tempo:
         warnings.append("The incoming track has variable tempo, so a constant beatmatched blend is unsafe.")
     if breakdown.beat_grid < 0.38:
@@ -510,7 +518,7 @@ def assess_transition(
                 actual_rate_b = 1.0
                 effective_b = track_b.bpm
 
-            beats_per_bar = max(3, track_a.time_signature)
+            beats_per_bar = track_a.time_signature if track_a.time_signature in {3, 4, 6} else 4
             transition_seconds = bars * beats_per_bar * 60.0 / max(effective_a, 1.0)
             source_duration_a = transition_seconds * render_rate_a
             if technique == "echo_out_drop_in":
