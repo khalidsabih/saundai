@@ -190,6 +190,10 @@ def decide_deck_performance(
     entry_candidate: TransitionCandidate | None = None,
 ) -> DeckPerformanceDecision:
     phase_nudge = _phase_nudge(track_a, track_b, plan)
+    phase_integrity = _phase_integrity_profile(
+        track_a, track_b, plan, phase_nudge_seconds_b=phase_nudge
+    )
+    phase_source_delta = float(phase_integrity.get("source_delta_seconds_b", 0.0) or 0.0)
     start_rate = max(0.01, float(plan.render_rate_b))
     native_rate = 1.0
     native_bpm = float(track_b.bpm)
@@ -253,7 +257,7 @@ def decide_deck_performance(
     release_source = release_seconds * average_rate
 
     adjusted_start = max(0.0, plan.entry_time_b + phase_nudge)
-    transition_end = adjusted_start + plan.source_duration_b
+    transition_end = adjusted_start + plan.source_duration_b + phase_source_delta
     available_source = max(0.0, track_b.duration_seconds - transition_end - 0.25)
     if available_source + 1e-6 < release_source:
         if available_source < beats_per_bar * 60.0 / max(native_bpm, 1.0) * 2.0:
@@ -291,6 +295,12 @@ def apply_deck_performance(
 ) -> TransitionPlan:
     decision = decide_deck_performance(track_a, track_b, plan, entry_candidate=entry_candidate)
     plan.phase_nudge_seconds_b = decision.phase_nudge_seconds_b
+    phase_integrity = _phase_integrity_profile(
+        track_a, track_b, plan, phase_nudge_seconds_b=decision.phase_nudge_seconds_b
+    )
+    phase_source_delta = float(phase_integrity.get("source_delta_seconds_b", 0.0) or 0.0)
+    if bool(phase_integrity.get("safe", True)) and abs(phase_source_delta) > 1e-9:
+        plan.source_duration_b = round(max(0.0, plan.source_duration_b + phase_source_delta), 6)
     plan.tempo_release_seconds_b = decision.tempo_release_seconds_b
     plan.tempo_release_source_duration_b = decision.tempo_release_source_duration_b
     plan.tempo_release_start_rate_b = decision.tempo_release_start_rate_b
@@ -314,13 +324,33 @@ def apply_deck_performance(
             "pitch_preserving_time_stretch": True,
             "tempo_owner_before": "deck_a",
             "tempo_owner_after": "deck_b",
-            "policy": "beat_phase_lock_then_native_tempo_release",
+            "policy": "continuous_beat_phase_lock_then_native_tempo_release",
+            "phase_integrity": phase_integrity,
             "musical_timeline_version": timeline_b.version,
             "timeline_fingerprint": timeline_b.fingerprint,
             "entry_phrase_id": entry_phrase.phrase_id if entry_phrase is not None else None,
             "entry_phrase_role": entry_phrase.role if entry_phrase is not None else "unknown",
         },
     }
+    if plan.beatmatched and not bool(phase_integrity.get("safe", True)):
+        plan.requires_confirmation = True
+        plan.warning = (
+            "Continuous beat-phase lock is outside the bounded correction envelope; "
+            "automatic delivery should replan or use a structural reset."
+        )
+        plan.rationale = [
+            *plan.rationale,
+            "Beat Integrity rejected this long rhythmic overlap because residual phase error remains too large.",
+        ]
+    elif plan.beatmatched and bool(phase_integrity.get("enabled", False)):
+        plan.rationale = [
+            *plan.rationale,
+            (
+                f"Beat Integrity applies bounded continuous correction across the overlap "
+                f"(predicted residual <= {float(phase_integrity.get('max_residual_ms', 0.0)):.1f} ms)."
+            ),
+        ]
+
     if decision.tempo_release_seconds_b > 0.0:
         plan.rationale = [
             *plan.rationale,
@@ -344,6 +374,9 @@ def deck_runtime_status() -> dict[str, object]:
         "tempo_release_enabled": _enabled("DJAI_DECK_TEMPO_RELEASE", "1"),
         "phase_nudge_enabled": _enabled("DJAI_DECK_PHASE_NUDGE", "1"),
         "phase_nudge_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_NUDGE_MAX_MS", "90")), 10.0, 140.0), 1),
+        "phase_warp_enabled": _enabled("DJAI_DECK_PHASE_WARP", "1"),
+        "phase_warp_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0), 1),
+        "phase_residual_max_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0), 1),
         "tempo_release_max_delta": round(_clamp(float(os.environ.get("DJAI_DECK_TEMPO_RELEASE_MAX", "0.10")), 0.02, 0.15), 4),
         "pitch_preserving": True,
         "tempo_ownership_transfer": True,
