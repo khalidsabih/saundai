@@ -60,8 +60,10 @@ from .training.teacher_dataset import (
     TeacherScenario,
     append_teacher_judgment,
     load_scenarios,
+    scenarios_from_rehearsal_evidence,
     teacher_prompt_payload,
     validate_teacher_judgment,
+    write_scenarios,
 )
 from .environment import current_environment
 
@@ -785,6 +787,11 @@ def build_parser() -> argparse.ArgumentParser:
     teacher_status = sub.add_parser("teacher-status", help="Show provider-neutral LLM teacher-data status and governance")
     teacher_status.add_argument("--workspace")
 
+    teacher_scenarios = sub.add_parser("teacher-scenarios", help="Generate score-blind LLM teacher scenarios from rehearsal evidence")
+    teacher_scenarios.add_argument("evidence", help="Runtime rehearsal candidate-evidence JSONL")
+    teacher_scenarios.add_argument("-o", "--output", default="datasets/generated/teacher/scenarios.jsonl")
+    teacher_scenarios.add_argument("--pairs-per-event", type=int, default=3)
+
     teacher_prompt = sub.add_parser("teacher-prompt", help="Render a provider-neutral prompt payload for one teacher scenario")
     teacher_prompt.add_argument("scenarios", help="Teacher scenarios JSONL")
     teacher_prompt.add_argument("scenario_id")
@@ -1088,6 +1095,14 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "teacher-status":
             workspace = args.workspace or current_environment().workspace
             _write_json(teacher_data_status(workspace), None)
+            raise SystemExit(0)
+        if args.command == "teacher-scenarios":
+            scenarios = scenarios_from_rehearsal_evidence(
+                args.evidence,
+                maximum_pairs_per_event=args.pairs_per_event,
+            )
+            output = write_scenarios(args.output, scenarios)
+            _write_json({"scenarios": str(output), "scenario_count": len(scenarios)}, None)
             raise SystemExit(0)
         if args.command == "teacher-prompt":
             rows = load_scenarios(args.scenarios)
