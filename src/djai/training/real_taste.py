@@ -238,6 +238,16 @@ def train_real_taste_models(
             initial_model_path=initial_model,
         )
         human_payload = json.loads(trained_human.read_text(encoding="utf-8"))
+        would_be_authority = float(human_payload.get("authority", 0.0) or 0.0)
+        acceptability = human_payload.get("acceptability")
+        would_be_acceptability_authority = (
+            float(acceptability.get("authority", 0.0) or 0.0)
+            if isinstance(acceptability, dict)
+            else 0.0
+        )
+        if isinstance(acceptability, dict):
+            acceptability["would_be_authority"] = round(would_be_acceptability_authority, 6)
+            acceptability["authority"] = 0.0
         human_payload.update(
             {
                 "model_id": f"global-taste-real-{dataset_id}",
@@ -256,6 +266,7 @@ def train_real_taste_models(
                 "human_fit_examples": split["fit_examples"],
                 "human_heldout_examples": split["heldout_examples"],
                 "shadow_only": True,
+                "would_be_authority": round(would_be_authority, 6),
                 "authority": 0.0,
                 "promoted_to_live": False,
                 "safety_contract": "Taste model reranks safe candidates only. Hard technical and musical gates remain authoritative.",
