@@ -7,7 +7,7 @@ from typing import Any
 
 from .model_registry import checkpoint_fingerprint, load_model_registry
 
-MODEL_GOVERNANCE_VERSION = "1.0"
+MODEL_GOVERNANCE_VERSION = "1.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +78,19 @@ def audit_model_governance(registry_path: str | Path | None = None) -> Governanc
             blockers.append(f"{prefix} fewer than 50 held-out validation examples")
         if float(metrics.get("validation_accuracy", 0.0) or 0.0) < 0.62:
             blockers.append(f"{prefix} held-out validation accuracy is below 62%")
-        arena = dict(metadata.get("arena_report", {})) if isinstance(metadata.get("arena_report"), dict) else {}
-        if not bool(arena.get("deployment_ready", False)):
-            blockers.append(f"{prefix} blind Arena evidence is not deployment-ready")
+        release_gate = (
+            dict(metadata.get("human_release_gate", {}))
+            if isinstance(metadata.get("human_release_gate"), dict)
+            else {}
+        )
+        if str(release_gate.get("release_gate_version") or "") != "1.0":
+            blockers.append(f"{prefix} Phase 11 human release-gate evidence is missing")
+        elif not bool(release_gate.get("benchmark_locked", False)):
+            blockers.append(f"{prefix} human release benchmark is not locked")
+        elif not release_gate.get("benchmark_id") or not release_gate.get("locked_sha256"):
+            blockers.append(f"{prefix} human release benchmark identity is incomplete")
+        elif not bool(release_gate.get("deployment_ready", False)):
+            blockers.append(f"{prefix} human release gate is not deployment-ready")
         if not bool(metadata.get("governance_approved", False)):
             blockers.append(f"{prefix} governance approval is missing")
 
@@ -97,4 +107,12 @@ def load_arena_evidence(path: str | Path) -> dict[str, Any]:
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Arena report must contain a JSON object.")
+    return payload
+
+
+
+def load_human_release_evidence(path: str | Path) -> dict[str, Any]:
+    payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Human release-gate report must contain a JSON object.")
     return payload
