@@ -141,20 +141,43 @@ def validate_real_music_library(
     for journey in normalized_journeys:
         run_dir = destination / journey
         run_dir.mkdir(parents=True, exist_ok=True)
-        plan = plan_folder(
-            music,
-            recursive=recursive,
-            journey=journey,
-            measure_transitions=True,
-            measurement_top_k=measurement_top_k,
-            measurement_log=str(run_dir / "automatic-measurements.jsonl"),
-            automatic_delivery=True,
-            listener=listener,
-            use_cache=use_cache,
-            analysis_workers=analysis_workers,
-            graph_workers=graph_workers,
-            timing_intent=timing_intent,
-        )
+        try:
+            plan = plan_folder(
+                music,
+                recursive=recursive,
+                journey=journey,
+                measure_transitions=True,
+                measurement_top_k=measurement_top_k,
+                measurement_log=str(run_dir / "automatic-measurements.jsonl"),
+                automatic_delivery=True,
+                listener=listener,
+                use_cache=use_cache,
+                analysis_workers=analysis_workers,
+                graph_workers=graph_workers,
+                timing_intent=timing_intent,
+            )
+        except Exception as exc:
+            failure = {
+                "journey": journey,
+                "stage": "planning",
+                "planning_ready": False,
+                "render_requested": bool(render),
+                "render_passed": False if render else None,
+                "rehearsal_ready": False,
+                "hard_failure_count": 1,
+                "fallback_transition_count": 0,
+                "warning_count": 0,
+                "warnings": [],
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            (run_dir / "failure.json").write_text(
+                json.dumps(failure, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            runs.append(failure)
+            continue
+
         plan_path = save_set_plan(plan, run_dir / "set-plan.json")
         summary = summarize_real_set_plan(plan)
         summary["plan_path"] = str(plan_path.relative_to(root)) if plan_path.is_relative_to(root) else str(plan_path)
@@ -164,16 +187,21 @@ def validate_real_music_library(
         summary["render_report"] = None
 
         if render:
-            audio_path, report_path = render_set(
-                plan,
-                run_dir / "full-set.wav",
-                report_path=run_dir / "render-report.json",
-            )
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            verification = dict(dict(report.get("render", {})).get("final_transition_verification", {}) or {})
-            summary["render_passed"] = bool(verification.get("passed", False))
-            summary["render_output"] = str(audio_path.relative_to(root)) if audio_path.is_relative_to(root) else str(audio_path)
-            summary["render_report"] = str(report_path.relative_to(root)) if report_path.is_relative_to(root) else str(report_path)
+            try:
+                audio_path, report_path = render_set(
+                    plan,
+                    run_dir / "full-set.wav",
+                    report_path=run_dir / "render-report.json",
+                )
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                verification = dict(dict(report.get("render", {})).get("final_transition_verification", {}) or {})
+                summary["render_passed"] = bool(verification.get("passed", False))
+                summary["render_output"] = str(audio_path.relative_to(root)) if audio_path.is_relative_to(root) else str(audio_path)
+                summary["render_report"] = str(report_path.relative_to(root)) if report_path.is_relative_to(root) else str(report_path)
+            except Exception as exc:
+                summary["render_passed"] = False
+                summary["render_error_type"] = type(exc).__name__
+                summary["render_error"] = str(exc)
 
         summary["rehearsal_ready"] = bool(
             summary["planning_ready"] and (summary["render_passed"] is True if render else True)
