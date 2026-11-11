@@ -1048,3 +1048,42 @@ export type ReleaseReadiness = {
     hard_audio_safety_authoritative: boolean;
   };
 };
+
+export type Phase16ValidationStatus = {
+  available: boolean;
+  schema_version?: string;
+  phase: 16;
+  name: string;
+  report_path?: string;
+  journeys?: string[];
+  render_requested?: boolean;
+  worker_policy?: {
+    analysis_workers: number;
+    graph_workers: number;
+    default_safe_serial: boolean;
+  };
+  summary: {
+    run_count: number;
+    planning_ready_runs: number;
+    rehearsal_ready_runs: number;
+    hard_failure_count: number;
+    fallback_transition_count: number;
+    all_planning_ready: boolean;
+    all_rehearsal_ready: boolean;
+    phase16_passed: boolean;
+  } | null;
+  runs: Array<{
+    journey: string;
+    planning_ready?: boolean;
+    rehearsal_ready?: boolean;
+    render_passed?: boolean | null;
+    hard_failure_count?: number;
+    fallback_transition_count?: number;
+    warning_count?: number;
+    error_type?: string;
+    error?: string;
+    quality_pass_rate?: number | null;
+    mean_measured_score?: number | null;
+  }>;
+  error?: string;
+};
