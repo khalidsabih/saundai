@@ -119,6 +119,10 @@ export function FinishedSetPlayer({
               const edge = index < result.plan.transitions.length ? result.plan.transitions[index] : null;
               const fallback = Boolean(edge && Number(edge.plan.fallback_level ?? 0) > 0);
               const measured = edge?.plan.measured_score ?? edge?.plan.measurement?.overall ?? null;
+              const neural = edge?.plan.metadata?.neural_next_track as Record<string, unknown> | undefined;
+              const neuralAvailable = Boolean(neural?.available);
+              const neuralScore = Number(neural?.score ?? 0.5);
+              const neuralAuthority = Number(neural?.authority ?? 0);
               return (
                 <article key={track.path} className={fallback ? "has-fallback" : ""}>
                   <div className="set-review__track">
@@ -130,6 +134,9 @@ export function FinishedSetPlayer({
                       <span>{fallback ? "RECOVERY" : "REHEARSED"}</span>
                       <strong>{edge.plan.technique.replaceAll("_", " ")}</strong>
                       <small>{measured !== null ? `${Math.round(Number(measured) * 100)}% quality` : humanQuality(edge.quality)}{fallback ? " · fallback" : ""}</small>
+                      {neuralAvailable && (
+                        <small className="set-review__shadow">AI shadow {Math.round(neuralScore * 100)}% · authority {Math.round(neuralAuthority * 100)}%</small>
+                      )}
                       <div className="set-review__feedback" aria-label={"Feedback for transition " + (index + 1)}>
                         <button
                           type="button"
