@@ -170,3 +170,52 @@ config/research-synthetic-models/
 ```
 
 It remains `shadow_only=true`, carries `authority=0.0`, and is not installed into the live model registry. Synthetic supervision may bootstrap structure and set-state reasoning, but human preference fine-tuning and held-out human evaluation remain required before any authority increase.
+
+
+## Phase 16 — Real-music validation
+
+Phase 16 validates the actual SAUND planning and rendering path on a local music library before any research-synthetic model receives live authority.
+
+Run one journey:
+
+```bash
+./scripts/saund.sh phase16-validate-real /path/to/music --journey build
+```
+
+Validate multiple set intentions against the same crate:
+
+```bash
+./scripts/saund.sh phase16-validate-real /path/to/music \
+  --journey warmup \
+  --journey build \
+  --journey peak \
+  --target-duration-seconds 5400
+```
+
+For the strongest rehearsal gate, render every validation set:
+
+```bash
+./scripts/saund.sh phase16-validate-real /path/to/music \
+  --journey balanced \
+  --journey build \
+  --render
+```
+
+Outputs are written beneath:
+
+```text
+output/phase16-real-music/
+```
+
+Each journey receives its own immutable set plan, measurement log, and optional full-set render/report. The aggregate `phase16-report.json` records:
+
+- planning/readiness state
+- transition quality-gate coverage and pass rate
+- hard rendered-audio failures
+- fallback transition count
+- replanning count
+- timing target and duration error
+- full-set benchmark evidence
+- final render verification when `--render` is enabled
+
+Phase 16 does not install or promote the research-synthetic MLP. Learned model authority remains zero. The purpose is to establish that the real deterministic/rehearsed SAUND pipeline is technically usable on the target library before Phase 17 evaluates learned ranking on compatible real next-track scenarios.
