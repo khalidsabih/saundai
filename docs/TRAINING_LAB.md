@@ -130,3 +130,43 @@ Hard rendered-audio safety remains authoritative for every mode and cannot be ov
 ## SAUND.AI 1.1.2 responsive blind generation
 
 Blind-pair generation reuses `.djai-cache/tracks`, the same canonical analysis cache used by normal set planning. If both songs have already been through Create Set, the Lab should report two analysis cache hits instead of re-running full track analysis. The Lab shows an elapsed render indicator while candidate rehearsal/measurement/preview rendering is still synchronous. The listening-session response includes stage timings and cache-hit counts for latency diagnosis.
+
+
+## Research-synthetic pretraining
+
+Research-backed synthetic corpora are imported through a separate research-only lane. They never claim human preference, production authority, or rights-cleared source audio.
+
+Validate the unpacked corpus first:
+
+```bash
+./scripts/saund.sh research-synthetic-validate datasets/generated/research-synthetic-v1
+```
+
+Freeze it into a content-addressed snapshot with grouped train/validation/test splits:
+
+```bash
+./scripts/saund.sh research-synthetic-import datasets/generated/research-synthetic-v1 --name research-synthetic-v1
+./scripts/saund.sh research-synthetic-status
+```
+
+The importer converts the five source tasks into model-ready files under:
+
+```text
+datasets/research-synthetic/<dataset-id>/
+```
+
+The Phase 13 time-aware examples become grouped `next-track.jsonl` rows. Every candidate from one source scenario shares the same group and split so candidate-level leakage cannot cross train/validation/test.
+
+Train the research-only Phase 13 shadow next-track head with:
+
+```bash
+./scripts/saund.sh research-synthetic-train
+```
+
+The resulting checkpoint is written under:
+
+```text
+config/research-synthetic-models/
+```
+
+It remains `shadow_only=true`, carries `authority=0.0`, and is not installed into the live model registry. Synthetic supervision may bootstrap structure and set-state reasoning, but human preference fine-tuning and held-out human evaluation remain required before any authority increase.

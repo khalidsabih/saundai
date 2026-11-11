@@ -37,6 +37,12 @@ from .intelligence.cue_detr import predict_cue_points, cue_model_fingerprint
 from .training.provenance import audit_dataset_registry
 from .training.curriculum import training_curriculum
 from .training.synthetic_failures import generate_synthetic_failure_set
+from .training.research_synthetic import (
+    create_research_synthetic_snapshot,
+    research_synthetic_status,
+    train_research_synthetic_shadow,
+    validate_research_synthetic_dataset,
+)
 from .training.expert_dataset import expert_dataset_stats
 from .evaluation.arena import ArenaVote, append_arena_vote, arena_report
 from .evaluation.human_release_gate import (
@@ -886,6 +892,27 @@ def build_parser() -> argparse.ArgumentParser:
     teacher_hardneg.add_argument("consensus", help="Teacher consensus JSONL")
     teacher_hardneg.add_argument("-o", "--output", default="datasets/generated/teacher/hard-negatives.jsonl")
 
+    research_validate = sub.add_parser(
+        "research-synthetic-validate",
+        help="Validate a research-backed synthetic corpus and its provenance contract",
+    )
+    research_validate.add_argument("source_dir")
+    research_import = sub.add_parser(
+        "research-synthetic-import",
+        help="Freeze a validated research-synthetic corpus into model-ready grouped datasets",
+    )
+    research_import.add_argument("source_dir")
+    research_import.add_argument("--name", default="research-synthetic-v1")
+    sub.add_parser(
+        "research-synthetic-status",
+        help="Show the latest imported research-synthetic training snapshot",
+    )
+    research_train = sub.add_parser(
+        "research-synthetic-train",
+        help="Train a research-only shadow next-track head from the imported synthetic corpus",
+    )
+    research_train.add_argument("--dataset-id")
+
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
     synthetic.add_argument("source")
     synthetic.add_argument("-o", "--output-dir", default="datasets/generated/synthetic-failures")
@@ -1336,6 +1363,30 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "teacher-hard-negatives":
             output = build_hard_negative_queue(args.consensus, args.output)
             _write_json({"hard_negatives": str(output)}, None)
+            raise SystemExit(0)
+        if args.command == "research-synthetic-validate":
+            _write_json(validate_research_synthetic_dataset(args.source_dir).to_dict(), None)
+            raise SystemExit(0)
+        if args.command == "research-synthetic-import":
+            snapshot = create_research_synthetic_snapshot(
+                current_environment().workspace,
+                args.source_dir,
+                name=args.name,
+            )
+            manifest = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
+            _write_json({"dataset_path": str(snapshot), "manifest": manifest}, None)
+            raise SystemExit(0)
+        if args.command == "research-synthetic-status":
+            _write_json(research_synthetic_status(current_environment().workspace), None)
+            raise SystemExit(0)
+        if args.command == "research-synthetic-train":
+            _write_json(
+                train_research_synthetic_shadow(
+                    current_environment().workspace,
+                    dataset_id=args.dataset_id,
+                ),
+                None,
+            )
             raise SystemExit(0)
         if args.command == "synthetic-failures":
             manifest = generate_synthetic_failure_set(args.source, args.output_dir)
