@@ -932,6 +932,8 @@ def build_parser() -> argparse.ArgumentParser:
     phase16.add_argument("--closing-window-seconds", type=float, default=600.0)
     phase16.add_argument("--ending-energy", type=float, default=0.45)
     phase16.add_argument("--measurement-top-k", type=int, default=4, choices=range(1, 17), metavar="1-16")
+    phase16.add_argument("--analysis-workers", type=int, default=1, help="Analysis workers; Phase 16 defaults to serial for reliability")
+    phase16.add_argument("--graph-workers", type=int, default=1, help="Graph workers; Phase 16 defaults to serial for reliability")
     phase16.add_argument("--no-cache", action="store_true")
     phase16.add_argument("--listener", default="local")
     phase16.add_argument("-o", "--output-dir", default="output/phase16-real-music")
@@ -1427,6 +1429,8 @@ def main(argv: list[str] | None = None) -> None:
                     measurement_top_k=args.measurement_top_k,
                     use_cache=not args.no_cache,
                     listener=args.listener,
+                    analysis_workers=args.analysis_workers,
+                    graph_workers=args.graph_workers,
                 ),
                 None,
             )
