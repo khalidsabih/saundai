@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -138,7 +139,15 @@ def validate_real_music_library(
     )
 
     runs: list[dict[str, Any]] = []
-    for journey in normalized_journeys:
+    total_runs = len(normalized_journeys)
+    print(
+        f"[phase16] starting real-music validation: journeys={normalized_journeys}, "
+        f"render={render}, analysis_workers={analysis_workers}, graph_workers={graph_workers}",
+        flush=True,
+    )
+    for run_index, journey in enumerate(normalized_journeys, start=1):
+        journey_started = time.monotonic()
+        print(f"[phase16] [{run_index}/{total_runs}] {journey}: planning started", flush=True)
         run_dir = destination / journey
         run_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -176,7 +185,20 @@ def validate_real_music_library(
                 encoding="utf-8",
             )
             runs.append(failure)
+            print(
+                f"[phase16] [{run_index}/{total_runs}] {journey}: planning FAILED after "
+                f"{time.monotonic() - journey_started:.1f}s: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
             continue
+
+        planning_elapsed = time.monotonic() - journey_started
+        print(
+            f"[phase16] [{run_index}/{total_runs}] {journey}: planning complete in "
+            f"{planning_elapsed:.1f}s; tracks={len(getattr(plan, 'tracks', []) or [])}, "
+            f"transitions={len(getattr(plan, 'transitions', []) or [])}",
+            flush=True,
+        )
 
         plan_path = save_set_plan(plan, run_dir / "set-plan.json")
         summary = summarize_real_set_plan(plan)
@@ -187,6 +209,8 @@ def validate_real_music_library(
         summary["render_report"] = None
 
         if render:
+            render_started = time.monotonic()
+            print(f"[phase16] [{run_index}/{total_runs}] {journey}: full-set render started", flush=True)
             try:
                 audio_path, report_path = render_set(
                     plan,
@@ -198,15 +222,31 @@ def validate_real_music_library(
                 summary["render_passed"] = bool(verification.get("passed", False))
                 summary["render_output"] = str(audio_path.relative_to(root)) if audio_path.is_relative_to(root) else str(audio_path)
                 summary["render_report"] = str(report_path.relative_to(root)) if report_path.is_relative_to(root) else str(report_path)
+                print(
+                    f"[phase16] [{run_index}/{total_runs}] {journey}: render complete in "
+                    f"{time.monotonic() - render_started:.1f}s; passed={summary['render_passed']}",
+                    flush=True,
+                )
             except Exception as exc:
                 summary["render_passed"] = False
                 summary["render_error_type"] = type(exc).__name__
                 summary["render_error"] = str(exc)
+                print(
+                    f"[phase16] [{run_index}/{total_runs}] {journey}: render FAILED after "
+                    f"{time.monotonic() - render_started:.1f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
 
         summary["rehearsal_ready"] = bool(
             summary["planning_ready"] and (summary["render_passed"] is True if render else True)
         )
         runs.append(summary)
+        print(
+            f"[phase16] [{run_index}/{total_runs}] {journey}: done; "
+            f"planning_ready={summary['planning_ready']}, rehearsal_ready={summary['rehearsal_ready']}, "
+            f"elapsed={time.monotonic() - journey_started:.1f}s",
+            flush=True,
+        )
 
     total_hard_failures = sum(int(item["hard_failure_count"]) for item in runs)
     total_fallbacks = sum(int(item["fallback_transition_count"]) for item in runs)
@@ -247,4 +287,10 @@ def validate_real_music_library(
     report_path = destination / "phase16-report.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     report["report_path"] = str(report_path.relative_to(root)) if report_path.is_relative_to(root) else str(report_path)
+    print(
+        f"[phase16] complete: passed={report['summary']['phase16_passed']}, "
+        f"planning_ready={report['summary']['planning_ready_runs']}/{report['summary']['run_count']}, "
+        f"rehearsal_ready={report['summary']['rehearsal_ready_runs']}/{report['summary']['run_count']}",
+        flush=True,
+    )
     return report
