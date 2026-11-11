@@ -48,6 +48,7 @@ export function FinishedSetPlayer({
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(" ");
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [transitionFeedback, setTransitionFeedback] = useState<Record<number, "like" | "dislike">>({});
 
   return (
     <main className="session-ready-shell">
@@ -129,6 +130,38 @@ export function FinishedSetPlayer({
                       <span>{fallback ? "RECOVERY" : "REHEARSED"}</span>
                       <strong>{edge.plan.technique.replaceAll("_", " ")}</strong>
                       <small>{measured !== null ? `${Math.round(Number(measured) * 100)}% quality` : humanQuality(edge.quality)}{fallback ? " · fallback" : ""}</small>
+                      <div className="set-review__feedback" aria-label={"Feedback for transition " + (index + 1)}>
+                        <button
+                          type="button"
+                          className={transitionFeedback[index] === "like" ? "is-selected" : ""}
+                          onClick={() => {
+                            setTransitionFeedback((current) => ({ ...current, [index]: "like" }));
+                            void sendFeedback({
+                              event: "transition_like",
+                              listener,
+                              planId: result.plan.plan_id,
+                              planPath: result.plan_path,
+                              transitionIndex: index,
+                              journey,
+                            }).catch(() => undefined);
+                          }}
+                        >Good</button>
+                        <button
+                          type="button"
+                          className={transitionFeedback[index] === "dislike" ? "is-selected" : ""}
+                          onClick={() => {
+                            setTransitionFeedback((current) => ({ ...current, [index]: "dislike" }));
+                            void sendFeedback({
+                              event: "transition_dislike",
+                              listener,
+                              planId: result.plan.plan_id,
+                              planPath: result.plan_path,
+                              transitionIndex: index,
+                              journey,
+                            }).catch(() => undefined);
+                          }}
+                        >Review</button>
+                      </div>
                     </div>
                   )}
                 </article>
