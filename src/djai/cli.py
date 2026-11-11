@@ -40,6 +40,7 @@ from .training.synthetic_failures import generate_synthetic_failure_set
 from .training.research_synthetic import (
     create_research_synthetic_snapshot,
     research_synthetic_status,
+    train_research_synthetic_shadow,
     validate_research_synthetic_dataset,
 )
 from .training.expert_dataset import expert_dataset_stats
@@ -906,6 +907,11 @@ def build_parser() -> argparse.ArgumentParser:
         "research-synthetic-status",
         help="Show the latest imported research-synthetic training snapshot",
     )
+    research_train = sub.add_parser(
+        "research-synthetic-train",
+        help="Train a research-only shadow next-track head from the imported synthetic corpus",
+    )
+    research_train.add_argument("--dataset-id")
 
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
     synthetic.add_argument("source")
@@ -1372,6 +1378,15 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(0)
         if args.command == "research-synthetic-status":
             _write_json(research_synthetic_status(current_environment().workspace), None)
+            raise SystemExit(0)
+        if args.command == "research-synthetic-train":
+            _write_json(
+                train_research_synthetic_shadow(
+                    current_environment().workspace,
+                    dataset_id=args.dataset_id,
+                ),
+                None,
+            )
             raise SystemExit(0)
         if args.command == "synthetic-failures":
             manifest = generate_synthetic_failure_set(args.source, args.output_dir)
