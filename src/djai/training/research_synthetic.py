@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .neural_heads import train_neural_head
+
 RESEARCH_SYNTHETIC_SCHEMA_VERSION = "1.0"
 RESEARCH_SYNTHETIC_IMPORT_VERSION = "1.0"
 
@@ -465,4 +467,78 @@ def research_synthetic_status(workspace: str | Path) -> dict[str, Any]:
         "dataset_id": dataset_id,
         "dataset_path": str(manifest_path.parent),
         "manifest": payload,
+    }
+
+
+def train_research_synthetic_shadow(
+    workspace: str | Path,
+    *,
+    dataset_id: str | None = None,
+) -> dict[str, Any]:
+    root = Path(workspace).expanduser().resolve()
+    dataset_root = root / "datasets" / "research-synthetic"
+    if dataset_id is None:
+        latest = dataset_root / "LATEST"
+        if not latest.is_file():
+            raise ValueError("No imported research synthetic snapshot is available.")
+        dataset_id = latest.read_text(encoding="utf-8").strip()
+    snapshot = dataset_root / str(dataset_id)
+    manifest_path = snapshot / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"Research synthetic snapshot not found: {dataset_id}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    policy = manifest.get("policy") if isinstance(manifest.get("policy"), Mapping) else {}
+    if not bool(policy.get("shadow_training_only", False)):
+        raise ValueError("Research synthetic snapshot is not marked shadow-training-only.")
+    if bool(policy.get("production_authority", False)):
+        raise ValueError("Research synthetic snapshot improperly carries production authority.")
+
+    next_track_dataset = snapshot / "next-track.jsonl"
+    if not next_track_dataset.is_file():
+        raise ValueError("Research synthetic snapshot is missing next-track training rows.")
+
+    model_root = root / "config" / "research-synthetic-models"
+    model_root.mkdir(parents=True, exist_ok=True)
+    output = model_root / f"next-track-{dataset_id}.json"
+    trained = train_neural_head(
+        "next_track",
+        next_track_dataset,
+        output,
+        require_rights_cleared=False,
+        iterations=900,
+        learning_rate=0.025,
+        l2=0.003,
+    )
+
+    payload = json.loads(trained.read_text(encoding="utf-8"))
+    payload.update(
+        {
+            "model_id": f"next-track-research-synthetic-{dataset_id}",
+            "learning_head": "next_track_policy",
+            "training_dataset_id": str(dataset_id),
+            "training_data_class": "research_synthetic_weak_supervision",
+            "shadow_only": True,
+            "authority": 0.0,
+            "promoted_to_live": False,
+            "human_preference": False,
+            "production_authority": False,
+            "rights_cleared_only": False,
+            "safety_contract": (
+                "Research synthetic supervision may shape a shadow next-track prior only; "
+                "hard feasibility, rendered validation, Executive authority, and human release "
+                "gates remain authoritative."
+            ),
+        }
+    )
+    trained.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (model_root / "NEXT_TRACK_RESEARCH_LATEST").write_text(trained.name + "\n", encoding="utf-8")
+    return {
+        "schema_version": RESEARCH_SYNTHETIC_IMPORT_VERSION,
+        "dataset_id": str(dataset_id),
+        "model_path": str(trained.relative_to(root)),
+        "task": "next_track",
+        "shadow_only": True,
+        "authority": 0.0,
+        "metrics": payload.get("metrics", {}),
     }
