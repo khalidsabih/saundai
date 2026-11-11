@@ -565,6 +565,46 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                   ))}
                 </div>
 
+                <section className="set-brief" aria-label="Set brief">
+                  <div className="set-brief__row">
+                    <span><small>DURATION</small><strong>{targetMinutes ? targetMinutes + " min" : "Use crate"}</strong></span>
+                    <div className="set-brief__choices">
+                      {[60, 90, 120].map((minutes) => (
+                        <button type="button" key={minutes} className={targetMinutes === minutes ? "is-selected" : ""} onClick={() => setTargetMinutes(minutes)}>{minutes}</button>
+                      ))}
+                      <button type="button" className={targetMinutes === null ? "is-selected" : ""} onClick={() => setTargetMinutes(null)}>Auto</button>
+                    </div>
+                  </div>
+                  <div className="set-brief__row">
+                    <span><small>ENDING</small><strong>{endingEnergy < 0.35 ? "Soft" : endingEnergy > 0.65 ? "Strong" : "Balanced"}</strong></span>
+                    <input aria-label="Ending energy" type="range" min="0" max="1" step="0.05" value={endingEnergy} onChange={(event) => setEndingEnergy(Number(event.target.value))} />
+                  </div>
+                  <button type="button" className="set-brief__details-toggle" onClick={() => setShowSetDetails((value) => !value)} aria-expanded={showSetDetails}>
+                    <span>Set details</span><strong>{showSetDetails ? "Hide" : "Show"}</strong>
+                  </button>
+                  {showSetDetails && (
+                    <div className="set-brief__details">
+                      <label><span>Peak timing <b>{Math.round(peakFraction * 100)}%</b></span><input type="range" min="0.15" max="0.95" step="0.05" value={peakFraction} onChange={(event) => setPeakFraction(Number(event.target.value))} /></label>
+                      <label><span>Closing window <b>{closingMinutes} min</b></span><input type="range" min="1" max="30" step="1" value={closingMinutes} onChange={(event) => setClosingMinutes(Number(event.target.value))} /></label>
+                    </div>
+                  )}
+                </section>
+
+                <section className={"crate-preflight " + (failedSelectedCount ? "is-blocked" : selectedReady ? "is-ready" : "")} aria-label="Crate preflight">
+                  <header><span>CRATE PREFLIGHT</span><strong>{selectedReady ? "Ready" : failedSelectedCount ? "Attention" : "Preparing"}</strong></header>
+                  <div className="crate-preflight__stats">
+                    <div><b>{selectedPaths.length}</b><small>selected</small></div>
+                    <div><b>{readySelectedCount}</b><small>ready</small></div>
+                    <div><b>{preparingSelectedCount}</b><small>preparing</small></div>
+                    <div><b>{failedSelectedCount}</b><small>blocked</small></div>
+                  </div>
+                  <p>{failedSelectedCount > 0
+                    ? "Remove or repair tracks that failed readiness before starting the session."
+                    : selectedReady
+                      ? "The selected crate is understood and ready for autonomous planning."
+                      : "SAUND can start once the selected crate is usable; background understanding may continue."}</p>
+                </section>
+
                 <div className="session-system" aria-label="Autonomous system state">
                   <div><span><i className="is-on" />Autonomous Executive</span><strong>ON</strong></div>
                   <div><span><i className="is-on" />AI Headphones</span><strong>ON</strong></div>
@@ -609,13 +649,23 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
               </section>
             )}
 
-            {error && (
-              <div className="autonomous-error" role="alert">
-                <Icon name="warning" />
-                <span><strong>SAUND could not continue.</strong><small>{error}</small></span>
-                <button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><Icon name="close" /></button>
-              </div>
-            )}
+            {error && (() => {
+              const failure = friendlyError(error);
+              return (
+                <div className="autonomous-error autonomous-error--safe" role="alert">
+                  <Icon name="shield" />
+                  <span>
+                    <strong>{failure.title}</strong>
+                    <small>{failure.detail}</small>
+                    <button type="button" className="autonomous-error__details" onClick={() => setShowTechnicalError((value) => !value)}>
+                      {showTechnicalError ? "Hide technical details" : "Show technical details"}
+                    </button>
+                    {showTechnicalError && <code>{failure.technical}</code>}
+                  </span>
+                  <button type="button" onClick={() => { setError(null); setShowTechnicalError(false); }} aria-label="Dismiss error"><Icon name="close" /></button>
+                </div>
+              );
+            })()}
           </div>
         </section>
       )}
