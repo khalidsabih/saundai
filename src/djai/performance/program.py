@@ -323,12 +323,24 @@ def compile_transition_program(plan: TransitionPlan) -> TransitionProgram:
             annotations["choreography"] = "drums first, musical body second, bass and vocal late for build payoff"
         annotations["transition_naturalness_profile"] = natural_profile
     elif technique == "echo_out_drop_in":
-        curves = {
-            "deck_a_gain": _smooth_out(0.04, 0.90),
-            "deck_b_gain": _smooth_in(0.80, 0.96),
-        }
+        loudness_safe_handoff = bool(plan.metadata.get("loudness_safe_handoff", False))
+        if loudness_safe_handoff:
+            curves = {
+                "deck_a_gain": _smooth_out(0.04, 0.84),
+                "deck_b_gain": _smooth_in(0.46, 0.82),
+            }
+            annotations["drop_target"] = 0.70
+            annotations["loudness_safe_handoff"] = True
+            annotations["choreography"] = (
+                "structural reset with earlier incoming ownership to preserve boundary loudness continuity"
+            )
+        else:
+            curves = {
+                "deck_a_gain": _smooth_out(0.04, 0.90),
+                "deck_b_gain": _smooth_in(0.80, 0.96),
+            }
+            annotations["drop_target"] = 0.82
         processors.append(ProgramProcessor(bus="deck_a", kind="echo", parameters={}))
-        annotations["drop_target"] = 0.82
     elif technique == "quick_cut":
         curves = {
             "deck_a_gain": _smooth_out(0.41, 0.59),
