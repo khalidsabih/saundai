@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .neural_heads import train_neural_head
-from .pairwise_ranker import train_pairwise_next_track_ranker
+from .pairwise_ranker import (
+    train_mlp_pairwise_next_track_ranker,
+    train_pairwise_next_track_ranker,
+)
 
 RESEARCH_SYNTHETIC_SCHEMA_VERSION = "1.0"
 RESEARCH_SYNTHETIC_IMPORT_VERSION = "1.0"
@@ -572,37 +575,87 @@ def train_research_synthetic_shadow(
         encoding="utf-8",
     )
 
+    mlp_output = model_root / f"next-track-mlp-pairwise-{dataset_id}.json"
+    mlp_trained = train_mlp_pairwise_next_track_ranker(
+        next_track_dataset,
+        mlp_output,
+        hidden_sizes=(64, 32),
+        epochs=120,
+        learning_rate=0.004,
+        l2=0.001,
+        seed=1337,
+    )
+    mlp_payload = json.loads(mlp_trained.read_text(encoding="utf-8"))
+    mlp_payload.update(
+        {
+            "model_id": f"next-track-research-synthetic-mlp-pairwise-{dataset_id}",
+            "learning_head": "next_track_policy",
+            "training_dataset_id": str(dataset_id),
+            "training_data_class": "research_synthetic_weak_supervision",
+            "trainer": "mlp_weighted_pairwise_ranknet",
+            "shadow_only": True,
+            "authority": 0.0,
+            "promoted_to_live": False,
+            "human_preference": False,
+            "production_authority": False,
+            "rights_cleared_only": False,
+            "safety_contract": (
+                "Research synthetic supervision may shape a shadow next-track prior only; "
+                "hard feasibility, rendered validation, Executive authority, and human release "
+                "gates remain authoritative."
+            ),
+        }
+    )
+    mlp_trained.write_text(
+        json.dumps(mlp_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
     baseline_metrics = dict(baseline_payload.get("metrics", {}))
     baseline_validation = dict(baseline_metrics.get("validation_ranking", {}))
     baseline_test = dict(baseline_metrics.get("test_ranking", {}))
     ranker_metrics = dict(ranker_payload.get("metrics", {}))
     ranker_validation = dict(ranker_metrics.get("validation_ranking", {}))
     ranker_test = dict(ranker_metrics.get("test_ranking", {}))
+    mlp_metrics = dict(mlp_payload.get("metrics", {}))
+    mlp_validation = dict(mlp_metrics.get("validation_ranking", {}))
+    mlp_test = dict(mlp_metrics.get("test_ranking", {}))
 
-    def delta(metric: str) -> dict[str, float | None]:
+    def comparison_row(metric: str) -> dict[str, float | None]:
         baseline_value = baseline_test.get(metric)
-        ranker_value = ranker_test.get(metric)
-        difference = None
-        if isinstance(baseline_value, (int, float)) and isinstance(ranker_value, (int, float)):
-            difference = round(float(ranker_value) - float(baseline_value), 6)
+        pairwise_value = ranker_test.get(metric)
+        mlp_value = mlp_test.get(metric)
+        pairwise_delta = None
+        mlp_delta = None
+        mlp_vs_pairwise = None
+        if isinstance(baseline_value, (int, float)) and isinstance(pairwise_value, (int, float)):
+            pairwise_delta = round(float(pairwise_value) - float(baseline_value), 6)
+        if isinstance(baseline_value, (int, float)) and isinstance(mlp_value, (int, float)):
+            mlp_delta = round(float(mlp_value) - float(baseline_value), 6)
+        if isinstance(pairwise_value, (int, float)) and isinstance(mlp_value, (int, float)):
+            mlp_vs_pairwise = round(float(mlp_value) - float(pairwise_value), 6)
         return {
             "baseline": baseline_value,
-            "pairwise": ranker_value,
-            "delta": difference,
+            "pairwise": pairwise_value,
+            "mlp_pairwise": mlp_value,
+            "pairwise_delta": pairwise_delta,
+            "mlp_delta": mlp_delta,
+            "mlp_vs_pairwise": mlp_vs_pairwise,
         }
 
     comparison = {
         "validation": {
             "baseline": baseline_validation,
             "pairwise": ranker_validation,
+            "mlp_pairwise": mlp_validation,
         },
         "test": {
-            "top1_accuracy": delta("top1_accuracy"),
-            "top2_recall": delta("top2_recall"),
-            "pairwise_accuracy": delta("pairwise_accuracy"),
-            "spearman": delta("spearman"),
-            "ndcg": delta("ndcg"),
-            "mrr": delta("mrr"),
+            "top1_accuracy": comparison_row("top1_accuracy"),
+            "top2_recall": comparison_row("top2_recall"),
+            "pairwise_accuracy": comparison_row("pairwise_accuracy"),
+            "spearman": comparison_row("spearman"),
+            "ndcg": comparison_row("ndcg"),
+            "mrr": comparison_row("mrr"),
         },
     }
 
@@ -610,8 +663,12 @@ def train_research_synthetic_shadow(
         baseline_trained.name + "\n",
         encoding="utf-8",
     )
-    (model_root / "NEXT_TRACK_RESEARCH_LATEST").write_text(
+    (model_root / "NEXT_TRACK_RESEARCH_PAIRWISE_LATEST").write_text(
         ranker_trained.name + "\n",
+        encoding="utf-8",
+    )
+    (model_root / "NEXT_TRACK_RESEARCH_LATEST").write_text(
+        mlp_trained.name + "\n",
         encoding="utf-8",
     )
     return {
@@ -621,8 +678,10 @@ def train_research_synthetic_shadow(
         "shadow_only": True,
         "authority": 0.0,
         "baseline_model_path": str(baseline_trained.relative_to(root)),
-        "model_path": str(ranker_trained.relative_to(root)),
+        "pairwise_model_path": str(ranker_trained.relative_to(root)),
+        "model_path": str(mlp_trained.relative_to(root)),
         "baseline_metrics": baseline_metrics,
-        "metrics": ranker_metrics,
+        "pairwise_metrics": ranker_metrics,
+        "metrics": mlp_metrics,
         "comparison": comparison,
     }
