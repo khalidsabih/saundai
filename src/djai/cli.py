@@ -43,6 +43,7 @@ from .training.research_synthetic import (
     train_research_synthetic_shadow,
     validate_research_synthetic_dataset,
 )
+from .phase16_validation import validate_real_music_library
 from .training.expert_dataset import expert_dataset_stats
 from .evaluation.arena import ArenaVote, append_arena_vote, arena_report
 from .evaluation.human_release_gate import (
@@ -913,6 +914,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_train.add_argument("--dataset-id")
 
+    phase16 = sub.add_parser(
+        "phase16-validate-real",
+        help="Validate the real SAUND set pipeline on a local music folder without granting learned authority",
+    )
+    phase16.add_argument("folder", help="Folder containing real music for validation")
+    phase16.add_argument(
+        "--journey",
+        action="append",
+        choices=("balanced", "smooth", "build", "warmup", "peak", "sunset"),
+        help="Journey to validate; repeat for multiple journeys (default: balanced)",
+    )
+    phase16.add_argument("--recursive", action="store_true")
+    phase16.add_argument("--render", action="store_true", help="Render each planned validation set")
+    phase16.add_argument("--target-duration-seconds", type=float)
+    phase16.add_argument("--peak-fraction", type=float, default=0.65)
+    phase16.add_argument("--closing-window-seconds", type=float, default=600.0)
+    phase16.add_argument("--ending-energy", type=float, default=0.45)
+    phase16.add_argument("--measurement-top-k", type=int, default=4, choices=range(1, 17), metavar="1-16")
+    phase16.add_argument("--no-cache", action="store_true")
+    phase16.add_argument("--listener", default="local")
+    phase16.add_argument("-o", "--output-dir", default="output/phase16-real-music")
+
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
     synthetic.add_argument("source")
     synthetic.add_argument("-o", "--output-dir", default="datasets/generated/synthetic-failures")
@@ -1384,6 +1407,26 @@ def main(argv: list[str] | None = None) -> None:
                 train_research_synthetic_shadow(
                     current_environment().workspace,
                     dataset_id=args.dataset_id,
+                ),
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "phase16-validate-real":
+            _write_json(
+                validate_real_music_library(
+                    current_environment().workspace,
+                    args.folder,
+                    output_dir=args.output_dir,
+                    journeys=args.journey or ("balanced",),
+                    recursive=args.recursive,
+                    render=args.render,
+                    target_duration_seconds=args.target_duration_seconds,
+                    peak_fraction=args.peak_fraction,
+                    closing_window_seconds=args.closing_window_seconds,
+                    ending_energy=args.ending_energy,
+                    measurement_top_k=args.measurement_top_k,
+                    use_cache=not args.no_cache,
+                    listener=args.listener,
                 ),
                 None,
             )
