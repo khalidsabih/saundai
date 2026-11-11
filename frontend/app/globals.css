@@ -10459,3 +10459,8 @@ body.saund-intro-locked {
     grid-template-columns: 1fr;
   }
 }
+
+
+.set-review__shadow {
+  color: var(--signal) !important;
+}
