@@ -226,10 +226,12 @@ def test_next_track_training_respects_explicit_splits_and_reports_ranking(tmp_pa
 
     result = train_research_synthetic_shadow(workspace, dataset_id=snapshot.name)
     model = json.loads((workspace / result["model_path"]).read_text(encoding="utf-8"))
+    pairwise = json.loads((workspace / result["pairwise_model_path"]).read_text(encoding="utf-8"))
     baseline = json.loads((workspace / result["baseline_model_path"]).read_text(encoding="utf-8"))
     metrics = model["metrics"]
 
-    assert model["trainer"] == "weighted_pairwise_logistic_ranknet"
+    assert model["trainer"] == "mlp_weighted_pairwise_ranknet"
+    assert pairwise["trainer"] == "weighted_pairwise_logistic_ranknet"
     assert baseline["trainer"] == "scalar_logistic_baseline"
     assert model["shadow_only"] is True
     assert model["authority"] == 0.0
@@ -237,6 +239,9 @@ def test_next_track_training_respects_explicit_splits_and_reports_ranking(tmp_pa
     assert (
         workspace / "config" / "research-synthetic-models" / "NEXT_TRACK_RESEARCH_LATEST"
     ).read_text().strip() == Path(result["model_path"]).name
+    assert (
+        workspace / "config" / "research-synthetic-models" / "NEXT_TRACK_RESEARCH_PAIRWISE_LATEST"
+    ).read_text().strip() == Path(result["pairwise_model_path"]).name
     assert (
         workspace / "config" / "research-synthetic-models" / "NEXT_TRACK_RESEARCH_BASELINE_LATEST"
     ).read_text().strip() == Path(result["baseline_model_path"]).name
@@ -258,3 +263,6 @@ def test_next_track_training_respects_explicit_splits_and_reports_ranking(tmp_pa
     assert metrics["validation_ranking"]["top1_accuracy"] is not None
     assert metrics["test_ranking"]["ndcg"] is not None
     assert "pairwise_accuracy" in result["comparison"]["test"]
+    assert "mlp_pairwise" in result["comparison"]["validation"]
+    assert "mlp_pairwise" in result["comparison"]["test"]["top1_accuracy"]
+    assert "mlp_vs_pairwise" in result["comparison"]["test"]["ndcg"]
