@@ -302,8 +302,11 @@ def build_last_resort_plan(
         bar_seconds = max(0.5, float(track_a.time_signature or 4) * 60.0 / max(bpm_a, 1.0))
         transition_seconds = min(resolved.emergency_seconds, max(0.75, bar_seconds))
         technique = "echo_out_drop_in"
-        incoming_beat = 60.0 / max(float(track_b.bpm or 120.0), 1.0)
-        source_b_fraction = min(1.0, incoming_beat / max(transition_seconds, 1e-6))
+        # Keep a complete incoming source window available during the reset.
+        # The performance program still controls when B becomes audible, but
+        # a full source window avoids a near-silent transition tail followed
+        # by an abrupt full-level post-transition body.
+        source_b_fraction = 1.0
         rescue_kind = "structural_reset"
         natural_profile = "structural_reset"
         rationale_action = (
@@ -482,6 +485,7 @@ def build_last_resort_plan(
             "rescue_beatmatched": rescue_beatmatched,
             "rescue_render_rate_b": round(rescue_rate_b, 6),
             "rescue_duration_source": ("explicit_or_adaptive" if not allow_hard_cut else "hard_cut"),
+            "loudness_safe_handoff": rescue_kind == "structural_reset",
         },
     )
     from .performance.deck import apply_deck_performance
