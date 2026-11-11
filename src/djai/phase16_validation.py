@@ -108,6 +108,8 @@ def validate_real_music_library(
     measurement_top_k: int = 4,
     use_cache: bool = True,
     listener: str = "local",
+    analysis_workers: int = 1,
+    graph_workers: int = 1,
 ) -> dict[str, Any]:
     root = Path(workspace).expanduser().resolve()
     music = Path(folder).expanduser().resolve()
@@ -149,6 +151,8 @@ def validate_real_music_library(
             automatic_delivery=True,
             listener=listener,
             use_cache=use_cache,
+            analysis_workers=analysis_workers,
+            graph_workers=graph_workers,
             timing_intent=timing_intent,
         )
         plan_path = save_set_plan(plan, run_dir / "set-plan.json")
@@ -189,6 +193,11 @@ def validate_real_music_library(
         "output_dir": str(destination),
         "journeys": normalized_journeys,
         "render_requested": bool(render),
+        "worker_policy": {
+            "analysis_workers": int(analysis_workers),
+            "graph_workers": int(graph_workers),
+            "default_safe_serial": analysis_workers == 1 and graph_workers == 1,
+        },
         "timing_intent": timing_intent.normalized().to_dict(),
         "runs": runs,
         "summary": {
