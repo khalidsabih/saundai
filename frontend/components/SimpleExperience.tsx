@@ -51,6 +51,32 @@ function trackAIState(track: TrackRecord) {
   return { label: percent > 0 ? `Analysing ${percent}%` : "Analysing", tone: "active" };
 }
 
+function friendlyError(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes("short-term loudness") || lower.includes("loudness jump")) {
+    return {
+      title: "SAUND stopped an unsafe handoff.",
+      detail: "A transition changed level too abruptly, so the Safety Governor refused to commit it.",
+      technical: message,
+    };
+  }
+  if (lower.includes("last-resort transition failed rendered technical validation")) {
+    return {
+      title: "SAUND could not finish this route safely.",
+      detail: "The prepared recovery transition also failed rendered-audio validation. No unsafe set was committed.",
+      technical: message,
+    };
+  }
+  if (lower.includes("process pool") || lower.includes("terminated abruptly")) {
+    return {
+      title: "The analysis worker stopped unexpectedly.",
+      detail: "The music is still safe. Retry with the crate unchanged; completed analysis can be reused.",
+      technical: message,
+    };
+  }
+  return { title: "SAUND could not continue.", detail: message, technical: message };
+}
+
 function jobStage(job: JobRecord | null) {
   if (!job) return { index: 0, eyebrow: "System armed", headline: "Ready to take the room.", detail: "The Executive will prepare the performance before audio is allowed to run." };
   const key = job.stage.toLowerCase();
@@ -98,6 +124,12 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   const [accountDialogReason, setAccountDialogReason] = useState<"account" | "build">("account");
   const [buildAfterAuth, setBuildAfterAuth] = useState(false);
   const [brainOpen, setBrainOpen] = useState(false);
+  const [targetMinutes, setTargetMinutes] = useState<number | null>(90);
+  const [peakFraction, setPeakFraction] = useState(0.65);
+  const [closingMinutes, setClosingMinutes] = useState(10);
+  const [endingEnergy, setEndingEnergy] = useState(0.45);
+  const [showSetDetails, setShowSetDetails] = useState(false);
+  const [showTechnicalError, setShowTechnicalError] = useState(false);
 
   const selectedTracks = tracks.filter((track) => selectedPaths.includes(track.path));
   const readySelectedCount = selectedTracks.filter((track) => track.readiness?.dj_ready || track.readiness?.state === "ready").length;
@@ -109,7 +141,8 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
       if (track.readiness?.dj_ready || track.readiness?.state === "ready") return sum + 1;
       return sum + Math.max(0, Math.min(1, track.readiness?.progress ?? 0));
     }, 0) / selectedTracks.length;
-  const canStartSession = selectedPaths.length >= 2 && !job && !uploading;
+  const selectedReady = selectedPaths.length >= 2 && readySelectedCount === selectedPaths.length && failedSelectedCount === 0;
+  const canStartSession = selectedPaths.length >= 2 && failedSelectedCount === 0 && !job && !uploading;
   const currentJourney = journeys.find((item) => item.value === journey) ?? journeys[0];
   const currentJobStage = jobStage(job);
 
@@ -236,6 +269,10 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
         journey,
         listener,
         outputName: outputName(journey),
+        targetDurationSeconds: targetMinutes ? targetMinutes * 60 : null,
+        peakFraction,
+        closingWindowSeconds: closingMinutes * 60,
+        endingEnergy,
       });
       const completed = await waitForJob(initial, setJob);
       setResult(readAutomaticSetFromJob(completed));
@@ -413,6 +450,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
             <nav className="autonomous-nav" aria-label="Primary">
               <span className="is-active">Perform</span>
               <button type="button" onClick={() => setBrainOpen(true)}>Brain</button>
+              <a href="/readiness">Readiness</a>
               <a href="/lab">Lab</a>
             </nav>
             <div className="autonomous-topbar__actions">
