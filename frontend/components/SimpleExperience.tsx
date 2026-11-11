@@ -167,6 +167,16 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   }, [tracks]);
 
   useEffect(() => {
+    if (window.location.hash === "#brain") {
+      setEntered(true);
+      setSoundtrackActive(false);
+      setIntroReady(true);
+      setBrainOpen(true);
+      introProgressRef.current = 1;
+    }
+  }, []);
+
+  useEffect(() => {
     try {
       if (window.localStorage.getItem(INTRO_SEEN_KEY) === "1") {
         setEntered(true);
