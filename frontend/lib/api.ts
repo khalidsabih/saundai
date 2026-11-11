@@ -1,4 +1,4 @@
-import type { AccountPreferences, AccountProfile, AccountProject, AccountRegistrationInput, AuthSession, AutomaticSetResult, BrainStatus, HostingStatus, JobRecord, JourneyMode, LiveManifest, LiveTelemetrySnapshot, ReleaseReadiness, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "./types";
+import type { AccountPreferences, AccountProfile, AccountProject, AccountRegistrationInput, AuthSession, AutomaticSetResult, BrainStatus, HostingStatus, JobRecord, JourneyMode, LiveManifest, LiveTelemetrySnapshot, Phase16ValidationStatus, ReleaseReadiness, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_SAUND_API_URL ?? "").replace(/\/$/, "");
 
@@ -80,6 +80,10 @@ export async function getBrainStatus() {
 
 export async function getReleaseReadiness() {
   return request<ReleaseReadiness>("/api/release/readiness");
+}
+
+export async function getPhase16ValidationStatus() {
+  return request<Phase16ValidationStatus>("/api/validation/phase16");
 }
 
 export async function listTracks(folder = "audio") {
