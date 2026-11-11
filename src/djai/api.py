@@ -926,6 +926,12 @@ def readiness() -> Response:
     return JSONResponse(payload, status_code=200 if ready else 503)
 
 
+@app.get("/api/release/status")
+def release_status() -> dict[str, Any]:
+    """Return operational release state without using HTTP failure status."""
+    return release_candidate_status(WORKSPACE, strict=False)
+
+
 @app.get("/api/release/readiness")
 def release_readiness(
     strict: bool = Query(default=False),
