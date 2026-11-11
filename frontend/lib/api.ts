@@ -79,7 +79,7 @@ export async function getBrainStatus() {
 }
 
 export async function getReleaseReadiness() {
-  return request<ReleaseReadiness>("/api/release/readiness");
+  return request<ReleaseReadiness>("/api/release/status");
 }
 
 export async function getPhase16ValidationStatus() {
