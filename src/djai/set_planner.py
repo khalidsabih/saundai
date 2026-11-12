@@ -3331,49 +3331,74 @@ def make_set_plan(
                 return list(route.order)
 
             if lazy_graph_authority and len(analyses) >= _large_set_threshold():
-                # A bounded large-crate scout may dead-end after committing an
-                # unfortunate opener even though a complete sparse route exists.
-                # Escalate the *structural* search first and reuse every graph
-                # pair already materialized. This is much cheaper than jumping
-                # immediately to the historical broad graph; rendered rehearsal
-                # and all hard safety gates remain unchanged.
-                expanded_cfg = replace(
-                    complete_move_cfg,
-                    opener_candidates=min(4, max(complete_move_cfg.opener_candidates + 2, 3)),
-                    search_branch_width=min(3, max(complete_move_cfg.search_branch_width + 1, 2)),
-                    lazy_candidate_width=min(8, max(complete_move_cfg.lazy_candidate_width + 2, 5)),
-                    lazy_expansion_width=min(8, max(complete_move_cfg.lazy_expansion_width + 2, 4)),
+                # Learned retrieval should widen locally before the planner is
+                # allowed to consider the historical O(N^2) graph. Each tier
+                # reuses already materialized/cached pair evidence.
+                experimental_retrieval = os.environ.get(
+                    "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+                ).strip().lower() in {"1", "true", "yes", "on"}
+                expansion_tiers = (
+                    ((8, 3, 3), (10, 4, 3), (12, 4, 4))
+                    if experimental_retrieval
+                    else ((8, 4, 3),)
                 )
-                if progress:
-                    progress(
-                        "route-search",
-                        1,
-                        2,
-                        "Sparse large-crate scout incomplete; expanding opener/branch search before broad graph fallback",
+                total_tiers = len(expansion_tiers)
+                for tier_index, (candidate_width, opener_count, branch_width) in enumerate(
+                    expansion_tiers,
+                    start=1,
+                ):
+                    expanded_cfg = replace(
+                        complete_move_cfg,
+                        opener_candidates=min(
+                            len(analyses),
+                            max(complete_move_cfg.opener_candidates, opener_count),
+                        ),
+                        search_branch_width=min(
+                            candidate_width,
+                            max(complete_move_cfg.search_branch_width, branch_width),
+                        ),
+                        lazy_candidate_width=min(
+                            max(1, len(analyses) - 1),
+                            max(complete_move_cfg.lazy_candidate_width, candidate_width),
+                        ),
+                        lazy_expansion_width=min(
+                            max(2, candidate_width),
+                            max(complete_move_cfg.lazy_expansion_width, 4),
+                        ),
                     )
-                expanded_route = build_complete_move_route(
-                    analyses,
-                    graph,
-                    start_index=start_index,
-                    end_index=end_index,
-                    journey=journey,
-                    blocked_pairs=active_blocked,
-                    config=expanded_cfg,
-                    headphones_config=headphones_cfg,
-                    listener=listener,
-                    ensure_pairs=_ensure_graph_pairs,
-                    timing_intent=timing_intent,
-                )
-                complete_move_runs.append(expanded_route)
-                if expanded_route.completed:
                     if progress:
                         progress(
                             "route-search",
-                            2,
-                            2,
-                            "Expanded sparse route completed; broad graph fallback avoided",
+                            tier_index,
+                            total_tiers + 1,
+                            (
+                                f"Sparse route incomplete; widening learned retrieval "
+                                f"to top {expanded_cfg.lazy_candidate_width}"
+                            ),
                         )
-                    return list(expanded_route.order)
+                    expanded_route = build_complete_move_route(
+                        analyses,
+                        graph,
+                        start_index=start_index,
+                        end_index=end_index,
+                        journey=journey,
+                        blocked_pairs=active_blocked,
+                        config=expanded_cfg,
+                        headphones_config=headphones_cfg,
+                        listener=listener,
+                        ensure_pairs=_ensure_graph_pairs,
+                        timing_intent=timing_intent,
+                    )
+                    complete_move_runs.append(expanded_route)
+                    if expanded_route.completed:
+                        if progress:
+                            progress(
+                                "route-search",
+                                total_tiers + 1,
+                                total_tiers + 1,
+                                "Progressive sparse retrieval completed; broad graph avoided",
+                            )
+                        return list(expanded_route.order)
         if lazy_graph_authority:
             # Neural retrieval experiments deliberately test whether bounded
             # candidate filtering can complete the route without falling back
@@ -3391,12 +3416,12 @@ def make_set_plan(
                 if progress:
                     progress(
                         "route-search",
-                        2,
-                        2,
-                        "Sparse learned retrieval exhausted; broad graph disabled for this experiment",
+                        4 if experimental_retrieval else 2,
+                        4 if experimental_retrieval else 2,
+                        "Progressive learned retrieval exhausted; broad graph disabled for this experiment",
                     )
                 raise RuntimeError(
-                    "Sparse learned retrieval could not complete a safe route without broad-graph fallback."
+                    "Progressive learned retrieval could not complete a safe route without broad-graph fallback."
                 )
             if progress:
                 progress(
