@@ -9,7 +9,17 @@ from .brain.timing import SetTimingIntent
 from .set_planner import plan_folder, save_set_plan
 from .set_renderer import render_set
 
-PHASE16_SCHEMA_VERSION = "16.0"
+PHASE16_SCHEMA_VERSION = "16.1"
+
+
+def _phase16_progress(stage: str, current: int, total: int, detail: str) -> None:
+    total_value = max(1, int(total))
+    current_value = max(0, int(current))
+    percent = min(100.0, 100.0 * current_value / total_value)
+    print(
+        f"[phase16] {stage}: {current_value}/{total_value} ({percent:.0f}%) {detail}",
+        flush=True,
+    )
 
 
 def _measurement_hard_failures(edge: Any) -> list[str]:
@@ -97,6 +107,11 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
         },
         "full_set_benchmark": full_set_benchmark,
         "production_safe": production_safe,
+        "structural_reset_rate": (
+            float(full_set_benchmark.get("structural_reset_rate", 0.0))
+            if isinstance(full_set_benchmark, dict)
+            else None
+        ),
         "emergency_rate": (
             float(full_set_benchmark.get("emergency_rate", 0.0))
             if isinstance(full_set_benchmark, dict)
@@ -176,6 +191,7 @@ def validate_real_music_library(
                 analysis_workers=analysis_workers,
                 graph_workers=graph_workers,
                 timing_intent=timing_intent,
+                progress=_phase16_progress,
             )
         except Exception as exc:
             failure = {
