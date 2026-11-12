@@ -3886,6 +3886,97 @@ def make_set_plan(
     signature_matches = sum(
         1 for generated, compiled in zip(generated_signatures, compiled_signatures) if generated and generated == compiled
     )
+    final_adjacent_pairs = set(zip(order, order[1:]))
+    training_route_attempts: list[dict[str, Any]] = []
+    for run_index, run in enumerate(complete_move_runs):
+        decision_rows: list[dict[str, Any]] = []
+        for decision_index, decision in enumerate(run.decisions):
+            state = decision.winner.state
+            candidate_by_target: dict[int, Any] = {}
+            for candidate in decision.candidates:
+                previous = candidate_by_target.get(int(candidate.next_index))
+                if previous is None or float(candidate.selection_score) > float(previous.selection_score):
+                    candidate_by_target[int(candidate.next_index)] = candidate
+            decision_rows.append(
+                {
+                    "decision_index": decision_index,
+                    "current_index": int(decision.current_index),
+                    "winner_index": int(decision.winner.next_index),
+                    "search_score": round(float(decision.search_score), 6),
+                    "commit_score": round(float(decision.commit_score), 6),
+                    "lookahead_depth": int(decision.lookahead_depth),
+                    "projected_path": [int(value) for value in decision.projected_path],
+                    "state": (
+                        {
+                            "energy": round(float(state.set_energy), 6),
+                            "tension": round(float(state.set_tension), 6),
+                            "groove": round(float(state.set_groove), 6),
+                            "vocal_density": round(float(state.set_vocal_density), 6),
+                            "source_cursor_seconds": round(float(state.source_cursor_seconds), 6),
+                            "source_bar": int(state.source_bar),
+                            "effective_bpm": round(float(state.effective_bpm), 6),
+                        }
+                        if state is not None
+                        else None
+                    ),
+                    "candidates": [
+                        {
+                            "next_index": int(candidate.next_index),
+                            "selection_score": round(float(candidate.selection_score), 6),
+                            "move_score": round(float(candidate.move.score), 6),
+                            "future_optionality": round(float(candidate.move.future_optionality), 6),
+                            "components": {
+                                key: round(float(value), 6)
+                                for key, value in candidate.components.items()
+                            },
+                            "won_attempt": int(candidate.next_index) == int(decision.winner.next_index),
+                            "blocked_by_executive": (
+                                int(decision.current_index),
+                                int(candidate.next_index),
+                            ) in blocked_pairs,
+                            "survived_final_adjacency": (
+                                int(decision.current_index),
+                                int(candidate.next_index),
+                            ) in final_adjacent_pairs,
+                        }
+                        for candidate in sorted(
+                            candidate_by_target.values(),
+                            key=lambda item: (
+                                float(item.selection_score),
+                                float(item.move.future_optionality),
+                                -int(item.next_index),
+                            ),
+                            reverse=True,
+                        )
+                    ],
+                }
+            )
+        training_route_attempts.append(
+            {
+                "attempt_index": run_index,
+                "completed": bool(run.completed),
+                "reason": str(run.reason or ""),
+                "score": round(float(run.score), 6),
+                "order": [int(value) for value in run.order],
+                "decision_count": len(run.decisions),
+                "decisions": decision_rows,
+            }
+        )
+
+    crate_fingerprint = hashlib.sha256(
+        json.dumps(
+            sorted(
+                {
+                    "path": str(track.path),
+                    "bpm": round(float(track.bpm), 4),
+                    "duration": round(float(track.duration_seconds), 3),
+                }
+                for track in analyses
+            ),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+
     complete_move_report = {
         "version": COMPLETE_MOVE_VERSION,
         "mode": complete_move_cfg.mode,
@@ -3961,6 +4052,28 @@ def make_set_plan(
         "materialized_graph_pairs": len(graph),
         "possible_graph_pairs": len(analyses) * max(0, len(analyses) - 1),
         "run_count": len(complete_move_runs),
+        "training_evidence": {
+            "version": "1.0",
+            "crate_fingerprint": crate_fingerprint,
+            "attempt_count": len(training_route_attempts),
+            "candidate_decision_count": sum(
+                len(attempt["decisions"]) for attempt in training_route_attempts
+            ),
+            "candidate_target_count": sum(
+                len(decision["candidates"])
+                for attempt in training_route_attempts
+                for decision in attempt["decisions"]
+            ),
+            "attempts": training_route_attempts,
+            "final_adjacent_pairs": [
+                [int(left), int(right)] for left, right in sorted(final_adjacent_pairs)
+            ],
+            "blocked_pairs": [
+                [int(left), int(right)] for left, right in sorted(blocked_pairs)
+            ],
+            "training_only": True,
+            "execution_authority": False,
+        },
         "proposed_order": complete_route_order,
         "final_order": list(order),
         "order_matches": bool(complete_route_order and complete_route_order == list(order)),
