@@ -33,20 +33,29 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateRetrievalConfig:
-    width: int = 8
-    expansion_width: int = 6
+    width: int = 6
+    expansion_width: int = 4
     minimum_diverse: int = 2
     learned_weight: float = 0.68
+    experimental_learned_filter: bool = False
 
     @classmethod
     def from_environment(cls) -> "CandidateRetrievalConfig":
         return cls(
-            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 8))),
-            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 6))),
+            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 6))),
+            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 4))),
             minimum_diverse=max(1, min(6, _int_env("DJAI_LAZY_MIN_DIVERSE", 2))),
             learned_weight=max(0.0, min(0.85, _float_env("DJAI_NEURAL_RETRIEVAL_WEIGHT", 0.68))),
+            experimental_learned_filter=_bool_env("DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", False),
         )
 
 
@@ -177,8 +186,12 @@ def retrieve_candidate_tracks(
             progress=progress,
             crowd_directive=crowd_directive,
         )
-        learned = next_track_prediction(current, analyses[index], set_state=set_state)
-        if learned.available:
+        learned = (
+            next_track_prediction(current, analyses[index], set_state=set_state)
+            if cfg.experimental_learned_filter
+            else None
+        )
+        if learned is not None and learned.available:
             learned_weight = cfg.learned_weight
             score = _clamp(
                 (1.0 - learned_weight) * deterministic_score
@@ -201,7 +214,11 @@ def retrieve_candidate_tracks(
                 "learned_confidence": 0.0,
                 "learned_weight": 0.0,
             }
-            reason = "deterministic retrieval; learned next-track filter unavailable"
+            reason = (
+                "deterministic retrieval; learned next-track filter unavailable"
+                if cfg.experimental_learned_filter
+                else "deterministic retrieval; learned next-track filter disabled"
+            )
         ranked.append(
             RetrievedTrack(
                 index=index,
