@@ -119,6 +119,13 @@ export function LivePlayer({
   const crowdConfidence = Number(telemetry?.crowd.directive.confidence ?? telemetry?.crowd.state.confidence ?? 0);
   const safetyAction = telemetry?.safety.action ?? "allow";
   const executiveState = telemetry?.executive.replanning ? "Reconsidering future" : telemetry ? "Holding horizon" : "Synchronizing";
+  const liveSafetyState = telemetryConnected === false
+    ? { label: "DEGRADED · PREPARED PLAN CONTINUES", tone: "degraded" }
+    : telemetry?.executive.replanning
+      ? { label: "REPLANNING FUTURE", tone: "thinking" }
+      : safetyAction.toLowerCase() !== "allow"
+        ? { label: "RECOVERY / SAFETY ACTIVE", tone: "warning" }
+        : { label: "PERFORMANCE SAFE", tone: "safe" };
   const dynamicLive = Boolean(displayManifest?.runtime_control?.continuous_replanning);
   const audibleTrackIndex = currentTrackIndex(active);
   const audibleTrack = audibleTrackIndex === null ? null : displayManifest?.ordered_tracks.find((track) => track.index === audibleTrackIndex) ?? null;
@@ -205,6 +212,13 @@ export function LivePlayer({
       )}
 
       {view === "performance" ? (
+        <>
+        <div className={"performance-safety-banner is-" + liveSafetyState.tone} role="status" aria-live="polite">
+          <span><Icon name="shield" />{liveSafetyState.label}</span>
+          <small>{telemetryConnected === false
+            ? "Telemetry is reconnecting; committed audio execution remains independent."
+            : telemetry?.safety.reason || "NOW and NEXT are protected. Hard safety remains authoritative."}</small>
+        </div>
         <div className="performance-cockpit">
           <section className="performance-now" aria-label="Now playing">
             <div className="performance-now__status">
@@ -322,6 +336,7 @@ export function LivePlayer({
             </section>
           </section>
         </div>
+        </>
       ) : (
         <div className="brain-console">
           <header className="brain-console__hero">

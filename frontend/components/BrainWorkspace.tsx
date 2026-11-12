@@ -79,6 +79,8 @@ export function BrainWorkspace({
   const structuralStatus = brain?.structural_operations;
   const modelRows = useMemo(() => Object.entries(brain?.bootstrap_runtime?.models ?? {}), [brain]);
   const availableModels = modelRows.filter(([, model]) => model.available).length;
+  const learnedAuthority = brain?.bootstrap_runtime?.mode ?? "off";
+  const researchShadowModels = modelRows.filter(([, model]) => model.available && model.research_shadow);
   const systemReady = Boolean(executive?.enabled && executive?.single_commit_authority);
   const learnedTaste = Boolean(
     brain?.taste_learning?.global_taste_ranker?.available
@@ -99,6 +101,7 @@ export function BrainWorkspace({
         <nav className="autonomous-nav" aria-label="Primary">
           <button type="button" onClick={onBack}>Perform</button>
           <span className="is-active">Brain</span>
+          <a href="/readiness">Readiness</a>
           <a href="/lab">Lab</a>
         </nav>
         <div className="autonomous-topbar__actions">
@@ -150,6 +153,26 @@ export function BrainWorkspace({
             <p>bootstrap intelligence available</p>
             <small>{human(brain?.bootstrap_runtime?.mode, "loading")} authority</small>
           </article>
+        </section>
+
+        <section className="shadow-authority-panel" aria-label="Learned model authority">
+          <header>
+            <div><span>LEARNED AI AUTHORITY</span><strong>{human(learnedAuthority)}</strong></div>
+            <b>{learnedAuthority === "production" ? "LIVE" : learnedAuthority === "advisory" ? "BOUNDED" : "NO DECISION AUTHORITY"}</b>
+          </header>
+          <div className="shadow-authority-panel__flow">
+            <span><small>1</small><strong>Candidate generation</strong><em>Deterministic + governed</em></span>
+            <i>→</i>
+            <span><small>2</small><strong>Learned ranking</strong><em>{researchShadowModels.length ? researchShadowModels.length + " shadow model" + (researchShadowModels.length === 1 ? "" : "s") : "No research model loaded"}</em></span>
+            <i>→</i>
+            <span><small>3</small><strong>Executive</strong><em>Single commit authority</em></span>
+            <i>→</i>
+            <span><small>4</small><strong>Safety</strong><em>Non-overridable</em></span>
+          </div>
+          <footer>
+            <span>Research predictions may be observed without reviving rejected candidates or bypassing rendered-audio gates.</span>
+            <strong>{brain?.taste_learning?.state_move_taste?.authority ? percentage(brain.taste_learning.state_move_taste.authority) : "0% taste authority"}</strong>
+          </footer>
         </section>
 
         <section className="brain-information-grid" aria-label="Brain intelligence status">

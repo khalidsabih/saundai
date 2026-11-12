@@ -12,6 +12,20 @@ The project combines deterministic audio execution with optional learned musical
 
 ---
 
+
+## Frontend workflow
+
+The main product flow is now organized around operational use rather than raw engine controls:
+
+- **Perform / Create** — select a crate, choose direction, duration and ending intent, then review crate readiness before the Executive starts.
+- **Set Review** — inspect the planned energy arc, route, rehearsed transition quality, fallback use and bounded shadow next-track evidence before going live.
+- **Live** — emphasizes NOW / NEXT / FUTURE plus one explicit performance-safety state. Detailed reasoning stays in Brain.
+- **Brain** — exposes deterministic authority, learned-model authority, rehearsal evidence, recovery and hard-safety boundaries.
+- **Readiness** — combines engine status, crate readiness, learned-model authority and the latest Phase 16 real-music validation report.
+- **Lab** — remains the blind preference / dataset / shadow-training surface.
+
+The default Create controls map directly to Phase 13 timing intent: target duration, peak fraction, closing window and ending energy. Learned models remain governed by their configured authority; frontend visibility never promotes a model or bypasses rendered-audio safety.
+
 ## What SAUND.AI does
 
 The implemented pipeline is roughly:

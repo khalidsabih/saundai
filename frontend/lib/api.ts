@@ -1,4 +1,4 @@
-import type { AccountPreferences, AccountProfile, AccountProject, AccountRegistrationInput, AuthSession, AutomaticSetResult, BrainStatus, HostingStatus, JobRecord, JourneyMode, LiveManifest, LiveTelemetrySnapshot, ReleaseReadiness, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "./types";
+import type { AccountPreferences, AccountProfile, AccountProject, AccountRegistrationInput, AuthSession, AutomaticSetResult, BrainStatus, HostingStatus, JobRecord, JourneyMode, LiveManifest, LiveTelemetrySnapshot, Phase16ValidationStatus, ReleaseReadiness, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "./types";
 
 export const API_BASE = (process.env.NEXT_PUBLIC_SAUND_API_URL ?? "").replace(/\/$/, "");
 
@@ -79,7 +79,11 @@ export async function getBrainStatus() {
 }
 
 export async function getReleaseReadiness() {
-  return request<ReleaseReadiness>("/api/release/readiness");
+  return request<ReleaseReadiness>("/api/release/status");
+}
+
+export async function getPhase16ValidationStatus() {
+  return request<Phase16ValidationStatus>("/api/validation/phase16");
 }
 
 export async function listTracks(folder = "audio") {
@@ -391,6 +395,11 @@ export async function createAutomaticSet(input: {
   journey: JourneyMode;
   listener?: string;
   outputName?: string;
+  targetDurationSeconds?: number | null;
+  peakFraction?: number;
+  closingWindowSeconds?: number;
+  endingEnergy?: number;
+  measurementTopK?: number;
 }) {
   const payload = await request<{ job: JobRecord }>("/api/sets/automatic", {
     method: "POST",
@@ -400,6 +409,11 @@ export async function createAutomaticSet(input: {
       journey: input.journey,
       listener: input.listener ?? "web",
       output_name: input.outputName ?? "SAUND_set.wav",
+      target_duration_seconds: input.targetDurationSeconds ?? null,
+      peak_fraction: input.peakFraction ?? 0.65,
+      closing_window_seconds: input.closingWindowSeconds ?? 600,
+      ending_energy: input.endingEnergy ?? 0.45,
+      measurement_top_k: input.measurementTopK ?? 4,
       use_cache: true,
     }),
   });

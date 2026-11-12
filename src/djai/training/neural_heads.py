@@ -18,30 +18,127 @@ def _rows(path,rights=True):
         if rights and not bool(r.get("rights_cleared",False)):continue
         rows.append(r)
     return rows
-def _matrix(rows):
-    names=sorted({str(k) for r in rows for k in r["features"]}); x=np.asarray([[float(r["features"].get(n,0)) for n in names] for r in rows],float); mean=x.mean(0); scale=x.std(0); scale=np.where(scale<1e-6,1,scale); return names,(x-mean)/scale,{n:float(v) for n,v in zip(names,mean,strict=True)},{n:float(v) for n,v in zip(names,scale,strict=True)}
+def _raw_matrix(rows):
+    names=sorted({str(k) for r in rows for k in r["features"]})
+    x=np.asarray([[float(r["features"].get(n,0)) for n in names] for r in rows],float)
+    return names,x
+
+def _normalize_matrix(names,x,tr):
+    reference=x[tr] if len(tr) else x
+    mean=reference.mean(0)
+    scale=reference.std(0)
+    scale=np.where(scale<1e-6,1,scale)
+    normalized=(x-mean)/scale
+    return normalized,{n:float(v) for n,v in zip(names,mean,strict=True)},{n:float(v) for n,v in zip(names,scale,strict=True)}
+
 def _split(rows):
+    explicit=[str(r.get("split") or "").strip().lower() for r in rows]
+    if explicit and all(value in {"train","validation","test"} for value in explicit):
+        tr=np.asarray([i for i,value in enumerate(explicit) if value=="train"],int)
+        va=np.asarray([i for i,value in enumerate(explicit) if value=="validation"],int)
+        te=np.asarray([i for i,value in enumerate(explicit) if value=="test"],int)
+        if len(tr)==0:
+            raise ValueError("Explicit dataset split contains no training rows.")
+        return tr,va,te
+
     group_values=np.asarray([str(r.get("group") or r.get("context_id") or r.get("id") or i) for i,r in enumerate(rows)],dtype=object)
-    b=np.asarray([_bucket(str(value)) for value in group_values]); va=np.flatnonzero(b>=8); tr=np.flatnonzero(b<8)
+    b=np.asarray([_bucket(str(value)) for value in group_values])
+    va=np.flatnonzero(b>=8)
+    tr=np.flatnonzero(b<8)
     unique=sorted(set(str(value) for value in group_values))
-    # Preserve group isolation even when the deterministic hash happens to put
-    # every group on the same side. Row-level fallback would leak the same DJ
-    # transition pair into both train and validation.
     if len(unique)>=2 and (len(va)==0 or len(tr)==0):
         heldout=unique[-1]
         va=np.flatnonzero(group_values==heldout)
         tr=np.flatnonzero(group_values!=heldout)
     elif len(va)==0 and len(rows)>=5:
-        va=np.asarray([len(rows)-1]);tr=np.arange(len(rows)-1)
+        va=np.asarray([len(rows)-1])
+        tr=np.arange(len(rows)-1)
     if len(tr)==0:
-        tr=np.arange(len(rows));va=np.asarray([],int)
-    return tr,va
+        tr=np.arange(len(rows))
+        va=np.asarray([],int)
+    return tr,va,np.asarray([],int)
+
+def _rankdata(values):
+    order=np.argsort(values,kind="mergesort")
+    ranks=np.empty(len(values),float)
+    i=0
+    while i<len(values):
+        j=i+1
+        while j<len(values) and values[order[j]]==values[order[i]]:
+            j+=1
+        rank=(i+j-1)/2.0+1.0
+        ranks[order[i:j]]=rank
+        i=j
+    return ranks
+
+def _ranking_metrics(rows,indices,predictions,targets):
+    selected=set(int(i) for i in indices)
+    groups={}
+    for i,row in enumerate(rows):
+        if i not in selected:
+            continue
+        group=str(row.get("group") or row.get("context_id") or row.get("id") or i)
+        groups.setdefault(group,[]).append(i)
+    usable=[items for items in groups.values() if len(items)>=2]
+    if not usable:
+        return {
+            "groups":0,
+            "top1_accuracy":None,
+            "top2_recall":None,
+            "pairwise_accuracy":None,
+            "spearman":None,
+            "ndcg":None,
+            "mrr":None,
+        }
+    top1=[];top2=[];pairwise=[];spearman=[];ndcg=[];mrr=[]
+    for items in usable:
+        p=np.asarray([predictions[i] for i in items],float)
+        y=np.asarray([targets[i] for i in items],float)
+        best=int(np.argmax(y))
+        order=np.argsort(-p,kind="mergesort")
+        top1.append(float(order[0]==best))
+        top2.append(float(best in set(int(x) for x in order[:min(2,len(order))])))
+        pairs=0;correct=0.0
+        for a in range(len(items)):
+            for b in range(a+1,len(items)):
+                if y[a]==y[b]:
+                    continue
+                pairs+=1
+                truth=y[a]>y[b]
+                if p[a]==p[b]:
+                    correct+=0.5
+                elif (p[a]>p[b])==truth:
+                    correct+=1.0
+        if pairs:
+            pairwise.append(correct/pairs)
+        if len(items)>=2 and np.std(p)>1e-12 and np.std(y)>1e-12:
+            rp=_rankdata(p); ry=_rankdata(y)
+            spearman.append(float(np.corrcoef(rp,ry)[0,1]))
+        gains=np.power(2.0,y)-1.0
+        discounts=1.0/np.log2(np.arange(2,len(items)+2,dtype=float))
+        dcg=float(np.sum(gains[order]*discounts))
+        ideal=np.argsort(-y,kind="mergesort")
+        idcg=float(np.sum(gains[ideal]*discounts))
+        ndcg.append(dcg/idcg if idcg>0 else 0.0)
+        rank_position=int(np.where(order==best)[0][0])+1
+        mrr.append(1.0/rank_position)
+    def avg(values):
+        return None if not values else round(float(np.mean(values)),6)
+    return {
+        "groups":len(usable),
+        "top1_accuracy":avg(top1),
+        "top2_recall":avg(top2),
+        "pairwise_accuracy":avg(pairwise),
+        "spearman":avg(spearman),
+        "ndcg":avg(ndcg),
+        "mrr":avg(mrr),
+    }
 def _sw(rows):return np.asarray([max(.05,min(10,float(r.get("weight",1)))) for r in rows],float)
 def train_neural_head(task,dataset,output,*,require_rights_cleared=True,iterations=800,learning_rate=.035,l2=.002,initial_model_path=None):
     if task not in _TASK:raise ValueError(f"Unsupported neural task: {task}")
     model_id,kind=_TASK[task]; rows=_rows(dataset,require_rights_cleared); minimum=8 if kind=="multiclass" else 6
     if len(rows)<minimum:raise ValueError(f"Need at least {minimum} rights-cleared examples for {model_id}; found {len(rows)}.")
-    names,x,means,scales=_matrix(rows); tr,va=_split(rows); sw=_sw(rows); payload={"schema_version":HEAD_SCHEMA_VERSION,"model_id":model_id,"task":model_id,"kind":kind,"feature_names":names,"feature_mean":means,"feature_scale":scales,"rights_cleared_only":require_rights_cleared}
+    names,raw_x=_raw_matrix(rows); tr,va,te=_split(rows); x,means,scales=_normalize_matrix(names,raw_x,tr); sw=_sw(rows); payload={"schema_version":HEAD_SCHEMA_VERSION,"model_id":model_id,"task":model_id,"kind":kind,"feature_names":names,"feature_mean":means,"feature_scale":scales,"rights_cleared_only":require_rights_cleared,"split_policy":"explicit" if te.size or any(str(r.get("split") or "").strip().lower() in {"train","validation","test"} for r in rows) else "group_hash"}
     initial={}
     if initial_model_path:
         try:initial=json.loads(Path(initial_model_path).expanduser().resolve().read_text())
@@ -57,7 +154,9 @@ def train_neural_head(task,dataset,output,*,require_rights_cleared=True,iteratio
             if ib.shape==b.shape:b=ib.copy()
         for _ in range(max(50,int(iterations))):
             xt=x[tr]; logits=xt@w.T+b; logits-=logits.max(1,keepdims=True); p=np.exp(np.clip(logits,-60,60));p/=p.sum(1,keepdims=True);t=np.zeros_like(p);t[np.arange(len(tr)),y[tr]]=1; s=sw[tr,None]; err=(p-t)*s; den=max(float(s.sum()),1e-9); w-=learning_rate*(err.T@xt/den+l2*w); b-=learning_rate*err.sum(0)/den
-        acc=lambda ind:0. if len(ind)==0 else float(np.mean(np.argmax(x[ind]@w.T+b,1)==y[ind])); metrics={"train_accuracy":round(acc(tr),6),"validation_accuracy":round(acc(va),6),"training_examples":int(len(tr)),"validation_examples":int(len(va)),"examples":len(rows)}; payload.update(labels=labels,weights=w.tolist(),bias=b.tolist(),metrics=metrics)
+        acc=lambda ind:None if len(ind)==0 else round(float(np.mean(np.argmax(x[ind]@w.T+b,1)==y[ind])),6)
+        metrics={"train_accuracy":acc(tr),"validation_accuracy":acc(va),"test_accuracy":acc(te),"training_examples":int(len(tr)),"validation_examples":int(len(va)),"test_examples":int(len(te)),"examples":len(rows)}
+        payload.update(labels=labels,weights=w.tolist(),bias=b.tolist(),metrics=metrics)
     else:
         y=[]
         for r in rows:
@@ -74,10 +173,16 @@ def train_neural_head(task,dataset,output,*,require_rights_cleared=True,iteratio
             b=float(ib[0] if isinstance(ib,list) and ib else ib)
         for _ in range(max(50,int(iterations))):
             xt=x[tr]; p=1/(1+np.exp(-np.clip(xt@w+b,-40,40)));err=(p-y[tr])*sw[tr];den=max(float(sw[tr].sum()),1e-9);w-=learning_rate*(xt.T@err/den+l2*w);b-=learning_rate*float(err.sum()/den)
+        predictions=1/(1+np.exp(-np.clip(x@w+b,-40,40)))
         def met(ind):
-            if len(ind)==0:return 0.,0.
-            p=1/(1+np.exp(-np.clip(x[ind]@w+b,-40,40)));return float(np.mean((p>=.5)==(y[ind]>=.5))),float(np.mean(abs(p-y[ind])))
-        ta,tm=met(tr);va_a,va_m=met(va);metrics={"train_accuracy":round(ta,6),"train_mae":round(tm,6),"validation_accuracy":round(va_a,6),"validation_mae":round(va_m,6),"training_examples":int(len(tr)),"validation_examples":int(len(va)),"examples":len(rows)};payload.update(weights=w.tolist(),bias=float(b),metrics=metrics)
+            if len(ind)==0:return None,None
+            return round(float(np.mean((predictions[ind]>=.5)==(y[ind]>=.5))),6),round(float(np.mean(abs(predictions[ind]-y[ind]))),6)
+        ta,tm=met(tr);va_a,va_m=met(va);te_a,te_m=met(te)
+        metrics={"train_accuracy":ta,"train_mae":tm,"validation_accuracy":va_a,"validation_mae":va_m,"test_accuracy":te_a,"test_mae":te_m,"training_examples":int(len(tr)),"validation_examples":int(len(va)),"test_examples":int(len(te)),"examples":len(rows)}
+        if model_id=="next_track_policy":
+            metrics["validation_ranking"]=_ranking_metrics(rows,va,predictions,y)
+            metrics["test_ranking"]=_ranking_metrics(rows,te,predictions,y)
+        payload.update(weights=w.tolist(),bias=float(b),metrics=metrics)
     if initial:
         payload["fine_tuned_from_model_id"]=str(initial.get("model_id") or Path(initial_model_path).stem)
     out=Path(output).expanduser();out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(payload,indent=2)+"\n");return out

@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .neural_heads import train_neural_head
+from .pairwise_ranker import (
+    train_mlp_pairwise_next_track_ranker,
+    train_pairwise_next_track_ranker,
+)
 
 RESEARCH_SYNTHETIC_SCHEMA_VERSION = "1.0"
 RESEARCH_SYNTHETIC_IMPORT_VERSION = "1.0"
@@ -500,24 +504,25 @@ def train_research_synthetic_shadow(
 
     model_root = root / "config" / "research-synthetic-models"
     model_root.mkdir(parents=True, exist_ok=True)
-    output = model_root / f"next-track-{dataset_id}.json"
-    trained = train_neural_head(
+
+    baseline_output = model_root / f"next-track-baseline-{dataset_id}.json"
+    baseline_trained = train_neural_head(
         "next_track",
         next_track_dataset,
-        output,
+        baseline_output,
         require_rights_cleared=False,
         iterations=900,
         learning_rate=0.025,
         l2=0.003,
     )
-
-    payload = json.loads(trained.read_text(encoding="utf-8"))
-    payload.update(
+    baseline_payload = json.loads(baseline_trained.read_text(encoding="utf-8"))
+    baseline_payload.update(
         {
-            "model_id": f"next-track-research-synthetic-{dataset_id}",
+            "model_id": f"next-track-research-synthetic-baseline-{dataset_id}",
             "learning_head": "next_track_policy",
             "training_dataset_id": str(dataset_id),
             "training_data_class": "research_synthetic_weak_supervision",
+            "trainer": "scalar_logistic_baseline",
             "shadow_only": True,
             "authority": 0.0,
             "promoted_to_live": False,
@@ -531,14 +536,152 @@ def train_research_synthetic_shadow(
             ),
         }
     )
-    trained.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (model_root / "NEXT_TRACK_RESEARCH_LATEST").write_text(trained.name + "\n", encoding="utf-8")
+    baseline_trained.write_text(
+        json.dumps(baseline_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    ranker_output = model_root / f"next-track-pairwise-{dataset_id}.json"
+    ranker_trained = train_pairwise_next_track_ranker(
+        next_track_dataset,
+        ranker_output,
+        iterations=700,
+        learning_rate=0.04,
+        l2=0.004,
+    )
+    ranker_payload = json.loads(ranker_trained.read_text(encoding="utf-8"))
+    ranker_payload.update(
+        {
+            "model_id": f"next-track-research-synthetic-pairwise-{dataset_id}",
+            "learning_head": "next_track_policy",
+            "training_dataset_id": str(dataset_id),
+            "training_data_class": "research_synthetic_weak_supervision",
+            "trainer": "weighted_pairwise_logistic_ranknet",
+            "shadow_only": True,
+            "authority": 0.0,
+            "promoted_to_live": False,
+            "human_preference": False,
+            "production_authority": False,
+            "rights_cleared_only": False,
+            "safety_contract": (
+                "Research synthetic supervision may shape a shadow next-track prior only; "
+                "hard feasibility, rendered validation, Executive authority, and human release "
+                "gates remain authoritative."
+            ),
+        }
+    )
+    ranker_trained.write_text(
+        json.dumps(ranker_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    mlp_output = model_root / f"next-track-mlp-pairwise-{dataset_id}.json"
+    mlp_trained = train_mlp_pairwise_next_track_ranker(
+        next_track_dataset,
+        mlp_output,
+        hidden_sizes=(64, 32),
+        epochs=120,
+        learning_rate=0.004,
+        l2=0.001,
+        seed=1337,
+    )
+    mlp_payload = json.loads(mlp_trained.read_text(encoding="utf-8"))
+    mlp_payload.update(
+        {
+            "model_id": f"next-track-research-synthetic-mlp-pairwise-{dataset_id}",
+            "learning_head": "next_track_policy",
+            "training_dataset_id": str(dataset_id),
+            "training_data_class": "research_synthetic_weak_supervision",
+            "trainer": "mlp_weighted_pairwise_ranknet",
+            "shadow_only": True,
+            "authority": 0.0,
+            "promoted_to_live": False,
+            "human_preference": False,
+            "production_authority": False,
+            "rights_cleared_only": False,
+            "safety_contract": (
+                "Research synthetic supervision may shape a shadow next-track prior only; "
+                "hard feasibility, rendered validation, Executive authority, and human release "
+                "gates remain authoritative."
+            ),
+        }
+    )
+    mlp_trained.write_text(
+        json.dumps(mlp_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    baseline_metrics = dict(baseline_payload.get("metrics", {}))
+    baseline_validation = dict(baseline_metrics.get("validation_ranking", {}))
+    baseline_test = dict(baseline_metrics.get("test_ranking", {}))
+    ranker_metrics = dict(ranker_payload.get("metrics", {}))
+    ranker_validation = dict(ranker_metrics.get("validation_ranking", {}))
+    ranker_test = dict(ranker_metrics.get("test_ranking", {}))
+    mlp_metrics = dict(mlp_payload.get("metrics", {}))
+    mlp_validation = dict(mlp_metrics.get("validation_ranking", {}))
+    mlp_test = dict(mlp_metrics.get("test_ranking", {}))
+
+    def comparison_row(metric: str) -> dict[str, float | None]:
+        baseline_value = baseline_test.get(metric)
+        pairwise_value = ranker_test.get(metric)
+        mlp_value = mlp_test.get(metric)
+        pairwise_delta = None
+        mlp_delta = None
+        mlp_vs_pairwise = None
+        if isinstance(baseline_value, (int, float)) and isinstance(pairwise_value, (int, float)):
+            pairwise_delta = round(float(pairwise_value) - float(baseline_value), 6)
+        if isinstance(baseline_value, (int, float)) and isinstance(mlp_value, (int, float)):
+            mlp_delta = round(float(mlp_value) - float(baseline_value), 6)
+        if isinstance(pairwise_value, (int, float)) and isinstance(mlp_value, (int, float)):
+            mlp_vs_pairwise = round(float(mlp_value) - float(pairwise_value), 6)
+        return {
+            "baseline": baseline_value,
+            "pairwise": pairwise_value,
+            "mlp_pairwise": mlp_value,
+            "pairwise_delta": pairwise_delta,
+            "mlp_delta": mlp_delta,
+            "mlp_vs_pairwise": mlp_vs_pairwise,
+        }
+
+    comparison = {
+        "validation": {
+            "baseline": baseline_validation,
+            "pairwise": ranker_validation,
+            "mlp_pairwise": mlp_validation,
+        },
+        "test": {
+            "top1_accuracy": comparison_row("top1_accuracy"),
+            "top2_recall": comparison_row("top2_recall"),
+            "pairwise_accuracy": comparison_row("pairwise_accuracy"),
+            "spearman": comparison_row("spearman"),
+            "ndcg": comparison_row("ndcg"),
+            "mrr": comparison_row("mrr"),
+        },
+    }
+
+    (model_root / "NEXT_TRACK_RESEARCH_BASELINE_LATEST").write_text(
+        baseline_trained.name + "\n",
+        encoding="utf-8",
+    )
+    (model_root / "NEXT_TRACK_RESEARCH_PAIRWISE_LATEST").write_text(
+        ranker_trained.name + "\n",
+        encoding="utf-8",
+    )
+    (model_root / "NEXT_TRACK_RESEARCH_LATEST").write_text(
+        mlp_trained.name + "\n",
+        encoding="utf-8",
+    )
     return {
         "schema_version": RESEARCH_SYNTHETIC_IMPORT_VERSION,
         "dataset_id": str(dataset_id),
-        "model_path": str(trained.relative_to(root)),
         "task": "next_track",
         "shadow_only": True,
         "authority": 0.0,
-        "metrics": payload.get("metrics", {}),
+        "baseline_model_path": str(baseline_trained.relative_to(root)),
+        "pairwise_model_path": str(ranker_trained.relative_to(root)),
+        "model_path": str(mlp_trained.relative_to(root)),
+        "baseline_metrics": baseline_metrics,
+        "pairwise_metrics": ranker_metrics,
+        "metrics": mlp_metrics,
+        "comparison": comparison,
     }

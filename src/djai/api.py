@@ -872,6 +872,36 @@ def runtime_status() -> dict[str, Any]:
     }
 
 
+@app.get("/api/validation/phase16")
+def phase16_validation_status() -> dict[str, Any]:
+    report_path = WORKSPACE / "output" / "phase16-real-music" / "phase16-report.json"
+    if not report_path.is_file():
+        return {
+            "available": False,
+            "phase": 16,
+            "name": "Real-Music Validation",
+            "report_path": str(report_path.relative_to(WORKSPACE)),
+            "summary": None,
+            "runs": [],
+        }
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "available": False,
+            "phase": 16,
+            "name": "Real-Music Validation",
+            "report_path": str(report_path.relative_to(WORKSPACE)),
+            "summary": None,
+            "runs": [],
+            "error": str(exc),
+        }
+    return {
+        "available": True,
+        **payload,
+    }
+
+
 @app.get("/api/ready")
 def readiness() -> Response:
     workspace_ready = os.access(WORKSPACE, os.W_OK)
@@ -894,6 +924,12 @@ def readiness() -> Response:
         ),
     }
     return JSONResponse(payload, status_code=200 if ready else 503)
+
+
+@app.get("/api/release/status")
+def release_status() -> dict[str, Any]:
+    """Return operational release state without using HTTP failure status."""
+    return release_candidate_status(WORKSPACE, strict=False)
 
 
 @app.get("/api/release/readiness")

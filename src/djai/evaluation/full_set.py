@@ -6,7 +6,7 @@ from typing import Any
 
 from ..set_models import SetPlan
 
-FULL_SET_BENCHMARK_VERSION = "1.0"
+FULL_SET_BENCHMARK_VERSION = "1.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +19,7 @@ class FullSetBenchmark:
     transition_diversity: float
     quality_gate_pass_rate: float
     fallback_rate: float
+    structural_reset_rate: float
     emergency_rate: float
     hard_failure_count: int
     production_safe: bool
@@ -58,6 +59,7 @@ def evaluate_full_set(plan: SetPlan) -> FullSetBenchmark:
             transition_diversity=1.0,
             quality_gate_pass_rate=1.0,
             fallback_rate=0.0,
+            structural_reset_rate=0.0,
             emergency_rate=0.0,
             hard_failure_count=0,
             production_safe=True,
@@ -68,6 +70,7 @@ def evaluate_full_set(plan: SetPlan) -> FullSetBenchmark:
     passed = 0
     hard_failures = 0
     fallbacks = 0
+    structural_resets = 0
     emergencies = 0
     techniques: set[str] = set()
     for edge in transitions:
@@ -84,7 +87,19 @@ def evaluate_full_set(plan: SetPlan) -> FullSetBenchmark:
         if measurement is not None:
             hard_failures += len(measurement.hard_failures)
         fallbacks += int(transition.fallback_level > 0)
-        emergencies += int(transition.transition_mode == "emergency_cut")
+        metadata = dict(transition.metadata or {})
+        rescue_kind = str(metadata.get("rescue_transition_kind") or "")
+        fallback_reason = str(getattr(transition, "fallback_reason", "") or "")
+        true_emergency = bool(
+            metadata.get("unified_transition_final_escape")
+            or metadata.get("deterministic_final_escape")
+            or "All alternate track routes" in fallback_reason
+            or "No evidence matrix remained" in fallback_reason
+        )
+        structural_resets += int(
+            rescue_kind == "structural_reset" and not true_emergency
+        )
+        emergencies += int(true_emergency)
         techniques.add(str(transition.technique or transition.transition_mode))
 
     n = len(transitions)
@@ -94,6 +109,7 @@ def evaluate_full_set(plan: SetPlan) -> FullSetBenchmark:
     diversity = _clamp(len(techniques) / max(1.0, min(float(n), 4.0)))
     gate_pass_rate = passed / n
     fallback_rate = fallbacks / n
+    structural_reset_rate = structural_resets / n
     emergency_rate = emergencies / n
 
     overall = _clamp(
@@ -118,6 +134,7 @@ def evaluate_full_set(plan: SetPlan) -> FullSetBenchmark:
         transition_diversity=round(diversity, 6),
         quality_gate_pass_rate=round(gate_pass_rate, 6),
         fallback_rate=round(fallback_rate, 6),
+        structural_reset_rate=round(structural_reset_rate, 6),
         emergency_rate=round(emergency_rate, 6),
         hard_failure_count=hard_failures,
         production_safe=safe,
