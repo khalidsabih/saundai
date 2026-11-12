@@ -63,6 +63,11 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
         and not hard_failures
         and (checked == 0 or passed == checked)
     )
+    full_set_benchmark = metadata.get("full_set_benchmark")
+    production_safe = bool(
+        isinstance(full_set_benchmark, dict)
+        and full_set_benchmark.get("production_safe") is True
+    )
 
     return {
         "plan_id": str(getattr(plan, "plan_id", "")),
@@ -89,7 +94,8 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
             "closing_window_seconds": timing_state.get("closing_window_seconds"),
             "ending_energy_target": timing_state.get("ending_energy_target"),
         },
-        "full_set_benchmark": metadata.get("full_set_benchmark"),
+        "full_set_benchmark": full_set_benchmark,
+        "production_safe": production_safe,
         "planning_ready": planning_ready,
     }
 
@@ -238,7 +244,9 @@ def validate_real_music_library(
                 )
 
         summary["rehearsal_ready"] = bool(
-            summary["planning_ready"] and (summary["render_passed"] is True if render else True)
+            summary["planning_ready"]
+            and summary["production_safe"]
+            and (summary["render_passed"] is True if render else True)
         )
         runs.append(summary)
         print(
@@ -251,6 +259,7 @@ def validate_real_music_library(
     total_hard_failures = sum(int(item["hard_failure_count"]) for item in runs)
     total_fallbacks = sum(int(item["fallback_transition_count"]) for item in runs)
     all_planning_ready = all(bool(item["planning_ready"]) for item in runs)
+    all_production_safe = all(bool(item.get("production_safe", False)) for item in runs)
     all_rehearsal_ready = all(bool(item["rehearsal_ready"]) for item in runs)
 
     report = {
@@ -271,10 +280,12 @@ def validate_real_music_library(
         "summary": {
             "run_count": len(runs),
             "planning_ready_runs": sum(int(bool(item["planning_ready"])) for item in runs),
+            "production_safe_runs": sum(int(bool(item.get("production_safe", False))) for item in runs),
             "rehearsal_ready_runs": sum(int(bool(item["rehearsal_ready"])) for item in runs),
             "hard_failure_count": total_hard_failures,
             "fallback_transition_count": total_fallbacks,
             "all_planning_ready": all_planning_ready,
+            "all_production_safe": all_production_safe,
             "all_rehearsal_ready": all_rehearsal_ready,
             "phase16_passed": all_rehearsal_ready,
         },
