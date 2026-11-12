@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 from ..compatibility import genre_compatibility, harmonic_compatibility, tempo_compatibility
 from ..intelligence.embeddings import embedding_similarity
-from ..intelligence.neural_policy import next_track_prediction
+from ..intelligence.neural_policy import experimental_next_track_prediction, next_track_prediction
 from ..models import TrackAnalysis
 from .crowd_state import CrowdDirective, crowd_alignment_adjustment
 from .set_state import SetState, next_track_context_score, track_state_vector
@@ -187,7 +187,7 @@ def retrieve_candidate_tracks(
             crowd_directive=crowd_directive,
         )
         learned = (
-            next_track_prediction(current, analyses[index], set_state=set_state)
+            experimental_next_track_prediction(current, analyses[index], set_state=set_state)
             if cfg.experimental_learned_filter
             else None
         )
