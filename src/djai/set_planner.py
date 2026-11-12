@@ -3375,9 +3375,29 @@ def make_set_plan(
                         )
                     return list(expanded_route.order)
         if lazy_graph_authority:
-            # Safe fallback only: if both bounded sparse complete-move searches
-            # cannot finish, materialize the historical graph before invoking
-            # legacy order.
+            # Neural retrieval experiments deliberately test whether bounded
+            # candidate filtering can complete the route without falling back
+            # to O(N^2) graph construction. Historical broad-graph recovery
+            # remains available outside the experiment, or when explicitly
+            # re-enabled for diagnosis.
+            experimental_retrieval = os.environ.get(
+                "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            allow_broad = os.environ.get(
+                "DJAI_ALLOW_BROAD_GRAPH_FALLBACK",
+                "0" if experimental_retrieval else "1",
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            if not allow_broad:
+                if progress:
+                    progress(
+                        "route-search",
+                        2,
+                        2,
+                        "Sparse learned retrieval exhausted; broad graph disabled for this experiment",
+                    )
+                raise RuntimeError(
+                    "Sparse learned retrieval could not complete a safe route without broad-graph fallback."
+                )
             if progress:
                 progress(
                     "route-search",
