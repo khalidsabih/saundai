@@ -177,8 +177,14 @@ def _checkpoint_cached(model_id: str, path_str: str, mtime_ns: int, size: int, e
         return None,f"checkpoint unreadable: {exc}"
     if str(payload.get("schema_version"))!=HEAD_SCHEMA_VERSION:
         return None,"unsupported checkpoint schema"
-    if str(payload.get("model_id",model_id))!=model_id:
-        return None,"checkpoint model id mismatch"
+    checkpoint_model_id=str(payload.get("model_id",model_id))
+    checkpoint_task=str(payload.get("task",""))
+    if checkpoint_model_id!=model_id:
+        # Pairwise next-track training emits a research checkpoint id while the
+        # runtime registry exposes the stable policy id. Allow that one
+        # task-compatible alias; all other model ids remain exact-match.
+        if not (model_id=="next_track_policy" and checkpoint_task=="next_track_policy"):
+            return None,"checkpoint model id mismatch"
     fp=checkpoint_fingerprint(p)
     if expected_sha and fp.lower()!=expected_sha.lower():
         return None,"checkpoint hash does not match registry"
@@ -208,9 +214,33 @@ def predict_head(model_id,features):
 def predict_scalar_head(model_id,features):
     p,r,reason=_load(model_id)
     if p is None:return ScalarPrediction(model_id,False,reason=reason)
-    x=_vector(p,features); w=np.asarray(p.get("weights",[]),float); w=w[0] if w.ndim==2 and w.shape[0]==1 else w
-    if w.shape!=x.shape:return ScalarPrediction(model_id,False,reason="checkpoint dimensions invalid")
-    bp=p.get("bias",0.); bias=float(bp[0] if isinstance(bp,list) and bp else bp); score=_sigmoid(float(np.dot(w,x))+bias); conf=float(np.clip(abs(score-.5)*2,0,1)); auth=float(r.authority(model_id,conf)); return ScalarPrediction(model_id,True,score,conf,auth,str(p.get("_fingerprint",""))[:16],"authoritative" if auth>0 else "shadow prediction only")
+    x=_vector(p,features)
+    kind=str(p.get("kind",""))
+    if kind=="mlp_pairwise_ranker":
+        params=p.get("parameters",{}) if isinstance(p.get("parameters"),dict) else {}
+        try:
+            w1=np.asarray(params.get("w1",[]),float); b1=np.asarray(params.get("b1",[]),float)
+            w2=np.asarray(params.get("w2",[]),float); b2=np.asarray(params.get("b2",[]),float)
+            w3=np.asarray(params.get("w3",[]),float); b3=np.asarray(params.get("b3",[]),float)
+            if w1.ndim!=2 or w1.shape[0]!=x.shape[0] or b1.shape!=(w1.shape[1],):
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP input dimensions invalid")
+            if w2.ndim!=2 or w2.shape[0]!=w1.shape[1] or b2.shape!=(w2.shape[1],):
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP hidden dimensions invalid")
+            if w3.ndim!=2 or w3.shape!=(w2.shape[1],1) or b3.size!=1:
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP output dimensions invalid")
+            a1=np.maximum(x@w1+b1,0.0)
+            a2=np.maximum(a1@w2+b2,0.0)
+            raw=float((a2@w3+b3.reshape(-1))[0])
+            score=_sigmoid(raw)
+        except (TypeError,ValueError,IndexError):
+            return ScalarPrediction(model_id,False,reason="checkpoint MLP parameters invalid")
+    else:
+        w=np.asarray(p.get("weights",[]),float); w=w[0] if w.ndim==2 and w.shape[0]==1 else w
+        if w.shape!=x.shape:return ScalarPrediction(model_id,False,reason="checkpoint dimensions invalid")
+        bp=p.get("bias",0.); bias=float(bp[0] if isinstance(bp,list) and bp else bp); score=_sigmoid(float(np.dot(w,x))+bias)
+    conf=float(np.clip(abs(score-.5)*2,0,1))
+    auth=float(r.authority(model_id,conf))
+    return ScalarPrediction(model_id,True,score,conf,auth,str(p.get("_fingerprint",""))[:16],"authoritative" if auth>0 else "shadow prediction only")
 def transition_family_prediction(a,b,*,route=None,set_state=None):return predict_head("transition_family_policy",transition_feature_dict(a,b,route=route,set_state=set_state))
 def rank_duration_values(a,b,route,durations,*,set_state=None):
     scored=[]; preds=[]; ma=0.
