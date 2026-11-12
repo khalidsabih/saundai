@@ -12,7 +12,7 @@ from .operations import ProgramDeckOperation, deck_operations_from_payload, vali
 # 6.0 turns the performance program from descriptive metadata into the
 # authoritative executable intermediate representation consumed by the DSP
 # engine. Renderer code must not infer transition strategy from `technique`.
-PERFORMANCE_PROGRAM_VERSION = "4.1"
+PERFORMANCE_PROGRAM_VERSION = "4.2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +261,14 @@ def compile_transition_program(plan: TransitionPlan) -> TransitionProgram:
         "source_start_b": round(plan.source_start_b, 6),
         "post_transition_source_end_b": round(plan.post_transition_source_end_b, 6),
     }
+
+    # Every deterministic automatic fallback gets explicit true-peak
+    # headroom. Fallbacks may combine echoes, filters, or overlapping masters;
+    # sample-peak limiting near 0 dBFS is not enough to guarantee an inter-
+    # sample true-peak ceiling. Normal professional transitions are unchanged.
+    if bool(plan.metadata.get("automatic_fallback", False)):
+        annotations["output_ceiling"] = 0.78
+        annotations["automatic_fallback_headroom"] = True
 
     pair_adaptive = dict(plan.metadata.get("pair_adaptive_mix", {}) or {})
     if pair_adaptive:
