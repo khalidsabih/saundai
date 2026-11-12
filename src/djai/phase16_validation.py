@@ -79,6 +79,7 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
         "warning_count": len(getattr(plan, "warnings", []) or []),
         "requires_confirmation": bool(getattr(plan, "requires_confirmation", False)),
         "fallback_transition_count": fallback_count,
+        "fallback_rate": round(fallback_count / transition_count, 6) if transition_count else 0.0,
         "replan_count": int(unified.get("replan_count", 0) or 0),
         "quality_checked_transitions": checked,
         "quality_passed_transitions": passed,
@@ -96,6 +97,11 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
         },
         "full_set_benchmark": full_set_benchmark,
         "production_safe": production_safe,
+        "emergency_rate": (
+            float(full_set_benchmark.get("emergency_rate", 0.0))
+            if isinstance(full_set_benchmark, dict)
+            else None
+        ),
         "planning_ready": planning_ready,
     }
 
