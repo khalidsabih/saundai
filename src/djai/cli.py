@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -936,6 +937,16 @@ def build_parser() -> argparse.ArgumentParser:
     phase16.add_argument("--graph-workers", type=int, default=1, help="Graph workers; Phase 16 defaults to serial for reliability")
     phase16.add_argument("--no-cache", action="store_true")
     phase16.add_argument("--listener", default="local")
+    phase16.add_argument(
+        "--neural-retrieval",
+        action="store_true",
+        help="Use the latest research-synthetic MLP to filter next-track candidates; broad all-pairs fallback is disabled by default for this experiment",
+    )
+    phase16.add_argument(
+        "--allow-broad-graph-fallback",
+        action="store_true",
+        help="Permit historical all-pairs graph fallback even when --neural-retrieval is enabled",
+    )
     phase16.add_argument("-o", "--output-dir", default="output/phase16-real-music")
 
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
@@ -1414,6 +1425,11 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(0)
         if args.command == "phase16-validate-real":
+            if args.neural_retrieval:
+                os.environ["DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL"] = "1"
+                os.environ["DJAI_ALLOW_BROAD_GRAPH_FALLBACK"] = (
+                    "1" if args.allow_broad_graph_fallback else "0"
+                )
             _write_json(
                 validate_real_music_library(
                     current_environment().workspace,
