@@ -117,6 +117,7 @@ class TransitionReplanRequired(RuntimeError):
         action: str,
         reason: str,
         resolution: dict[str, Any] | None = None,
+        compiled_prefix: Sequence[TransitionEdge] | None = None,
     ) -> None:
         super().__init__(reason)
         self.from_index = from_index
@@ -124,6 +125,7 @@ class TransitionReplanRequired(RuntimeError):
         self.action = action
         self.reason = reason
         self.resolution = dict(resolution or {})
+        self.compiled_prefix = list(compiled_prefix or ())
 
 
 def classify_quality(plan: TransitionPlan) -> QualityClass:
@@ -2056,6 +2058,7 @@ def _compile_sequence_edges(
                     action="replan_track",
                     reason="No technique-feasible candidate survived source/body/cue constraints; automatic mode must replan rather than expose a blind fade.",
                     resolution={"action": "replan_track", "reason": "no_candidate_pool"},
+                    compiled_prefix=list(compiled),
                 )
             feasible_downbeats = [
                 value for value in track_a.downbeats_seconds
@@ -2232,6 +2235,7 @@ def _compile_sequence_edges(
                                 action="replan_track",
                                 reason="No pair-evidence matrix remained for a rehearsed automatic transition.",
                                 resolution={"action": "replan_track", "reason": "no_evidence_matrix"},
+                                compiled_prefix=list(compiled),
                             )
                         chosen = build_last_resort_plan(
                             track_a,
@@ -2316,6 +2320,7 @@ def _compile_sequence_edges(
                                         **resolution.to_dict(),
                                         "reason": "emergency_cut_not_production_route",
                                     },
+                                    compiled_prefix=list(compiled),
                                 )
                             chosen = resolution.selected
                             measurement_summary = resolution.to_dict()
@@ -2330,6 +2335,7 @@ def _compile_sequence_edges(
                                     else "Rendered transition did not clear the professional acceptance gate."
                                 ),
                                 resolution=resolution.to_dict(),
+                                compiled_prefix=list(compiled),
                             )
                         else:
                             emergency = resolve_emergency_escape(
@@ -3185,14 +3191,48 @@ def make_set_plan(
     else:
         algorithm = "saund_ai_1_unified_planner_with_rehearsal_feedback_and_edge_replanning"
 
+    prepared_prefix_cache: dict[tuple[int, ...], list[TransitionEdge]] = {}
+
+    def _remember_prepared_prefix(order_value: list[int], edges: Sequence[TransitionEdge]) -> None:
+        for count in range(1, len(edges) + 1):
+            key = tuple(order_value[: count + 1])
+            prepared_prefix_cache[key] = list(edges[:count])
+
     def _compile_for_executive(
         selected_order: list[int],
         replan_on_review: bool,
         allow_emergency_escape: bool,
     ) -> list[TransitionEdge]:
+        cached_edges: list[TransitionEdge] = []
+        cached_track_count = 1
+        for track_count in range(len(selected_order), 1, -1):
+            key = tuple(selected_order[:track_count])
+            if key in prepared_prefix_cache:
+                cached_edges = list(prepared_prefix_cache[key])
+                cached_track_count = track_count
+                break
+
+        suffix_order = selected_order[cached_track_count - 1 :] if cached_edges else selected_order
+        history_order = selected_order[:cached_track_count] if cached_edges else None
+        history_plans = [edge.plan for edge in cached_edges] if cached_edges else None
+        initial_cursor = cached_edges[-1].plan.post_transition_source_end_b if cached_edges else 0.0
+        initial_rate = cached_edges[-1].plan.post_transition_rate_b if cached_edges else 1.0
+        initial_bpm = (
+            cached_edges[-1].plan.post_transition_bpm_b
+            if cached_edges
+            else None
+        )
+        if cached_edges and progress:
+            progress(
+                "prefix-reuse",
+                len(cached_edges),
+                max(1, len(selected_order) - 1),
+                f"Reusing {len(cached_edges)} already-rehearsed transition(s)",
+            )
+
         try:
-            return _compile_sequence_edges(
-                selected_order,
+            suffix_edges = _compile_sequence_edges(
+                suffix_order,
                 analyses,
                 graph,
                 tempo_policy=tempo_policy,
@@ -3208,10 +3248,21 @@ def make_set_plan(
                 replan_on_review=replan_on_review,
                 allow_emergency_escape=allow_emergency_escape,
                 preferred_complete_moves=_complete_move_preferences(selected_order),
+                initial_source_cursor=initial_cursor,
+                initial_rate=initial_rate,
+                initial_effective_bpm=initial_bpm,
+                history_order=history_order,
+                history_plans=history_plans,
+                position_offset=len(cached_edges),
+                total_track_count=len(selected_order),
             )
+            result = cached_edges + suffix_edges
+            _remember_prepared_prefix(selected_order, result)
+            return result
         except TransitionReplanRequired as exc:
-            # Specialist brains may reject a prepared edge, but only the
-            # Executive owns the blocked-edge ledger and route-repair loop.
+            partial = cached_edges + list(exc.compiled_prefix)
+            if partial:
+                _remember_prepared_prefix(selected_order, partial)
             raise ExecutiveReplanRequest(
                 exc.from_index,
                 exc.to_index,
