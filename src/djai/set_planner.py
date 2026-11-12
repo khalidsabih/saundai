@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -63,8 +63,9 @@ from .fallback import build_last_resort_plan, select_automatic_transition
 from .confirmation import create_confirmation_token
 from .decision import CUT_TECHNIQUES, seal_execution_plan, validate_execution_plan
 from .execution import TransitionRenderContext, professional_normalization_gain
+from .environment import current_environment
 from .evaluation.full_set import FULL_SET_BENCHMARK_VERSION, evaluate_full_set
-from .models import QualityClass, TrackAnalysis, TransitionCandidate, TransitionPlan
+from .models import CompatibilityBreakdown, QualityClass, TrackAnalysis, TransitionCandidate, TransitionPlan
 from .measurement_store import finalize_measurement_run, measurement_log_offset
 from .music.timeline import earliest_safe_song_form_exit_bar
 from .journey import JourneyMode, curve_fit_score, journey_metadata, normalize_journey
@@ -79,9 +80,9 @@ from .planner import (
     plan_transition_candidate_pool,
     plan_transition_styles,
 )
-from .planning_context import PairEvidenceMatrix, PlanningSession, build_pair_evidence_matrix
+from .planning_context import CandidatePairEvidence, PairEvidenceMatrix, PlanningSession, build_pair_evidence_matrix, scoring_model_fingerprint
 from .renderer import DEFAULT_RENDER_SAMPLE_RATE
-from .serialization import track_analysis_from_dict, transition_plan_from_dict
+from .serialization import track_analysis_from_dict, transition_candidate_from_dict, transition_plan_from_dict
 from .set_models import SetPlan, TransitionEdge
 from .stems import enrich_analyses_with_cached_stems, find_cached_stems
 from .training.state_move_taste import move_taste_payload, state_context_id, state_taste_payload
@@ -105,6 +106,145 @@ class _GraphPairResult:
     edge: TransitionEdge
     evidence_matrix: PairEvidenceMatrix
 
+
+GRAPH_PAIR_CACHE_VERSION = "1.0"
+
+def _analysis_graph_fingerprint(track: TrackAnalysis) -> str:
+    payload = track.to_dict(include_beats=False)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+def _graph_pair_cache_key(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    *,
+    tempo_policy: str,
+    preferred_style: str,
+    journey: JourneyMode,
+    scout_cues: int,
+    model_fingerprint: str | None,
+) -> str:
+    payload = {
+        "version": GRAPH_PAIR_CACHE_VERSION,
+        "track_a": _analysis_graph_fingerprint(track_a),
+        "track_b": _analysis_graph_fingerprint(track_b),
+        "tempo_policy": tempo_policy,
+        "preferred_style": preferred_style,
+        "journey": journey,
+        "scout_cues": int(scout_cues),
+        "scoring_model_fingerprint": model_fingerprint,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+def _graph_pair_cache_path(key: str) -> Path:
+    return current_environment().cache_dir / "graph-pairs" / f"{key}.json"
+
+def _pair_evidence_to_dict(matrix: PairEvidenceMatrix) -> dict[str, Any]:
+    return {
+        "track_a_path": matrix.track_a_path,
+        "track_b_path": matrix.track_b_path,
+        "exit_candidates": [item.to_dict() for item in matrix.exit_candidates],
+        "entry_candidates": [item.to_dict() for item in matrix.entry_candidates],
+        "pairs": [
+            {
+                "exit_index": item.exit_index,
+                "entry_index": item.entry_index,
+                "exit_candidate": item.exit_candidate.to_dict(),
+                "entry_candidate": item.entry_candidate.to_dict(),
+                "breakdown": asdict(item.breakdown),
+            }
+            for item in matrix.pairs
+        ],
+        "scoring_model_fingerprint": matrix.scoring_model_fingerprint,
+    }
+
+def _pair_evidence_from_dict(payload: dict[str, Any]) -> PairEvidenceMatrix:
+    return PairEvidenceMatrix(
+        track_a_path=str(payload["track_a_path"]),
+        track_b_path=str(payload["track_b_path"]),
+        exit_candidates=tuple(
+            transition_candidate_from_dict(dict(item))
+            for item in payload.get("exit_candidates", [])
+        ),
+        entry_candidates=tuple(
+            transition_candidate_from_dict(dict(item))
+            for item in payload.get("entry_candidates", [])
+        ),
+        pairs=tuple(
+            CandidatePairEvidence(
+                exit_index=int(item["exit_index"]),
+                entry_index=int(item["entry_index"]),
+                exit_candidate=transition_candidate_from_dict(dict(item["exit_candidate"])),
+                entry_candidate=transition_candidate_from_dict(dict(item["entry_candidate"])),
+                breakdown=CompatibilityBreakdown(**dict(item["breakdown"])),
+            )
+            for item in payload.get("pairs", [])
+        ),
+        scoring_model_fingerprint=payload.get("scoring_model_fingerprint"),
+    )
+
+def _load_graph_pair_cache(
+    key: str,
+    *,
+    from_index: int,
+    to_index: int,
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+) -> _GraphPairResult | None:
+    path = _graph_pair_cache_path(key)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("version") != GRAPH_PAIR_CACHE_VERSION:
+            return None
+        if int(payload.get("from_index", -1)) != from_index or int(payload.get("to_index", -1)) != to_index:
+            return None
+        matrix = _pair_evidence_from_dict(dict(payload["evidence_matrix"]))
+        matrix.validate_tracks(track_a, track_b)
+        edge_payload = dict(payload["edge"])
+        edge = TransitionEdge(
+            from_index=from_index,
+            to_index=to_index,
+            selected_style=str(edge_payload["selected_style"]),
+            objective_score=float(edge_payload["objective_score"]),
+            quality=str(edge_payload["quality"]),
+            plan=transition_plan_from_dict(dict(edge_payload["plan"])),
+            alternatives=[
+                transition_plan_from_dict(dict(item))
+                for item in edge_payload.get("alternatives", [])
+            ],
+            warnings=[str(item) for item in edge_payload.get("warnings", [])],
+            reasons=[str(item) for item in edge_payload.get("reasons", [])],
+        )
+        return _GraphPairResult(
+            from_index=from_index,
+            to_index=to_index,
+            label=f"{track_a.title} -> {track_b.title}",
+            edge=edge,
+            evidence_matrix=matrix,
+        )
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+def _store_graph_pair_cache(key: str, result: _GraphPairResult) -> None:
+    path = _graph_pair_cache_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": GRAPH_PAIR_CACHE_VERSION,
+            "from_index": result.from_index,
+            "to_index": result.to_index,
+            "edge": result.edge.to_dict(),
+            "evidence_matrix": _pair_evidence_to_dict(result.evidence_matrix),
+        }
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str),
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    except OSError:
+        return
 
 class TransitionReplanRequired(RuntimeError):
     """A rehearsed edge is not good enough to enter an automatic final set."""
@@ -565,18 +705,38 @@ def build_transition_graph(
             track_b = analyses[task.to_index]
             if progress:
                 progress("graph", completed - 1, total, f"{track_a.title} -> {track_b.title}")
-            result = _plan_graph_pair_core(
-                task,
-                analyses=analyses,
+            cache_key = _graph_pair_cache_key(
+                track_a,
+                track_b,
                 tempo_policy=tempo_policy,
                 preferred_style=preferred_style,
                 journey=journey,
-                stem_maps=stem_maps,
-                scoring_model=active_session.scoring_model,
+                scout_cues=scout_cues,
+                model_fingerprint=scoring_model_fingerprint(active_session.scoring_model),
             )
+            result = _load_graph_pair_cache(
+                cache_key,
+                from_index=task.from_index,
+                to_index=task.to_index,
+                track_a=track_a,
+                track_b=track_b,
+            )
+            cache_hit = result is not None
+            if result is None:
+                result = _plan_graph_pair_core(
+                    task,
+                    analyses=analyses,
+                    tempo_policy=tempo_policy,
+                    preferred_style=preferred_style,
+                    journey=journey,
+                    stem_maps=stem_maps,
+                    scoring_model=active_session.scoring_model,
+                )
+                _store_graph_pair_cache(cache_key, result)
             results[(result.from_index, result.to_index)] = result
             if progress:
-                progress("graph", completed, total, result.label)
+                detail = f"{result.label} · cached" if cache_hit else result.label
+                progress("graph", completed, total, detail)
     else:
         prepare_process_environment()
         if progress:
