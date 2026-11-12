@@ -269,4 +269,15 @@ def execute_transition_program(
         audio, used = _execute_layers(resolved, prepared)
     else:  # guarded by validation
         raise RuntimeError(f"Unsupported executable source mode {resolved.source_mode!r}.")
-    return ProgramExecutionResult(audio=_soft_limit(audio), source_mode=resolved.source_mode, buses_used=used)
+    ceiling = max(
+        0.50,
+        min(
+            0.985,
+            float(dict(resolved.annotations or {}).get("output_ceiling", 0.985)),
+        ),
+    )
+    return ProgramExecutionResult(
+        audio=_soft_limit(audio, ceiling=ceiling),
+        source_mode=resolved.source_mode,
+        buses_used=used,
+    )
