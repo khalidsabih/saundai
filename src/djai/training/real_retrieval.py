@@ -198,19 +198,17 @@ def _crate_fingerprint(plan: Any) -> str:
     training = route_meta.get("training_evidence")
     if isinstance(training, Mapping) and str(training.get("crate_fingerprint") or ""):
         return str(training["crate_fingerprint"])
-    payload = sorted(
-        (
-            {
-                "path": str(track.path),
-                "bpm": round(float(track.bpm), 4),
-                "duration": round(float(track.duration_seconds), 3),
-            }
-            for track in plan.tracks
-        ),
-        key=lambda item: (item["path"], item["bpm"], item["duration"]),
-    )
+    track_fingerprints: list[str] = []
+    for track in plan.tracks:
+        identity_payload = track.to_dict(include_beats=False)
+        identity_payload.pop("path", None)
+        track_fingerprints.append(
+            hashlib.sha256(
+                json.dumps(identity_payload, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        )
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True).encode("utf-8")
+        json.dumps(sorted(track_fingerprints)).encode("utf-8")
     ).hexdigest()[:16]
 
 
