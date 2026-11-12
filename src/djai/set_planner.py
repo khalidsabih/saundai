@@ -3118,7 +3118,12 @@ def make_set_plan(
             )
         )
 
+    broad_graph_materialized = False
+
     def _ensure_full_graph() -> None:
+        nonlocal broad_graph_materialized
+        if broad_graph_materialized:
+            return
         all_pairs = (
             (from_index, to_index)
             for from_index in range(len(analyses))
@@ -3126,6 +3131,7 @@ def make_set_plan(
             if from_index != to_index
         )
         _ensure_graph_pairs(all_pairs)
+        broad_graph_materialized = True
 
     baseline_order = list(range(len(analyses)))
     blocked_pairs: set[tuple[int, int]] = set()
@@ -3136,6 +3142,16 @@ def make_set_plan(
 
     def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
         route: _CompleteMoveRoute | None = None
+        if broad_graph_materialized:
+            return optimize_order(
+                analyses,
+                graph,
+                start_index=start_index,
+                end_index=end_index,
+                journey=journey,
+                listener_profile=listener_profile,
+                blocked_pairs=active_blocked,
+            )
         if complete_move_cfg.mode != "legacy":
             route = build_complete_move_route(
                 analyses,
