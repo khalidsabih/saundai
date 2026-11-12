@@ -144,14 +144,14 @@ def _pair_evidence_to_dict(matrix: PairEvidenceMatrix) -> dict[str, Any]:
     return {
         "track_a_path": matrix.track_a_path,
         "track_b_path": matrix.track_b_path,
-        "exit_candidates": [item.to_dict() for item in matrix.exit_candidates],
-        "entry_candidates": [item.to_dict() for item in matrix.entry_candidates],
+        "exit_candidates": [asdict(item) for item in matrix.exit_candidates],
+        "entry_candidates": [asdict(item) for item in matrix.entry_candidates],
         "pairs": [
             {
                 "exit_index": item.exit_index,
                 "entry_index": item.entry_index,
-                "exit_candidate": item.exit_candidate.to_dict(),
-                "entry_candidate": item.entry_candidate.to_dict(),
+                "exit_candidate": asdict(item.exit_candidate),
+                "entry_candidate": asdict(item.entry_candidate),
                 "breakdown": asdict(item.breakdown),
             }
             for item in matrix.pairs
