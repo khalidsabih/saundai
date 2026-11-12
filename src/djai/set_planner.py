@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -63,8 +63,9 @@ from .fallback import build_last_resort_plan, select_automatic_transition
 from .confirmation import create_confirmation_token
 from .decision import CUT_TECHNIQUES, seal_execution_plan, validate_execution_plan
 from .execution import TransitionRenderContext, professional_normalization_gain
+from .environment import current_environment
 from .evaluation.full_set import FULL_SET_BENCHMARK_VERSION, evaluate_full_set
-from .models import QualityClass, TrackAnalysis, TransitionCandidate, TransitionPlan
+from .models import CompatibilityBreakdown, QualityClass, TrackAnalysis, TransitionCandidate, TransitionPlan
 from .measurement_store import finalize_measurement_run, measurement_log_offset
 from .music.timeline import earliest_safe_song_form_exit_bar
 from .journey import JourneyMode, curve_fit_score, journey_metadata, normalize_journey
@@ -79,9 +80,9 @@ from .planner import (
     plan_transition_candidate_pool,
     plan_transition_styles,
 )
-from .planning_context import PairEvidenceMatrix, PlanningSession, build_pair_evidence_matrix
+from .planning_context import CandidatePairEvidence, PairEvidenceMatrix, PlanningSession, build_pair_evidence_matrix, scoring_model_fingerprint
 from .renderer import DEFAULT_RENDER_SAMPLE_RATE
-from .serialization import track_analysis_from_dict, transition_plan_from_dict
+from .serialization import track_analysis_from_dict, transition_candidate_from_dict, transition_plan_from_dict
 from .set_models import SetPlan, TransitionEdge
 from .stems import enrich_analyses_with_cached_stems, find_cached_stems
 from .training.state_move_taste import move_taste_payload, state_context_id, state_taste_payload
@@ -106,6 +107,145 @@ class _GraphPairResult:
     evidence_matrix: PairEvidenceMatrix
 
 
+GRAPH_PAIR_CACHE_VERSION = "1.0"
+
+def _analysis_graph_fingerprint(track: TrackAnalysis) -> str:
+    payload = track.to_dict(include_beats=False)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+def _graph_pair_cache_key(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    *,
+    tempo_policy: str,
+    preferred_style: str,
+    journey: JourneyMode,
+    scout_cues: int,
+    model_fingerprint: str | None,
+) -> str:
+    payload = {
+        "version": GRAPH_PAIR_CACHE_VERSION,
+        "track_a": _analysis_graph_fingerprint(track_a),
+        "track_b": _analysis_graph_fingerprint(track_b),
+        "tempo_policy": tempo_policy,
+        "preferred_style": preferred_style,
+        "journey": journey,
+        "scout_cues": int(scout_cues),
+        "scoring_model_fingerprint": model_fingerprint,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+def _graph_pair_cache_path(key: str) -> Path:
+    return current_environment().cache_dir / "graph-pairs" / f"{key}.json"
+
+def _pair_evidence_to_dict(matrix: PairEvidenceMatrix) -> dict[str, Any]:
+    return {
+        "track_a_path": matrix.track_a_path,
+        "track_b_path": matrix.track_b_path,
+        "exit_candidates": [asdict(item) for item in matrix.exit_candidates],
+        "entry_candidates": [asdict(item) for item in matrix.entry_candidates],
+        "pairs": [
+            {
+                "exit_index": item.exit_index,
+                "entry_index": item.entry_index,
+                "exit_candidate": asdict(item.exit_candidate),
+                "entry_candidate": asdict(item.entry_candidate),
+                "breakdown": asdict(item.breakdown),
+            }
+            for item in matrix.pairs
+        ],
+        "scoring_model_fingerprint": matrix.scoring_model_fingerprint,
+    }
+
+def _pair_evidence_from_dict(payload: dict[str, Any]) -> PairEvidenceMatrix:
+    return PairEvidenceMatrix(
+        track_a_path=str(payload["track_a_path"]),
+        track_b_path=str(payload["track_b_path"]),
+        exit_candidates=tuple(
+            transition_candidate_from_dict(dict(item))
+            for item in payload.get("exit_candidates", [])
+        ),
+        entry_candidates=tuple(
+            transition_candidate_from_dict(dict(item))
+            for item in payload.get("entry_candidates", [])
+        ),
+        pairs=tuple(
+            CandidatePairEvidence(
+                exit_index=int(item["exit_index"]),
+                entry_index=int(item["entry_index"]),
+                exit_candidate=transition_candidate_from_dict(dict(item["exit_candidate"])),
+                entry_candidate=transition_candidate_from_dict(dict(item["entry_candidate"])),
+                breakdown=CompatibilityBreakdown(**dict(item["breakdown"])),
+            )
+            for item in payload.get("pairs", [])
+        ),
+        scoring_model_fingerprint=payload.get("scoring_model_fingerprint"),
+    )
+
+def _load_graph_pair_cache(
+    key: str,
+    *,
+    from_index: int,
+    to_index: int,
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+) -> _GraphPairResult | None:
+    path = _graph_pair_cache_path(key)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("version") != GRAPH_PAIR_CACHE_VERSION:
+            return None
+        if int(payload.get("from_index", -1)) != from_index or int(payload.get("to_index", -1)) != to_index:
+            return None
+        matrix = _pair_evidence_from_dict(dict(payload["evidence_matrix"]))
+        matrix.validate_tracks(track_a, track_b)
+        edge_payload = dict(payload["edge"])
+        edge = TransitionEdge(
+            from_index=from_index,
+            to_index=to_index,
+            selected_style=str(edge_payload["selected_style"]),
+            objective_score=float(edge_payload["objective_score"]),
+            quality=str(edge_payload["quality"]),
+            plan=transition_plan_from_dict(dict(edge_payload["plan"])),
+            alternatives=[
+                transition_plan_from_dict(dict(item))
+                for item in edge_payload.get("alternatives", [])
+            ],
+            warnings=[str(item) for item in edge_payload.get("warnings", [])],
+            reasons=[str(item) for item in edge_payload.get("reasons", [])],
+        )
+        return _GraphPairResult(
+            from_index=from_index,
+            to_index=to_index,
+            label=f"{track_a.title} -> {track_b.title}",
+            edge=edge,
+            evidence_matrix=matrix,
+        )
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+def _store_graph_pair_cache(key: str, result: _GraphPairResult) -> None:
+    path = _graph_pair_cache_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": GRAPH_PAIR_CACHE_VERSION,
+            "from_index": result.from_index,
+            "to_index": result.to_index,
+            "edge": result.edge.to_dict(),
+            "evidence_matrix": _pair_evidence_to_dict(result.evidence_matrix),
+        }
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str),
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    except OSError:
+        return
+
 class TransitionReplanRequired(RuntimeError):
     """A rehearsed edge is not good enough to enter an automatic final set."""
 
@@ -117,6 +257,7 @@ class TransitionReplanRequired(RuntimeError):
         action: str,
         reason: str,
         resolution: dict[str, Any] | None = None,
+        compiled_prefix: Sequence[TransitionEdge] | None = None,
     ) -> None:
         super().__init__(reason)
         self.from_index = from_index
@@ -124,6 +265,7 @@ class TransitionReplanRequired(RuntimeError):
         self.action = action
         self.reason = reason
         self.resolution = dict(resolution or {})
+        self.compiled_prefix = list(compiled_prefix or ())
 
 
 def classify_quality(plan: TransitionPlan) -> QualityClass:
@@ -563,18 +705,38 @@ def build_transition_graph(
             track_b = analyses[task.to_index]
             if progress:
                 progress("graph", completed - 1, total, f"{track_a.title} -> {track_b.title}")
-            result = _plan_graph_pair_core(
-                task,
-                analyses=analyses,
+            cache_key = _graph_pair_cache_key(
+                track_a,
+                track_b,
                 tempo_policy=tempo_policy,
                 preferred_style=preferred_style,
                 journey=journey,
-                stem_maps=stem_maps,
-                scoring_model=active_session.scoring_model,
+                scout_cues=scout_cues,
+                model_fingerprint=scoring_model_fingerprint(active_session.scoring_model),
             )
+            result = _load_graph_pair_cache(
+                cache_key,
+                from_index=task.from_index,
+                to_index=task.to_index,
+                track_a=track_a,
+                track_b=track_b,
+            )
+            cache_hit = result is not None
+            if result is None:
+                result = _plan_graph_pair_core(
+                    task,
+                    analyses=analyses,
+                    tempo_policy=tempo_policy,
+                    preferred_style=preferred_style,
+                    journey=journey,
+                    stem_maps=stem_maps,
+                    scoring_model=active_session.scoring_model,
+                )
+                _store_graph_pair_cache(cache_key, result)
             results[(result.from_index, result.to_index)] = result
             if progress:
-                progress("graph", completed, total, result.label)
+                detail = f"{result.label} · cached" if cache_hit else result.label
+                progress("graph", completed, total, detail)
     else:
         prepare_process_environment()
         if progress:
@@ -2056,6 +2218,7 @@ def _compile_sequence_edges(
                     action="replan_track",
                     reason="No technique-feasible candidate survived source/body/cue constraints; automatic mode must replan rather than expose a blind fade.",
                     resolution={"action": "replan_track", "reason": "no_candidate_pool"},
+                    compiled_prefix=list(compiled),
                 )
             feasible_downbeats = [
                 value for value in track_a.downbeats_seconds
@@ -2232,6 +2395,7 @@ def _compile_sequence_edges(
                                 action="replan_track",
                                 reason="No pair-evidence matrix remained for a rehearsed automatic transition.",
                                 resolution={"action": "replan_track", "reason": "no_evidence_matrix"},
+                                compiled_prefix=list(compiled),
                             )
                         chosen = build_last_resort_plan(
                             track_a,
@@ -2316,6 +2480,7 @@ def _compile_sequence_edges(
                                         **resolution.to_dict(),
                                         "reason": "emergency_cut_not_production_route",
                                     },
+                                    compiled_prefix=list(compiled),
                                 )
                             chosen = resolution.selected
                             measurement_summary = resolution.to_dict()
@@ -2330,6 +2495,7 @@ def _compile_sequence_edges(
                                     else "Rendered transition did not clear the professional acceptance gate."
                                 ),
                                 resolution=resolution.to_dict(),
+                                compiled_prefix=list(compiled),
                             )
                         else:
                             emergency = resolve_emergency_escape(
@@ -3112,7 +3278,12 @@ def make_set_plan(
             )
         )
 
+    broad_graph_materialized = False
+
     def _ensure_full_graph() -> None:
+        nonlocal broad_graph_materialized
+        if broad_graph_materialized:
+            return
         all_pairs = (
             (from_index, to_index)
             for from_index in range(len(analyses))
@@ -3120,6 +3291,7 @@ def make_set_plan(
             if from_index != to_index
         )
         _ensure_graph_pairs(all_pairs)
+        broad_graph_materialized = True
 
     baseline_order = list(range(len(analyses)))
     blocked_pairs: set[tuple[int, int]] = set()
@@ -3130,6 +3302,16 @@ def make_set_plan(
 
     def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
         route: _CompleteMoveRoute | None = None
+        if broad_graph_materialized:
+            return optimize_order(
+                analyses,
+                graph,
+                start_index=start_index,
+                end_index=end_index,
+                journey=journey,
+                listener_profile=listener_profile,
+                blocked_pairs=active_blocked,
+            )
         if complete_move_cfg.mode != "legacy":
             route = build_complete_move_route(
                 analyses,
@@ -3147,9 +3329,62 @@ def make_set_plan(
             complete_move_runs.append(route)
             if complete_move_cfg.mode == "move_authoritative" and route.completed:
                 return list(route.order)
+
+            if lazy_graph_authority and len(analyses) >= _large_set_threshold():
+                # A bounded large-crate scout may dead-end after committing an
+                # unfortunate opener even though a complete sparse route exists.
+                # Escalate the *structural* search first and reuse every graph
+                # pair already materialized. This is much cheaper than jumping
+                # immediately to the historical broad graph; rendered rehearsal
+                # and all hard safety gates remain unchanged.
+                expanded_cfg = replace(
+                    complete_move_cfg,
+                    opener_candidates=min(4, max(complete_move_cfg.opener_candidates + 2, 3)),
+                    search_branch_width=min(3, max(complete_move_cfg.search_branch_width + 1, 2)),
+                    lazy_candidate_width=min(8, max(complete_move_cfg.lazy_candidate_width + 2, 5)),
+                    lazy_expansion_width=min(8, max(complete_move_cfg.lazy_expansion_width + 2, 4)),
+                )
+                if progress:
+                    progress(
+                        "route-search",
+                        1,
+                        2,
+                        "Sparse large-crate scout incomplete; expanding opener/branch search before broad graph fallback",
+                    )
+                expanded_route = build_complete_move_route(
+                    analyses,
+                    graph,
+                    start_index=start_index,
+                    end_index=end_index,
+                    journey=journey,
+                    blocked_pairs=active_blocked,
+                    config=expanded_cfg,
+                    headphones_config=headphones_cfg,
+                    listener=listener,
+                    ensure_pairs=_ensure_graph_pairs,
+                    timing_intent=timing_intent,
+                )
+                complete_move_runs.append(expanded_route)
+                if expanded_route.completed:
+                    if progress:
+                        progress(
+                            "route-search",
+                            2,
+                            2,
+                            "Expanded sparse route completed; broad graph fallback avoided",
+                        )
+                    return list(expanded_route.order)
         if lazy_graph_authority:
-            # Safe fallback only: if sparse complete-move search cannot finish,
-            # materialize the historical graph before invoking legacy order.
+            # Safe fallback only: if both bounded sparse complete-move searches
+            # cannot finish, materialize the historical graph before invoking
+            # legacy order.
+            if progress:
+                progress(
+                    "route-search",
+                    2,
+                    2,
+                    "Sparse route still incomplete; materializing broad graph fallback",
+                )
             _ensure_full_graph()
         return optimize_order(
             analyses,
@@ -3185,14 +3420,48 @@ def make_set_plan(
     else:
         algorithm = "saund_ai_1_unified_planner_with_rehearsal_feedback_and_edge_replanning"
 
+    prepared_prefix_cache: dict[tuple[int, ...], list[TransitionEdge]] = {}
+
+    def _remember_prepared_prefix(order_value: list[int], edges: Sequence[TransitionEdge]) -> None:
+        for count in range(1, len(edges) + 1):
+            key = tuple(order_value[: count + 1])
+            prepared_prefix_cache[key] = list(edges[:count])
+
     def _compile_for_executive(
         selected_order: list[int],
         replan_on_review: bool,
         allow_emergency_escape: bool,
     ) -> list[TransitionEdge]:
+        cached_edges: list[TransitionEdge] = []
+        cached_track_count = 1
+        for track_count in range(len(selected_order), 1, -1):
+            key = tuple(selected_order[:track_count])
+            if key in prepared_prefix_cache:
+                cached_edges = list(prepared_prefix_cache[key])
+                cached_track_count = track_count
+                break
+
+        suffix_order = selected_order[cached_track_count - 1 :] if cached_edges else selected_order
+        history_order = selected_order[:cached_track_count] if cached_edges else None
+        history_plans = [edge.plan for edge in cached_edges] if cached_edges else None
+        initial_cursor = cached_edges[-1].plan.post_transition_source_end_b if cached_edges else 0.0
+        initial_rate = cached_edges[-1].plan.post_transition_rate_b if cached_edges else 1.0
+        initial_bpm = (
+            cached_edges[-1].plan.post_transition_bpm_b
+            if cached_edges
+            else None
+        )
+        if cached_edges and progress:
+            progress(
+                "prefix-reuse",
+                len(cached_edges),
+                max(1, len(selected_order) - 1),
+                f"Reusing {len(cached_edges)} already-rehearsed transition(s)",
+            )
+
         try:
-            return _compile_sequence_edges(
-                selected_order,
+            suffix_edges = _compile_sequence_edges(
+                suffix_order,
                 analyses,
                 graph,
                 tempo_policy=tempo_policy,
@@ -3208,10 +3477,21 @@ def make_set_plan(
                 replan_on_review=replan_on_review,
                 allow_emergency_escape=allow_emergency_escape,
                 preferred_complete_moves=_complete_move_preferences(selected_order),
+                initial_source_cursor=initial_cursor,
+                initial_rate=initial_rate,
+                initial_effective_bpm=initial_bpm,
+                history_order=history_order,
+                history_plans=history_plans,
+                position_offset=len(cached_edges),
+                total_track_count=len(selected_order),
             )
+            result = cached_edges + suffix_edges
+            _remember_prepared_prefix(selected_order, result)
+            return result
         except TransitionReplanRequired as exc:
-            # Specialist brains may reject a prepared edge, but only the
-            # Executive owns the blocked-edge ledger and route-repair loop.
+            partial = cached_edges + list(exc.compiled_prefix)
+            if partial:
+                _remember_prepared_prefix(selected_order, partial)
             raise ExecutiveReplanRequest(
                 exc.from_index,
                 exc.to_index,
