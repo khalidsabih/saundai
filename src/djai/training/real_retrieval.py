@@ -323,13 +323,6 @@ def _dense_phase16_rows(plan: Any, training: Mapping[str, Any], journey: str) ->
                     plan.tracks[candidate_index],
                     set_state=state,
                 )
-                features.update(
-                    route_selection_score=selection_score,
-                    route_future_optionality=optionality,
-                    route_won_attempt=1.0 if won_attempt else 0.0,
-                    route_attempt_completed=1.0 if attempt_completed else 0.0,
-                    route_future_survival=float(future_survival),
-                )
                 candidate_rows.append({
                     "schema_version": REAL_RETRIEVAL_DATA_VERSION,
                     "id": f"{group}:{candidate_index}",
