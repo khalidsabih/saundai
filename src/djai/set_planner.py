@@ -1590,9 +1590,27 @@ def _large_crate_complete_move_config(
     config: CompleteMoveConfig,
     track_count: int,
 ) -> CompleteMoveConfig:
-    """Bound structural search cost for large crates without touching safety gates."""
+    """Bound structural search cost for large crates without touching safety gates.
+
+    During the explicit neural-retrieval experiment, caller-provided widening
+    tiers are intentional and must survive this helper. Normal production
+    planning keeps the historical conservative caps.
+    """
     if track_count < _large_set_threshold():
         return config
+    experimental_retrieval = os.environ.get(
+        "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if experimental_retrieval:
+        return replace(
+            config,
+            lookahead_moves=min(config.lookahead_moves, 2),
+            search_branch_width=min(config.search_branch_width, 4),
+            lazy_candidate_width=min(config.lazy_candidate_width, max(6, track_count - 1)),
+            lazy_expansion_width=min(config.lazy_expansion_width, max(4, track_count - 1)),
+            opener_candidates=min(config.opener_candidates, 4),
+            candidates_per_track=min(config.candidates_per_track, 4),
+        )
     return replace(
         config,
         lookahead_moves=min(config.lookahead_moves, 2),
