@@ -7,11 +7,12 @@ from typing import Any, Sequence
 
 from ..compatibility import genre_compatibility, harmonic_compatibility, tempo_compatibility
 from ..intelligence.embeddings import embedding_similarity
+from ..intelligence.neural_policy import next_track_prediction
 from ..models import TrackAnalysis
 from .crowd_state import CrowdDirective, crowd_alignment_adjustment
 from .set_state import SetState, next_track_context_score, track_state_vector
 
-RETRIEVAL_VERSION = "1.7.1"
+RETRIEVAL_VERSION = "1.8.0"
 
 
 def _clamp(value: float) -> float:
@@ -25,18 +26,27 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateRetrievalConfig:
-    width: int = 10
-    expansion_width: int = 10
+    width: int = 8
+    expansion_width: int = 6
     minimum_diverse: int = 2
+    learned_weight: float = 0.68
 
     @classmethod
     def from_environment(cls) -> "CandidateRetrievalConfig":
         return cls(
-            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 10))),
-            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 10))),
+            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 8))),
+            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 6))),
             minimum_diverse=max(1, min(6, _int_env("DJAI_LAZY_MIN_DIVERSE", 2))),
+            learned_weight=max(0.0, min(0.85, _float_env("DJAI_NEURAL_RETRIEVAL_WEIGHT", 0.68))),
         )
 
 
@@ -159,7 +169,7 @@ def retrieve_candidate_tracks(
     current = analyses[current_index]
     ranked: list[RetrievedTrack] = []
     for index in available:
-        score, components = _cheap_score(
+        deterministic_score, components = _cheap_score(
             current,
             analyses[index],
             set_state=set_state,
@@ -167,12 +177,37 @@ def retrieve_candidate_tracks(
             progress=progress,
             crowd_directive=crowd_directive,
         )
+        learned = next_track_prediction(current, analyses[index], set_state=set_state)
+        if learned.available:
+            learned_weight = cfg.learned_weight
+            score = _clamp(
+                (1.0 - learned_weight) * deterministic_score
+                + learned_weight * float(learned.score)
+            )
+            components = {
+                **components,
+                "deterministic_retrieval": deterministic_score,
+                "learned_retrieval": float(learned.score),
+                "learned_confidence": float(learned.confidence),
+                "learned_weight": learned_weight,
+            }
+            reason = "learned next-track filter + deterministic musical guard"
+        else:
+            score = deterministic_score
+            components = {
+                **components,
+                "deterministic_retrieval": deterministic_score,
+                "learned_retrieval": 0.5,
+                "learned_confidence": 0.0,
+                "learned_weight": 0.0,
+            }
+            reason = "deterministic retrieval; learned next-track filter unavailable"
         ranked.append(
             RetrievedTrack(
                 index=index,
                 score=score,
                 components=components,
-                reason="cheap musical compatibility + current set need",
+                reason=reason,
             )
         )
     ranked.sort(key=lambda item: (item.score, -item.index), reverse=True)
