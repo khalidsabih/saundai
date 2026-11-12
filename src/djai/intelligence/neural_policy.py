@@ -265,6 +265,38 @@ def scalar_head_uses_feature_prefix(model_id: str, prefix: str, *, require_autho
 def rendered_judge_prediction(a,b,plan,*,set_state=None):return predict_scalar_head("rendered_dj_judge",transition_feature_dict(a,b,plan=plan,set_state=set_state))
 def next_track_prediction(a,b,*,set_state=None):return predict_scalar_head("next_track_policy",transition_feature_dict(a,b,set_state=set_state))
 
+def _real_retrieval_checkpoint_eligible(payload: Mapping[str,Any]) -> tuple[bool,str]:
+    """Require enough independent real evidence before preferring the real retriever."""
+    metrics=payload.get("metrics",{}) if isinstance(payload.get("metrics"),Mapping) else {}
+    train=metrics.get("train_ranking",{}) if isinstance(metrics.get("train_ranking"),Mapping) else {}
+    validation=metrics.get("validation_ranking",{}) if isinstance(metrics.get("validation_ranking"),Mapping) else {}
+    test=metrics.get("test_ranking",{}) if isinstance(metrics.get("test_ranking"),Mapping) else {}
+
+    train_groups=int(train.get("groups",0) or 0)
+    validation_groups=int(validation.get("groups",0) or 0)
+    test_groups=int(test.get("groups",0) or 0)
+    validation_pairwise=float(validation.get("pairwise_accuracy",0.0) or 0.0)
+    validation_top2=float(validation.get("top2_recall",0.0) or 0.0)
+
+    minimum_train_groups=max(20,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_TRAIN_GROUPS","20")))
+    minimum_validation_groups=max(5,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_GROUPS","5")))
+    minimum_test_groups=max(5,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_TEST_GROUPS","5")))
+    minimum_pairwise=float(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_PAIRWISE","0.65"))
+    minimum_top2=float(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_TOP2","0.75"))
+
+    if train_groups < minimum_train_groups:
+        return False,f"real checkpoint has only {train_groups} train groups; need {minimum_train_groups}"
+    if validation_groups < minimum_validation_groups:
+        return False,f"real checkpoint has only {validation_groups} validation groups; need {minimum_validation_groups}"
+    if test_groups < minimum_test_groups:
+        return False,f"real checkpoint has only {test_groups} test groups; need {minimum_test_groups}"
+    if validation_pairwise < minimum_pairwise:
+        return False,f"real checkpoint validation pairwise {validation_pairwise:.3f} below {minimum_pairwise:.3f}"
+    if validation_top2 < minimum_top2:
+        return False,f"real checkpoint validation top2 {validation_top2:.3f} below {minimum_top2:.3f}"
+    return True,"real checkpoint evidence gate passed"
+
+
 def experimental_next_track_prediction(a,b,*,set_state=None):
     """Use the best available shadow next-track MLP for retrieval experiments.
 
@@ -298,6 +330,10 @@ def experimental_next_track_prediction(a,b,*,set_state=None):
             candidate_payload=json.loads(candidate_path.read_text(encoding="utf-8"))
         except (OSError,json.JSONDecodeError):
             continue
+        if label=="next_track_real_retrieval_filter":
+            eligible,_eligibility_reason=_real_retrieval_checkpoint_eligible(candidate_payload)
+            if not eligible:
+                continue
         payload=candidate_payload
         path=candidate_path
         model_label=label
