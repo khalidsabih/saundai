@@ -3963,21 +3963,17 @@ def make_set_plan(
             }
         )
 
+    crate_track_fingerprints: list[str] = []
+    for track in analyses:
+        identity_payload = track.to_dict(include_beats=False)
+        identity_payload.pop("path", None)
+        crate_track_fingerprints.append(
+            hashlib.sha256(
+                json.dumps(identity_payload, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        )
     crate_fingerprint = hashlib.sha256(
-        json.dumps(
-            sorted(
-                (
-                    {
-                        "path": str(track.path),
-                        "bpm": round(float(track.bpm), 4),
-                        "duration": round(float(track.duration_seconds), 3),
-                    }
-                    for track in analyses
-                ),
-                key=lambda item: (item["path"], item["bpm"], item["duration"]),
-            ),
-            sort_keys=True,
-        ).encode("utf-8")
+        json.dumps(sorted(crate_track_fingerprints)).encode("utf-8")
     ).hexdigest()[:16]
 
     complete_move_report = {
