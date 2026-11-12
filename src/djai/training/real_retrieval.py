@@ -199,12 +199,15 @@ def _crate_fingerprint(plan: Any) -> str:
     if isinstance(training, Mapping) and str(training.get("crate_fingerprint") or ""):
         return str(training["crate_fingerprint"])
     payload = sorted(
-        {
-            "path": str(track.path),
-            "bpm": round(float(track.bpm), 4),
-            "duration": round(float(track.duration_seconds), 3),
-        }
-        for track in plan.tracks
+        (
+            {
+                "path": str(track.path),
+                "bpm": round(float(track.bpm), 4),
+                "duration": round(float(track.duration_seconds), 3),
+            }
+            for track in plan.tracks
+        ),
+        key=lambda item: (item["path"], item["bpm"], item["duration"]),
     )
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")
