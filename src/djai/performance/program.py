@@ -12,7 +12,7 @@ from .operations import ProgramDeckOperation, deck_operations_from_payload, vali
 # 6.0 turns the performance program from descriptive metadata into the
 # authoritative executable intermediate representation consumed by the DSP
 # engine. Renderer code must not infer transition strategy from `technique`.
-PERFORMANCE_PROGRAM_VERSION = "4.0"
+PERFORMANCE_PROGRAM_VERSION = "4.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +331,11 @@ def compile_transition_program(plan: TransitionPlan) -> TransitionProgram:
             }
             annotations["drop_target"] = 0.70
             annotations["loudness_safe_handoff"] = True
+            # Structural resets combine an outgoing echo tail with the incoming
+            # master. Sample-peak limiting at ~0 dBFS can still create positive
+            # inter-sample true peaks. Bind conservative headroom into the
+            # executable program instead of weakening rendered validation.
+            annotations["output_ceiling"] = 0.88
             annotations["choreography"] = (
                 "structural reset with earlier incoming ownership to preserve boundary loudness continuity"
             )
