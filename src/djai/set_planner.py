@@ -1424,6 +1424,24 @@ def _complete_move_route_from_opener(
     )
 
 
+def _large_crate_complete_move_config(
+    config: CompleteMoveConfig,
+    track_count: int,
+) -> CompleteMoveConfig:
+    """Bound structural search cost for large crates without touching safety gates."""
+    if track_count < _large_set_threshold():
+        return config
+    return replace(
+        config,
+        lookahead_moves=min(config.lookahead_moves, 2),
+        search_branch_width=min(config.search_branch_width, 2),
+        lazy_candidate_width=min(config.lazy_candidate_width, 6),
+        lazy_expansion_width=min(config.lazy_expansion_width, 6),
+        opener_candidates=min(config.opener_candidates, 2),
+        candidates_per_track=min(config.candidates_per_track, 3),
+    )
+
+
 def build_complete_move_route(
     analyses: list[TrackAnalysis],
     graph: dict[tuple[int, int], TransitionEdge],
@@ -1446,7 +1464,10 @@ def build_complete_move_route(
     materialize expensive transition edges only when search actually reaches
     that neighbourhood.
     """
-    cfg = config or CompleteMoveConfig.from_environment()
+    cfg = _large_crate_complete_move_config(
+        config or CompleteMoveConfig.from_environment(),
+        len(analyses),
+    )
     headphones_cfg = headphones_config or AIHeadphonesConfig.from_environment()
     blocked = blocked_pairs or set()
     if len(analyses) < 2:
@@ -2277,6 +2298,25 @@ def _compile_sequence_edges(
                         )
                         if resolution.accepted:
                             assert resolution.selected is not None
+                            if (
+                                automatic_delivery
+                                and replan_on_review
+                                and not allow_emergency_escape
+                                and resolution.selected.transition_mode == "emergency_cut"
+                            ):
+                                raise TransitionReplanRequired(
+                                    from_index,
+                                    to_index,
+                                    action="replan_track",
+                                    reason=(
+                                        "Professional rehearsal found only a structural reset for this pair; "
+                                        "offline automatic delivery must route through another track before using emergency escape."
+                                    ),
+                                    resolution={
+                                        **resolution.to_dict(),
+                                        "reason": "emergency_cut_not_production_route",
+                                    },
+                                )
                             chosen = resolution.selected
                             measurement_summary = resolution.to_dict()
                         elif replan_on_review and not allow_emergency_escape:
@@ -2451,7 +2491,7 @@ def _compile_sequence_edges(
                     **({"dj_move": previous_move} if previous_move is not None else {}),
                     **({"dj_state_before_move": previous_state} if previous_state is not None else {}),
                 }
-            if not allow_hard_cuts and chosen.technique in CUT_TECHNIQUES:
+            if not allow_hard_cuts and chosen.technique in {"quick_cut", "backspin"}:
                 rejected_technique = chosen.technique
                 chosen = build_last_resort_plan(
                     track_a,
