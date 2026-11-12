@@ -3153,9 +3153,62 @@ def make_set_plan(
             complete_move_runs.append(route)
             if complete_move_cfg.mode == "move_authoritative" and route.completed:
                 return list(route.order)
+
+            if lazy_graph_authority and len(analyses) >= _large_set_threshold():
+                # A bounded large-crate scout may dead-end after committing an
+                # unfortunate opener even though a complete sparse route exists.
+                # Escalate the *structural* search first and reuse every graph
+                # pair already materialized. This is much cheaper than jumping
+                # immediately to the historical broad graph; rendered rehearsal
+                # and all hard safety gates remain unchanged.
+                expanded_cfg = replace(
+                    complete_move_cfg,
+                    opener_candidates=min(4, max(complete_move_cfg.opener_candidates + 2, 3)),
+                    search_branch_width=min(3, max(complete_move_cfg.search_branch_width + 1, 2)),
+                    lazy_candidate_width=min(8, max(complete_move_cfg.lazy_candidate_width + 2, 5)),
+                    lazy_expansion_width=min(8, max(complete_move_cfg.lazy_expansion_width + 2, 4)),
+                )
+                if progress:
+                    progress(
+                        "route-search",
+                        1,
+                        2,
+                        "Sparse large-crate scout incomplete; expanding opener/branch search before broad graph fallback",
+                    )
+                expanded_route = build_complete_move_route(
+                    analyses,
+                    graph,
+                    start_index=start_index,
+                    end_index=end_index,
+                    journey=journey,
+                    blocked_pairs=active_blocked,
+                    config=expanded_cfg,
+                    headphones_config=headphones_cfg,
+                    listener=listener,
+                    ensure_pairs=_ensure_graph_pairs,
+                    timing_intent=timing_intent,
+                )
+                complete_move_runs.append(expanded_route)
+                if expanded_route.completed:
+                    if progress:
+                        progress(
+                            "route-search",
+                            2,
+                            2,
+                            "Expanded sparse route completed; broad graph fallback avoided",
+                        )
+                    return list(expanded_route.order)
         if lazy_graph_authority:
-            # Safe fallback only: if sparse complete-move search cannot finish,
-            # materialize the historical graph before invoking legacy order.
+            # Safe fallback only: if both bounded sparse complete-move searches
+            # cannot finish, materialize the historical graph before invoking
+            # legacy order.
+            if progress:
+                progress(
+                    "route-search",
+                    2,
+                    2,
+                    "Sparse route still incomplete; materializing broad graph fallback",
+                )
             _ensure_full_graph()
         return optimize_order(
             analyses,
