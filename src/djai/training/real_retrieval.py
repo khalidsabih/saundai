@@ -4,15 +4,14 @@ import csv
 import gzip
 import hashlib
 import json
-import math
-import shutil
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
 from ..brain.set_state import build_set_state
 from ..intelligence.neural_policy import transition_feature_dict
-from ..set_planner import load_set_plan
+from ..serialization import track_analysis_from_dict, transition_plan_from_dict
 from .pairwise_ranker import train_mlp_pairwise_next_track_ranker
 
 REAL_RETRIEVAL_DATA_VERSION = "1.0"
@@ -129,6 +128,50 @@ def import_aotm_sequences(source: str | Path, output: str | Path) -> dict[str, A
     }
 
 
+def _load_historical_set_plan_evidence(path: str | Path) -> Any:
+    """Load immutable planning evidence without execution-version validation.
+
+    Historical Phase16 plans are evidence, not executable programs. Normal
+    renderer/playback loading remains strict through set_planner.load_set_plan.
+    """
+    source = Path(path).expanduser().resolve()
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    tracks_payload = payload.get("tracks")
+    transitions_payload = payload.get("transitions")
+    if not isinstance(tracks_payload, list) or not isinstance(transitions_payload, list):
+        raise ValueError(f"Historical set plan is missing tracks/transitions: {source}")
+
+    tracks = []
+    for item in tracks_payload:
+        if not isinstance(item, Mapping) or not isinstance(item.get("analysis"), Mapping):
+            raise ValueError(f"Historical set plan lacks embedded track analysis: {source}")
+        tracks.append(track_analysis_from_dict(dict(item["analysis"])))
+
+    transitions = []
+    for item in transitions_payload:
+        if not isinstance(item, Mapping) or not isinstance(item.get("plan"), Mapping):
+            continue
+        transition = transition_plan_from_dict(dict(item["plan"]))
+        transitions.append(
+            SimpleNamespace(
+                from_index=int(item.get("from_index", -1)),
+                to_index=int(item.get("to_index", -1)),
+                plan=transition,
+            )
+        )
+
+    order = [int(value) for value in payload.get("order", [])]
+    if not order or len(order) != len(tracks):
+        raise ValueError(f"Historical set plan has invalid order: {source}")
+    return SimpleNamespace(
+        plan_id=str(payload.get("plan_id") or source.stem),
+        tracks=tracks,
+        order=order,
+        transitions=transitions,
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
 def _accepted_target(plan: Any) -> tuple[float, str]:
     measured = float(getattr(plan, "measured_score", None) or getattr(plan, "score", 0.5) or 0.5)
     target = max(0.0, min(1.0, measured))
@@ -152,7 +195,7 @@ def _accepted_target(plan: Any) -> tuple[float, str]:
 
 def phase16_retrieval_rows(plan_path: str | Path) -> list[dict[str, Any]]:
     """Convert one real set plan into grouped next-track preference rows."""
-    plan = load_set_plan(plan_path)
+    plan = _load_historical_set_plan_evidence(plan_path)
     metadata = dict(plan.metadata or {})
     journey = str(metadata.get("journey") or "balanced")
     replan_meta = dict(metadata.get("unified_transition_intelligence", {}) or {})
