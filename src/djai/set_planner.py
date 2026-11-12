@@ -1586,6 +1586,227 @@ def _complete_move_route_from_opener(
     )
 
 
+
+@dataclass(frozen=True, slots=True)
+class _BeamRouteState:
+    order: tuple[int, ...]
+    plans: tuple[TransitionPlan, ...]
+    decisions: tuple[CompleteMoveDecision, ...]
+    dj_state: DJState
+    score_total: float
+
+
+def _build_filtered_beam_route(
+    opener: int,
+    analyses: list[TrackAnalysis],
+    graph: dict[tuple[int, int], TransitionEdge],
+    *,
+    end_index: int | None,
+    journey: JourneyMode,
+    blocked_pairs: set[tuple[int, int]],
+    config: CompleteMoveConfig,
+    ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None,
+    timing_intent: SetTimingIntent | None = None,
+) -> _CompleteMoveRoute:
+    """Search several model-filtered partial routes instead of greedily committing.
+
+    This is used only by the explicit neural-retrieval experiment. It keeps a
+    very small beam of structurally plausible routes, so a locally strong early
+    choice cannot strand the last few tracks. Expensive graph materialization
+    remains limited to candidates admitted by retrieval.
+    """
+    initial_state = build_set_state([analyses[opener]])
+    initial_dj = build_dj_state(
+        analyses[opener],
+        source_cursor=0.0,
+        effective_bpm=analyses[opener].bpm,
+        render_rate=1.0,
+        set_state=initial_state,
+    )
+    beam_width = max(
+        2,
+        min(
+            8,
+            int(os.environ.get("DJAI_NEURAL_ROUTE_BEAM_WIDTH", "4")),
+        ),
+    )
+    branch_width = max(2, min(6, int(config.search_branch_width)))
+    beam: list[_BeamRouteState] = [
+        _BeamRouteState(
+            order=(opener,),
+            plans=(),
+            decisions=(),
+            dj_state=initial_dj,
+            score_total=0.0,
+        )
+    ]
+
+    for _step in range(1, len(analyses)):
+        expanded: list[_BeamRouteState] = []
+        for state in beam:
+            current = state.order[-1]
+            remaining = set(range(len(analyses))) - set(state.order)
+            if not remaining:
+                expanded.append(state)
+                continue
+            available = sorted(remaining)
+            if end_index is not None and end_index in available and len(available) > 1:
+                available = [index for index in available if index != end_index]
+            if not available:
+                continue
+
+            fallback_progress = len(state.order) / max(1, len(analyses) - 1)
+            timing_state = build_timing_state(
+                [analyses[index] for index in state.order],
+                list(state.plans),
+                intent=timing_intent,
+                fallback_progress=fallback_progress,
+            )
+            set_state = build_set_state(
+                [analyses[index] for index in state.order],
+                list(state.plans),
+            )
+            set_state.elapsed_seconds = timing_state.elapsed_seconds
+            retrieval = retrieve_candidate_tracks(
+                current_index=current,
+                candidate_indices=available,
+                analyses=analyses,
+                set_state=set_state,
+                journey=journey,
+                progress=timing_state.progress,
+                width=min(len(available), config.lazy_candidate_width),
+            )
+            shortlisted = list(retrieval.selected)
+            if ensure_pairs is not None:
+                ensure_pairs((current, index) for index in shortlisted)
+            generated = generate_complete_moves(
+                current_index=current,
+                candidate_indices=shortlisted,
+                analyses=analyses,
+                graph=graph,
+                dj_state=state.dj_state,
+                set_state=set_state,
+                journey=journey,
+                progress=timing_state.progress,
+                blocked_pairs=blocked_pairs,
+                config=config,
+            )
+            if not generated:
+                continue
+
+            seen_targets: set[int] = set()
+            branch = []
+            for candidate in generated:
+                if candidate.next_index in seen_targets:
+                    continue
+                seen_targets.add(candidate.next_index)
+                branch.append(candidate)
+                if len(branch) >= branch_width:
+                    break
+
+            for candidate in branch:
+                timing_adjustment, timing_evidence = timing_candidate_adjustment(
+                    timing_state,
+                    analyses[candidate.next_index],
+                )
+                step_score = float(candidate.selection_score) + timing_adjustment
+                candidate.plan.metadata = {
+                    **candidate.plan.metadata,
+                    "set_timing": {
+                        **timing_state.to_dict(),
+                        "candidate_adjustment": round(timing_adjustment, 6),
+                        "candidate_evidence": timing_evidence,
+                    },
+                    "neural_route_beam": True,
+                }
+                projected = candidate.move.projected_state
+                next_order = state.order + (candidate.next_index,)
+                next_plans = state.plans + (candidate.plan,)
+                next_set_state = build_set_state(
+                    [analyses[index] for index in next_order],
+                    list(next_plans),
+                )
+                next_dj_state = build_dj_state(
+                    analyses[candidate.next_index],
+                    source_cursor=projected.source_cursor_seconds,
+                    effective_bpm=projected.effective_bpm,
+                    render_rate=projected.render_rate,
+                    set_state=next_set_state,
+                    tempo_owner=projected.tempo_owner,
+                )
+                decision = CompleteMoveDecision(
+                    current_index=current,
+                    winner=candidate,
+                    candidates=tuple(generated),
+                    search_score=round(step_score, 6),
+                    lookahead_depth=1,
+                    projected_path=(candidate.next_index,),
+                    retrieval=retrieval,
+                    commit_score=round(step_score, 6),
+                )
+                expanded.append(
+                    _BeamRouteState(
+                        order=next_order,
+                        plans=next_plans,
+                        decisions=state.decisions + (decision,),
+                        dj_state=next_dj_state,
+                        score_total=state.score_total + step_score,
+                    )
+                )
+
+        if not expanded:
+            break
+        expanded.sort(
+            key=lambda item: (
+                len(item.order),
+                item.score_total / max(1, len(item.decisions)),
+                sum(decision.winner.move.future_optionality for decision in item.decisions),
+                tuple(-index for index in item.order),
+            ),
+            reverse=True,
+        )
+        beam = expanded[:beam_width]
+
+    completed = [
+        state for state in beam
+        if len(state.order) == len(analyses)
+        and (end_index is None or state.order[-1] == end_index)
+    ]
+    if not completed:
+        best_partial = max(
+            beam,
+            key=lambda item: (
+                len(item.order),
+                item.score_total / max(1, len(item.decisions)),
+            ),
+        )
+        return _CompleteMoveRoute(
+            order=best_partial.order,
+            decisions=best_partial.decisions,
+            score=best_partial.score_total / max(1, len(best_partial.decisions)),
+            completed=False,
+            reason=(
+                f"filtered beam search exhausted after {len(best_partial.order)}/"
+                f"{len(analyses)} tracks"
+            ),
+        )
+    best = max(
+        completed,
+        key=lambda item: (
+            item.score_total / max(1, len(item.decisions)),
+            sum(decision.winner.move.future_optionality for decision in item.decisions),
+            tuple(-index for index in item.order),
+        ),
+    )
+    return _CompleteMoveRoute(
+        order=best.order,
+        decisions=best.decisions,
+        score=best.score_total / max(1, len(best.decisions)),
+        completed=True,
+        reason="",
+    )
+
+
 def _large_crate_complete_move_config(
     config: CompleteMoveConfig,
     track_count: int,
@@ -1678,22 +1899,41 @@ def build_complete_move_route(
         if cfg.mode == "move_authoritative" and headphones_cfg.enabled and len(openers) > 1
         else headphones_cfg
     )
-    routes = [
-        _complete_move_route_from_opener(
-            opener,
-            analyses,
-            graph,
-            end_index=end_index,
-            journey=journey,
-            blocked_pairs=blocked,
-            config=cfg,
-            headphones_config=scouting_headphones,
-            listener=listener,
-            ensure_pairs=ensure_pairs,
-            timing_intent=timing_intent,
-        )
-        for opener in openers
-    ]
+    experimental_retrieval = os.environ.get(
+        "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if experimental_retrieval and cfg.mode == "move_authoritative":
+        routes = [
+            _build_filtered_beam_route(
+                opener,
+                analyses,
+                graph,
+                end_index=end_index,
+                journey=journey,
+                blocked_pairs=blocked,
+                config=cfg,
+                ensure_pairs=ensure_pairs,
+                timing_intent=timing_intent,
+            )
+            for opener in openers
+        ]
+    else:
+        routes = [
+            _complete_move_route_from_opener(
+                opener,
+                analyses,
+                graph,
+                end_index=end_index,
+                journey=journey,
+                blocked_pairs=blocked,
+                config=cfg,
+                headphones_config=scouting_headphones,
+                listener=listener,
+                ensure_pairs=ensure_pairs,
+                timing_intent=timing_intent,
+            )
+            for opener in openers
+        ]
     complete = [route for route in routes if route.completed]
     if not complete:
         reason = "; ".join(route.reason for route in routes if route.reason) or "no complete route"
@@ -1706,6 +1946,11 @@ def build_complete_move_route(
             tuple(-index for index in route.order),
         ),
     )
+    if experimental_retrieval:
+        # Beam decisions are structural preferences only. Final compilation,
+        # professional rehearsal, rendered judging, and safety still decide
+        # whether each edge may commit.
+        return best_scout
     if scouting_headphones.enabled == headphones_cfg.enabled:
         return best_scout
     committed = _complete_move_route_from_opener(
