@@ -264,3 +264,55 @@ def scalar_head_uses_feature_prefix(model_id: str, prefix: str, *, require_autho
 
 def rendered_judge_prediction(a,b,plan,*,set_state=None):return predict_scalar_head("rendered_dj_judge",transition_feature_dict(a,b,plan=plan,set_state=set_state))
 def next_track_prediction(a,b,*,set_state=None):return predict_scalar_head("next_track_policy",transition_feature_dict(a,b,set_state=set_state))
+
+def experimental_next_track_prediction(a,b,*,set_state=None):
+    """Use the latest research-synthetic next-track MLP for retrieval experiments only.
+
+    This bypasses production authority on purpose but does not alter final DJ
+    authority: callers may use the score only to narrow candidates before the
+    deterministic planner, rehearsal, and safety gates.
+    """
+    root=config_path("research-synthetic-models")
+    pointer=root/"NEXT_TRACK_RESEARCH_LATEST"
+    try:
+        filename=pointer.read_text(encoding="utf-8").strip()
+        if not filename:
+            return ScalarPrediction("next_track_research_filter",False,reason="research checkpoint pointer is empty")
+        path=(root/filename).resolve()
+        payload=json.loads(path.read_text(encoding="utf-8"))
+    except (OSError,json.JSONDecodeError):
+        return ScalarPrediction("next_track_research_filter",False,reason="research checkpoint not installed")
+    if str(payload.get("task",""))!="next_track_policy" and str(payload.get("learning_head",""))!="next_track_policy":
+        return ScalarPrediction("next_track_research_filter",False,reason="research checkpoint task mismatch")
+    features=transition_feature_dict(a,b,set_state=set_state)
+    x=_vector(payload,features)
+    kind=str(payload.get("kind",""))
+    if kind!="mlp_pairwise_ranker":
+        return ScalarPrediction("next_track_research_filter",False,reason="research checkpoint is not the MLP pairwise ranker")
+    params=payload.get("parameters",{}) if isinstance(payload.get("parameters"),dict) else {}
+    try:
+        w1=np.asarray(params.get("w1",[]),float); b1=np.asarray(params.get("b1",[]),float)
+        w2=np.asarray(params.get("w2",[]),float); b2=np.asarray(params.get("b2",[]),float)
+        w3=np.asarray(params.get("w3",[]),float); b3=np.asarray(params.get("b3",[]),float)
+        if w1.ndim!=2 or w1.shape[0]!=x.shape[0] or b1.shape!=(w1.shape[1],):
+            return ScalarPrediction("next_track_research_filter",False,reason="research MLP input dimensions invalid")
+        if w2.ndim!=2 or w2.shape[0]!=w1.shape[1] or b2.shape!=(w2.shape[1],):
+            return ScalarPrediction("next_track_research_filter",False,reason="research MLP hidden dimensions invalid")
+        if w3.ndim!=2 or w3.shape!=(w2.shape[1],1) or b3.size!=1:
+            return ScalarPrediction("next_track_research_filter",False,reason="research MLP output dimensions invalid")
+        a1=np.maximum(x@w1+b1,0.0)
+        a2=np.maximum(a1@w2+b2,0.0)
+        raw=float((a2@w3+b3.reshape(-1))[0])
+        score=_sigmoid(raw)
+    except (TypeError,ValueError,IndexError):
+        return ScalarPrediction("next_track_research_filter",False,reason="research MLP parameters invalid")
+    confidence=float(np.clip(abs(score-.5)*2,0,1))
+    return ScalarPrediction(
+        "next_track_research_filter",
+        True,
+        score,
+        confidence,
+        0.0,
+        checkpoint_fingerprint(path)[:16],
+        "research-only retrieval filter; final authority remains deterministic",
+    )
