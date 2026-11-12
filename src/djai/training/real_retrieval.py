@@ -186,7 +186,7 @@ def phase16_retrieval_rows(plan_path: str | Path) -> list[dict[str, Any]]:
             prefix_indices = list(plan.order[: position + 1])
         state = build_set_state([plan.tracks[index] for index in prefix_indices], prefix_plans)
         group = f"phase16:{plan.plan_id}:{position}"
-        split = _split(f"phase16-plan:{plan.plan_id}")
+        split = _split(group)
         accepted_target, accepted_label = _accepted_target(edge.plan)
         rows.append({
             "schema_version": REAL_RETRIEVAL_DATA_VERSION,
@@ -272,16 +272,22 @@ def build_mixed_retrieval_snapshot(
     phase_path = destination / "phase16-next-track.jsonl"
     phase_count, phase_splits = _write_jsonl(phase_path, phase_rows)
 
-    mixed_path = destination / "next-track-mixed.jsonl"
+    # Keep corpora side-by-side rather than concatenating incompatible
+    # feature namespaces. Research-synthetic rows use state_*/candidate_* keys,
+    # while Phase16 rows use the exact live transition_feature_dict contract.
+    # A future explicit feature bridge may align them; until then, only the
+    # runtime-aligned Phase16 rows are eligible to train the live retriever.
+    synthetic_copy = destination / "synthetic-next-track-prior.jsonl"
     synthetic_count = 0
-    with mixed_path.open("w", encoding="utf-8") as out:
+    with synthetic_copy.open("w", encoding="utf-8") as out:
         with synthetic.open("r", encoding="utf-8") as handle:
             for line in handle:
                 if line.strip():
                     out.write(line if line.endswith("\n") else line + "\n")
                     synthetic_count += 1
-        for row in phase_rows:
-            out.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+    runtime_path = destination / "next-track-runtime.jsonl"
+    _write_jsonl(runtime_path, phase_rows)
 
     aotm_report = None
     if aotm_source is not None:
@@ -306,9 +312,16 @@ def build_mixed_retrieval_snapshot(
             "aotm": aotm_report,
         },
         "outputs": {
-            "mixed_next_track": mixed_path.name,
+            "runtime_next_track": runtime_path.name,
             "phase16_next_track": phase_path.name,
+            "synthetic_prior": synthetic_copy.name,
             "aotm_sequences": "aotm-sequences.jsonl" if aotm_report else None,
+        },
+        "feature_contract": {
+            "runtime_trainable": "transition_feature_dict",
+            "synthetic_prior_namespace": "state_* + candidate_*",
+            "aotm_namespace": "MSD track ids + playlist order",
+            "cross_source_feature_bridge_ready": False,
         },
     }
     (destination / "manifest.json").write_text(
@@ -334,9 +347,9 @@ def train_mixed_retrieval_shadow(
             raise ValueError("No real-retrieval snapshot is available.")
         dataset_id = latest.read_text(encoding="utf-8").strip()
     snapshot = dataset_root / str(dataset_id)
-    dataset = snapshot / "next-track-mixed.jsonl"
+    dataset = snapshot / "next-track-runtime.jsonl"
     if not dataset.is_file():
-        raise ValueError(f"Mixed retriever dataset not found: {dataset}")
+        raise ValueError(f"Runtime-aligned retriever dataset not found: {dataset}")
     model_root = root / "config" / "real-retrieval-models"
     model_root.mkdir(parents=True, exist_ok=True)
     output = model_root / f"next-track-mlp-{dataset_id}.json"
@@ -354,7 +367,9 @@ def train_mixed_retrieval_shadow(
         "model_id": f"next-track-real-retrieval-{dataset_id}",
         "learning_head": "next_track_policy",
         "training_dataset_id": str(dataset_id),
-        "training_data_class": "synthetic_plus_phase16_real_rehearsal",
+        "training_data_class": "phase16_real_rehearsal_runtime_aligned",
+        "synthetic_prior_corpus_present": (snapshot / "synthetic-next-track-prior.jsonl").is_file(),
+        "synthetic_runtime_feature_bridge_resolved": False,
         "aotm_sequence_corpus_present": (snapshot / "aotm-sequences.jsonl").is_file(),
         "aotm_runtime_features_resolved": False,
         "shadow_only": True,
@@ -375,4 +390,5 @@ def train_mixed_retrieval_shadow(
         "authority": 0.0,
         "metrics": payload.get("metrics", {}),
         "aotm_runtime_features_resolved": False,
+        "synthetic_runtime_feature_bridge_resolved": False,
     }
