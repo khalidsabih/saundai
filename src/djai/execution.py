@@ -12,7 +12,7 @@ from .loudness import loudness_normalization_gain
 
 # Bump this whenever deterministic DSP semantics change in a way that can
 # change rendered samples for an otherwise identical transition program.
-RENDER_ENGINE_VERSION = "6.3.0"
+RENDER_ENGINE_VERSION = "6.4.0"
 
 
 @dataclass(frozen=True, slots=True)
