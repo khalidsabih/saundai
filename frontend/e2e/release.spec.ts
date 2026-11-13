@@ -115,7 +115,7 @@ test("crate selection remains keyboard operable in desktop and mobile views", as
   await page.goto("/");
   await completeIntro(page);
 
-  const track = page.getByRole("button", { name: /Aurora\\.wav/ });
+  const track = page.getByRole("button", { name: /Aurora\.wav/ });
   await expect(track).toHaveAttribute("aria-pressed", "false");
   await track.focus();
   await expect(track).toBeFocused();
