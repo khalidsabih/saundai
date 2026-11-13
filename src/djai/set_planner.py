@@ -132,6 +132,9 @@ from .planner_sequence_quality import (
     select_automatic_without_professional_brain as _select_automatic_without_professional_brain,
     select_nonautomatic_sequence_transition as _select_nonautomatic_sequence_transition,
 )
+from .planner_sequence_professional import (
+    resolve_professional_sequence_transition as _resolve_professional_sequence_transition,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1569,78 +1572,57 @@ def _compile_sequence_edges(
                     brain_cfg = _professional_brain_config_for_transition(
                         quality_loop, preferred_complete_decision
                     )
-                    resolution = resolve_transition(
-                        track_a,
-                        track_b,
-                        evidence_matrix=matrix,
+                    professional_outcome = _resolve_professional_sequence_transition(
+                        track_a=track_a,
+                        track_b=track_b,
+                        matrix=matrix,
                         professional_config=brain_cfg,
                         tempo_policy=tempo_policy,
                         preferred_style=preferred_style,
-                        effective_bpm_a=current_effective_bpm,
-                        render_rate_a=current_rate,
+                        current_effective_bpm=current_effective_bpm,
+                        current_rate=current_rate,
                         stems_available=stems_available,
                         set_state=state,
                         dj_state=dj_state,
                         journey=journey,
                         journey_progress=journey_progress,
-                        listener=listener_profile.listener if listener_profile is not None else None,
-                        measurement_log_path=quality_loop.log_path,
+                        listener=(
+                            listener_profile.listener
+                            if listener_profile is not None
+                            else None
+                        ),
+                        quality_loop=quality_loop,
                         transition_policy_context=(
-                            policy_context if transition_policy_authority == "bounded_advisory" else None
+                            policy_context
+                            if transition_policy_authority == "bounded_advisory"
+                            else None
                         ),
                         crowd_directive=(
-                            crowd_directive if transition_policy_authority == "bounded_advisory" else None
+                            crowd_directive
+                            if transition_policy_authority == "bounded_advisory"
+                            else None
                         ),
-                        context={
-                            "mode": "set_sequence",
-                            "sequence_position": global_position,
-                            "from_index": from_index,
-                            "to_index": to_index,
-                            "journey": journey,
-                            "preferred_style": preferred_style,
-                            "adaptive_thinking": (
-                                thinking_budget.to_dict() if thinking_budget is not None else None
-                            ),
-                        },
+                        thinking_budget=thinking_budget,
+                        global_position=global_position,
+                        from_index=from_index,
+                        to_index=to_index,
                         render_context=edge_render_context,
+                        replan_on_review=replan_on_review,
+                        allow_emergency_escape=allow_emergency_escape,
+                        resolve_transition=resolve_transition,
                     )
-                    if resolution.accepted:
-                        assert resolution.selected is not None
-                        if (
-                            automatic_delivery
-                            and replan_on_review
-                            and not allow_emergency_escape
-                            and resolution.selected.transition_mode == "emergency_cut"
-                        ):
-                            raise TransitionReplanRequired(
-                                from_index,
-                                to_index,
-                                action="replan_track",
-                                reason=(
-                                    "Professional rehearsal found only a structural reset for this pair; "
-                                    "offline automatic delivery must route through another track before using emergency escape."
-                                ),
-                                resolution={
-                                    **resolution.to_dict(),
-                                    "reason": "emergency_cut_not_production_route",
-                                },
-                                compiled_prefix=list(compiled),
-                            )
-                        chosen = resolution.selected
-                        measurement_summary = resolution.to_dict()
-                    elif replan_on_review and not allow_emergency_escape:
+                    if professional_outcome.replan_action is not None:
                         raise TransitionReplanRequired(
                             from_index,
                             to_index,
-                            action=resolution.action,
-                            reason=(
-                                resolution.reasons[-1]
-                                if resolution.reasons
-                                else "Rendered transition did not clear the professional acceptance gate."
-                            ),
-                            resolution=resolution.to_dict(),
+                            action=professional_outcome.replan_action,
+                            reason=professional_outcome.replan_reason or "Professional rehearsal requested a replan.",
+                            resolution=dict(professional_outcome.replan_resolution or {}),
                             compiled_prefix=list(compiled),
                         )
+                    if professional_outcome.selected is not None:
+                        chosen = professional_outcome.selected
+                        measurement_summary = professional_outcome.measurement_summary
                     else:
                         emergency = resolve_emergency_escape(
                             track_a,
