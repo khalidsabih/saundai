@@ -152,6 +152,62 @@ def capture(args: argparse.Namespace) -> int:
         planner_module._sequence_entry_candidates = trace_entry
         planner_module._select_alternative = trace_select
 
+        # Capture the candidate pool BEFORE downstream DJMove ranking, metadata
+        # sealing and final edge selection. The pre-extraction planner imports
+        # this callback in set_planner; the refactor imports it in its helper.
+        import dataclasses
+        import djai.planner as transition_planner
+
+        def evidence_digest(matrix):
+            if matrix is None:
+                return None
+            payload = json.dumps(
+                dataclasses.asdict(matrix),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        def trace_candidate_pool(original):
+            def traced(track_a, track_b, **kwargs):
+                candidates = original(track_a, track_b, **kwargs)
+                matrix = kwargs.get("evidence_matrix")
+                selection_trace.append({
+                    "stage": "candidate_pool",
+                    "from": track_a.title,
+                    "to": track_b.title,
+                    "matrix_digest": evidence_digest(matrix),
+                    "matrix_pairs": len(matrix.pairs) if matrix is not None else None,
+                    "styles": kwargs.get("styles"),
+                    "per_style": kwargs.get("per_style"),
+                    "effective_bpm_a": kwargs.get("effective_bpm_a"),
+                    "render_rate_a": kwargs.get("render_rate_a"),
+                    "stems_available": kwargs.get("stems_available"),
+                    "candidates": [
+                        {
+                            "style": plan.style,
+                            "technique": plan.technique,
+                            "score": plan.score,
+                            "exit": plan.exit_time_a,
+                            "entry": plan.entry_time_b,
+                            "signature": plan.execution_signature,
+                            "program_fingerprint": plan.performance_program_fingerprint,
+                        }
+                        for plan in candidates
+                    ],
+                })
+                return candidates
+            return traced
+
+        if hasattr(planner_module, "plan_transition_candidate_pool"):
+            original_pool = planner_module.plan_transition_candidate_pool
+            planner_module.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
+        else:
+            import djai.planner_sequence_candidates as sequence_candidates
+            original_pool = sequence_candidates.plan_transition_candidate_pool
+            sequence_candidates.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
+
     started = time.perf_counter()
     plan = make_set_plan(
         analyses,
