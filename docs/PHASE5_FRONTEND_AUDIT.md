@@ -249,3 +249,23 @@ npm run e2e
 These changes are not yet claimed passing on the operator's machine.
 The new tests are focused code-level contracts and complement, but do not
 replace, the Playwright browser suite or backend verification.
+
+## Verified post-job-extraction gate (2026-11-13)
+
+Operator pulled the shared job lifecycle extraction and reported:
+- `npm run typecheck`: **passed**;
+- `npm run test:jobs`: **9/9 passed**, no failures or skips;
+- `SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build`: **passed**;
+- `npm run e2e`: **36/36 passed in 36.7 seconds**, across Chromium, Firefox, WebKit and mobile.
+
+The `frontend/lib/api-jobs.ts` extraction is verified under these
+focused code-level and browser regression gates. This does **not**
+independently certify production audio quality, live safety, or every
+job race/disconnect scenario; the existing backend and music-quality
+gates remain authoritative.
+
+Next.js continued reporting the external lockfile /
+`outputFileTracingRoot` warning and the `next start` versus
+`output: standalone` warning. Both are outstanding deployment/test
+harness cleanup, distinct from the passing frontend regression suite.
+Previously reported npm dependency advisories also remain open.
