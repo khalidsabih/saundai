@@ -19,7 +19,7 @@ const original = execFileSync(
   ["show", "a4469d3:frontend/app/globals.css"],
   { cwd: frontend, encoding: "utf8" },
 );
-const extracted = ["globals.css", "training-lab.css", "account-foundation.css", "legacy-experiences.css"];
+const extracted = ["globals.css", "legacy-simple.css", "create-cinematic.css", "legacy-instrument.css", "training-lab.css", "account-foundation.css", "legacy-experiences.css"];
 const reconstructed = extracted.map(read).join("");
 assert.equal(reconstructed, original, "Extracted CSS must reconstruct the original globals.css byte-for-byte");
 
