@@ -201,7 +201,10 @@ def test_sparse_retrieval_reports_future_survivability_before_graph_work(tmp_pat
         assert "future_survivability_adjustment" in item.components
 
 
-def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers() -> None:
+def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers(monkeypatch) -> None:
+    # Exercise the legacy experimental-retrieval contract explicitly. The
+    # crate-aware default intentionally uses different widening tiers.
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "0")
     config = CompleteMoveConfig(
         mode="move_authoritative",
         lookahead_moves=3,
