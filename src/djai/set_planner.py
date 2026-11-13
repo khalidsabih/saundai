@@ -73,6 +73,11 @@ from .rehearsal.headphones import AIHeadphonesConfig, ai_headphones_status, list
 from .personalization import ListenerProfile, get_listener_profile, plan_personalization_adjustment
 from .parallel import resolve_worker_selection, worker_initializer
 from .planner_graph_workers import iter_graph_worker_results
+from .planner_route_search import (
+    greedy_orders as _greedy_orders,
+    local_improve as _route_local_improve,
+    valid_order as _valid_order,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -781,53 +786,6 @@ def _order_score(
     return float(total)
 
 
-def _valid_order(order: list[int], count: int, start: int | None, end: int | None) -> bool:
-    return (
-        len(order) == count
-        and len(set(order)) == count
-        and set(order) == set(range(count))
-        and (start is None or order[0] == start)
-        and (end is None or order[-1] == end)
-    )
-
-
-def _greedy_orders(
-    graph: dict[tuple[int, int], TransitionEdge],
-    count: int,
-    *,
-    start: int | None,
-    end: int | None,
-    blocked_pairs: set[tuple[int, int]] | None = None,
-) -> Iterable[list[int]]:
-    starts = [start] if start is not None else [index for index in range(count) if index != end]
-    for first in starts:
-        if first is None:
-            continue
-        order = [first]
-        unused = set(range(count)) - {first}
-        if end is not None:
-            unused.discard(end)
-        blocked = blocked_pairs or set()
-        while unused:
-            current = order[-1]
-            allowed = [candidate for candidate in sorted(unused) if (current, candidate) not in blocked]
-            if not allowed:
-                order = []
-                break
-            next_index = max(
-                allowed,
-                key=lambda candidate: graph[(current, candidate)].objective_score,
-            )
-            order.append(next_index)
-            unused.remove(next_index)
-        if not order:
-            continue
-        if end is not None and end not in order:
-            order.append(end)
-        if _valid_order(order, count, start, end):
-            yield order
-
-
 def _local_improve(
     order: list[int],
     graph: dict[tuple[int, int], TransitionEdge],
@@ -840,66 +798,21 @@ def _local_improve(
     blocked_pairs: set[tuple[int, int]] | None = None,
     max_passes: int = 8,
 ) -> list[int]:
-    best = list(order)
-    best_score = _order_score(
-        best, graph, analyses, journey=journey, listener_profile=listener_profile, blocked_pairs=blocked_pairs
+    blocked = blocked_pairs or set()
+    return _route_local_improve(
+        order,
+        score_order=lambda candidate: _order_score(
+            candidate,
+            graph,
+            analyses,
+            journey=journey,
+            listener_profile=listener_profile,
+            blocked_pairs=blocked,
+        ),
+        start=start,
+        end=end,
+        max_passes=max_passes,
     )
-    count = len(best)
-    first_mutable = 1 if start is not None else 0
-    last_exclusive = count - 1 if end is not None else count
-    for _ in range(max_passes):
-        improved = False
-        for left in range(first_mutable, last_exclusive):
-            for right in range(left + 1, last_exclusive):
-                candidate = list(best)
-                candidate[left], candidate[right] = candidate[right], candidate[left]
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        for source in range(first_mutable, last_exclusive):
-            for target in range(first_mutable, last_exclusive):
-                if source == target:
-                    continue
-                candidate = list(best)
-                node = candidate.pop(source)
-                candidate.insert(target, node)
-                if not _valid_order(candidate, count, start, end):
-                    continue
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        for left in range(first_mutable, last_exclusive - 1):
-            for right in range(left + 2, last_exclusive + 1):
-                candidate = best[:left] + list(reversed(best[left:right])) + best[right:]
-                if not _valid_order(candidate, count, start, end):
-                    continue
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        if not improved:
-            break
-    return best
 
 
 def optimize_order(
