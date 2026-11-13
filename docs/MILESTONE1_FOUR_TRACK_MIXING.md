@@ -202,3 +202,38 @@ and initial phase nudge. In that case duration is inferred from bars and
 target BPM, and nudge is reported as unknown; a new traced planning run
 with the latest version includes both. The diagnostic does not recreate
 `_phase_integrity_profile` or prove audio-level beat correctness.
+
+## Controlled detected-grid phase-drift decomposition (read only)
+
+Reconstruct the rejected uncorrected phase trajectories from cached full
+beat grids and mathematically decompose each trajectory into the idealized
+constant-tempo reference plus separate deck-A and deck-B detected-grid
+deviations. It does not adjust audio or bypass any validation gate.
+
+```bash
+python scripts/reconstruct_phase_drift.py \
+  --set-plan output/milestone1-four-track/balanced/set-plan.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-four-track/phase-drift-decomposition.json
+```
+
+The output reports `max_abs_replay_difference_ms` and
+`replay_matches_logged_1ms` against the original rejected trajectory
+where both histories have matching sample counts, plus per-sample
+`detected_grid_phase_drift_ms`, `nominal_constant_tempo_drift_ms`,
+`deck_a_grid_vs_nominal_change_ms`, and
+`deck_b_grid_vs_nominal_change_ms`.
+
+**Interpretation:** if nominal drift is near zero while detected-grid
+drift is large, the discrepancy comes from how detected beat positions
+or indices deviate from a constant-tempo grid. The report cannot prove
+whether this is beat-detector error or *real musical tempo variation*.
+The nominal grid is a theoretical counterfactual, not validated
+ground-truth beat timing. When old rejected-candidate snapshots omit an
+initial nudge, the script explicitly labels its zero-nudge assumption.
+Do not conclude a phase implementation defect unless the replay
+matches the original rejected phase error. This tool does not model
+the bounded warp correction nor provide an audible-quality judgement.
+
+There are no safety-threshold changes, policy changes, or automatic
+reanalysis.
