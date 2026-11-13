@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import analysis
+from djai.brain.candidate_retrieval import CandidateRetrievalConfig, retrieve_candidate_tracks
 from djai.brain.dj_move import build_dj_state
 from djai.brain.move_generator import (
     COMPLETE_MOVE_VERSION,
@@ -11,7 +12,13 @@ from djai.brain.move_generator import (
     generate_complete_moves,
 )
 from djai.brain.set_state import build_set_state
-from djai.set_planner import build_complete_move_route, build_transition_graph, make_set_plan
+from djai.set_planner import (
+    _progressive_sparse_configs,
+    _route_search_signature,
+    build_complete_move_route,
+    build_transition_graph,
+    make_set_plan,
+)
 
 
 def _tracks(tmp_path: Path, count: int = 4):
@@ -157,3 +164,52 @@ def test_authoritative_mode_uses_complete_move_route_but_keeps_audio_safety(tmp_
     assert report["generated_transition_signature_matches"] == len(plan.transitions)
     assert all(edge.plan.metadata.get("complete_move_preference", {}).get("match") == 1.0 for edge in plan.transitions)
     assert "complete_move_route" in plan.algorithm
+
+
+def test_sparse_retrieval_reports_future_survivability_before_graph_work(tmp_path: Path) -> None:
+    tracks = _tracks(tmp_path, 4)
+    set_state = build_set_state([tracks[0]])
+    result = retrieve_candidate_tracks(
+        current_index=0,
+        candidate_indices=[1, 2, 3],
+        analyses=tracks,
+        set_state=set_state,
+        journey="balanced",
+        progress=0.2,
+        width=3,
+        config=CandidateRetrievalConfig(
+            width=3,
+            expansion_width=2,
+            minimum_diverse=1,
+            learned_weight=0.0,
+            experimental_learned_filter=False,
+        ),
+    )
+
+    assert result.ranked
+    for item in result.ranked:
+        assert 0.0 <= item.components["future_survivability"] <= 1.0
+        assert item.components["future_option_count"] == 2.0
+        assert "future_survivability_adjustment" in item.components
+
+
+def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers() -> None:
+    config = CompleteMoveConfig(
+        mode="move_authoritative",
+        lookahead_moves=3,
+        search_branch_width=3,
+        lazy_candidate_width=10,
+        lazy_expansion_width=10,
+        opener_candidates=5,
+        candidates_per_track=4,
+    )
+    configs = _progressive_sparse_configs(
+        config,
+        30,
+        experimental_retrieval=True,
+    )
+
+    signatures = [_route_search_signature(item, 30) for item in configs]
+    assert len(signatures) == len(set(signatures))
+    assert len(configs) == 1
+    assert _route_search_signature(configs[0], 30)[2] == 12
