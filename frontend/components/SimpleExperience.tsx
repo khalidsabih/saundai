@@ -458,9 +458,9 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
               <small>Autonomous DJ</small>
             </a>
             <nav className="autonomous-nav" aria-label="Primary">
-              <span className="is-active">Perform</span>
+              <span className="is-active">Create</span>
               <button type="button" onClick={() => setBrainOpen(true)}>Brain</button>
-              <a href="/readiness">Readiness</a>
+              
               <a href="/lab">Lab</a>
             </nav>
             <div className="autonomous-topbar__actions">
@@ -477,7 +477,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 <span className="autonomous-kicker">START A SESSION</span>
                 <h1>Give SAUND the room.</h1>
               </div>
-              <p>Select the crate and the direction. The Brain handles the musical decisions; the Executive protects the performance.</p>
+              <p>Choose the music and the direction. SAUND understands the crate, explores the route, rehearses the hard moments and commits only when the performance is safe.</p>
             </header>
 
             <div className="session-launch__grid">
@@ -555,7 +555,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
 
               <aside className="session-command" aria-label="Session direction">
                 <header className="session-section-head">
-                  <div><span>02</span><div><small>DIRECTION</small><strong>Shape the room</strong></div></div>
+                  <div><span>02</span><div><small>INTENT</small><strong>Shape the night</strong></div></div>
                 </header>
 
                 <div className="session-directions" role="radiogroup" aria-label="Set direction">
@@ -629,7 +629,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 </div>
 
                 <button className="session-start" type="button" disabled={!canStartSession} onClick={requestCreateSet}>
-                  <span><small>{account ? "Executive will prepare the horizon" : "Login requested only when starting"}</small><strong>Start DJ</strong></span>
+                  <span><small>{account ? "Executive will prepare the horizon" : "Login requested only when starting"}</small><strong>Build my set</strong></span>
                   <Icon name="arrow" />
                 </button>
               </aside>
@@ -645,7 +645,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 <div className="session-preparing__progress">
                   <div className="session-preparing__rail"><i style={{ width: `${Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%` }} /></div>
                   <div className="session-preparing__stages">
-                    {["Understand", "Plan", "Audition", "Commit"].map((stage, index) => (
+                    {["Understand", "Explore", "Rehearse", "Decide"].map((stage, index) => (
                       <span key={stage} className={index < currentJobStage.index ? "is-complete" : index === currentJobStage.index ? "is-active" : ""}>
                         <i />{stage}
                       </span>
