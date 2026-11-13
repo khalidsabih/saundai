@@ -11,6 +11,7 @@ import os
 from typing import Any, Callable
 
 from .models import TrackAnalysis, TransitionPlan
+from .decision_trace import rejected_phase_trace
 from .planning_context import PairEvidenceMatrix
 
 
@@ -106,6 +107,7 @@ def finalize_sequence_edge(
             and not bool(phase_integrity.get("safe", True))
         ):
             rejected_signature = chosen.execution_signature
+            rejected_detail = rejected_phase_trace(chosen, phase_integrity) if os.environ.get("DJAI_DECISION_TRACE", "0").strip().lower() in {"1", "true", "yes", "on"} else None
             previous_move = chosen.metadata.get("dj_move")
             previous_state = chosen.metadata.get(
                 "dj_state_before_move"
@@ -128,6 +130,7 @@ def finalize_sequence_edge(
                 **chosen.metadata,
                 "beat_integrity_replanned": True,
                 "rejected_phase_integrity_signature": rejected_signature,
+                **({"decision_trace_rejected_phase": rejected_detail} if rejected_detail is not None else {}),
                 **(
                     {"dj_move": previous_move}
                     if previous_move is not None
