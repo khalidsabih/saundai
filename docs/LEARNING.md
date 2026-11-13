@@ -1,4 +1,6 @@
-# DJAI 5.0 learning architecture
+# SAUND.AI learning architecture
+
+Current model-authority boundaries are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
 
 DJAI separates perception, technical truth, musical coherence, artistic preference and expert imitation.
 
@@ -8,7 +10,7 @@ Beat/downbeat and foundation music encoders provide evidence. They are not profe
 
 ## Structured DJ-specific heads
 
-5.0 adds trainable heads for transition family, duration, stem choreography, rendered-transition preference and next-track value. Checkpoints are small structured JSON models with feature normalization and held-out metrics. They are governed by the model registry.
+SAUND.AI includes trainable heads for transition family, duration, stem choreography, rendered-transition preference and next-track value. Checkpoints are small structured JSON models with feature normalization and held-out metrics. They are governed by the model registry.
 
 ## Technical quality
 
