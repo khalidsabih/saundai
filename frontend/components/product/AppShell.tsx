@@ -20,8 +20,8 @@ export function AppShell({
   children,
 }: {
   active: ProductArea;
-  accountLabel: string;
-  onAccount: () => void;
+  accountLabel?: string;
+  onAccount?: () => void;
   onOpenBrain?: () => void;
   children: ReactNode;
 }) {
@@ -69,11 +69,13 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="product-shell__footer">
-          <button type="button" className="product-shell__account" onClick={onAccount}>
-            {accountLabel}
-          </button>
-        </div>
+        {accountLabel && onAccount && (
+          <div className="product-shell__footer">
+            <button type="button" className="product-shell__account" onClick={onAccount}>
+              {accountLabel}
+            </button>
+          </div>
+        )}
       </aside>
 
       <div className="product-shell__content">{children}</div>
