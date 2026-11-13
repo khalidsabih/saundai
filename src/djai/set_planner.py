@@ -14,6 +14,7 @@ from .cache import AnalysisBatchStats, analyze_folder, analyze_tracks
 from .brain.set_state import SetState, build_set_state, next_track_context_score, set_story_report
 from .brain.timing import SetTimingIntent, build_timing_state, timing_candidate_adjustment
 from .brain.candidate_retrieval import CandidateRetrievalResult, retrieve_candidate_tracks
+from .brain.crate_topk import crate_aware_topk_enabled, crate_topk
 from .brain.crowd_state import CrowdDirective, crowd_directive_from_payload
 from .brain.director import direct_set_intent, intent_track_score, set_director_report
 from .brain.orchestrator import ExecutiveOrchestrator, ExecutiveReplanRequest
@@ -1025,6 +1026,28 @@ def _large_crate_complete_move_config(
     tiers are intentional and must survive this helper. Normal production
     planning keeps the historical conservative caps.
     """
+    if crate_aware_topk_enabled() and config.mode == "move_authoritative":
+        budget = crate_topk(track_count)
+        if config.adaptive_expansion:
+            # Explicit recovery tiers bypass the normal large-crate scout cap.
+            # This only widens candidate retrieval, never the safety envelope.
+            return replace(
+                config,
+                lookahead_moves=min(config.lookahead_moves, 2),
+                search_branch_width=min(config.search_branch_width, 4),
+                lazy_candidate_width=min(config.lazy_candidate_width, max(1, track_count - 1)),
+                lazy_expansion_width=min(config.lazy_expansion_width, max(1, track_count - 1)),
+                candidates_per_track=min(config.candidates_per_track, 4),
+            )
+        return replace(
+            config,
+            lookahead_moves=min(config.lookahead_moves, 2) if track_count >= _large_set_threshold() else config.lookahead_moves,
+            search_branch_width=min(config.search_branch_width, 3),
+            lazy_candidate_width=min(config.lazy_candidate_width, budget.route_initial),
+            lazy_expansion_width=min(config.lazy_expansion_width, budget.route_initial),
+            candidates_per_track=min(config.candidates_per_track, 3),
+            opener_candidates=min(config.opener_candidates, 3) if track_count >= _large_set_threshold() else config.opener_candidates,
+        )
     if track_count < _large_set_threshold():
         return config
     if experimental_retrieval is None:
@@ -1070,6 +1093,7 @@ def _route_search_signature(
         int(effective.lazy_expansion_width),
         int(effective.opener_candidates),
         int(effective.candidates_per_track),
+        int(effective.adaptive_expansion),
     )
 
 
@@ -1085,11 +1109,17 @@ def _progressive_sparse_configs(
     equivalent tier repeats expensive sparse graph work without increasing
     route coverage.
     """
-    requested_tiers = (
-        ((8, 3, 3), (10, 4, 3), (12, 4, 4))
-        if experimental_retrieval
-        else ((8, 4, 3),)
-    )
+    if crate_aware_topk_enabled() and config.mode == "move_authoritative":
+        requested_tiers = tuple(
+            (width, min(4, track_count), min(4, width))
+            for width in crate_topk(track_count).route_expansions
+        )
+    else:
+        requested_tiers = (
+            ((8, 3, 3), (10, 4, 3), (12, 4, 4))
+            if experimental_retrieval
+            else ((8, 4, 3),)
+        )
     seen_signatures = {
         _route_search_signature(
             config,
@@ -1101,6 +1131,7 @@ def _progressive_sparse_configs(
     for candidate_width, opener_count, branch_width in requested_tiers:
         candidate_cfg = replace(
             config,
+            adaptive_expansion=crate_aware_topk_enabled() and config.mode == "move_authoritative",
             opener_candidates=min(
                 track_count,
                 max(config.opener_candidates, opener_count),
@@ -1590,6 +1621,15 @@ def _compile_sequence_edges(
                     brain_cfg = _professional_brain_config_for_transition(
                         quality_loop, preferred_complete_decision
                     )
+                    if crate_aware_topk_enabled() and automatic_delivery:
+                        topk = crate_topk(global_track_count)
+                        brain_cfg = replace(
+                            brain_cfg,
+                            adaptive_rehearsal=True,
+                            adaptive_pilot_finalists=min(
+                                topk.transition_pilot, brain_cfg.finalists
+                            ),
+                        )
                     professional_outcome = _resolve_professional_sequence_transition(
                         track_a=track_a,
                         track_b=track_b,
