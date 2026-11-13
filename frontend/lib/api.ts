@@ -1,24 +1,14 @@
 import type { AccountPreferences, AccountProfile, AccountProject, AccountRegistrationInput, AuthSession, AutomaticSetResult, BrainStatus, HostingStatus, JobRecord, JourneyMode, LiveManifest, LiveTelemetrySnapshot, Phase16ValidationStatus, ReleaseReadiness, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "./types";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_SAUND_API_URL ?? "").replace(/\/$/, "");
+// Preserve the existing public API surface while sharing transport internals.
+import { API_BASE, request } from "./api-transport";
+export { API_BASE } from "./api-transport";
 
 export class JobCancelledError extends Error {
   constructor(message = "Job cancelled.") {
     super(message);
     this.name = "JobCancelledError";
   }
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { cache: "no-store", credentials: "include", ...init });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const detail = payload?.detail ?? payload ?? `Request failed (${response.status})`;
-    const error = new Error(typeof detail === "string" ? detail : detail.message ?? JSON.stringify(detail));
-    Object.assign(error, { status: response.status, detail });
-    throw error;
-  }
-  return payload as T;
 }
 
 

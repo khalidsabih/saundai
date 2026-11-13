@@ -85,7 +85,7 @@ export function CrateSelector({
         <b>{tracks.length ? `${tracks.length} in crate` : "Empty crate"}</b>
       </button>
 
-      <div className="session-tracklist scroll-area" role="list" aria-label="Available tracks">
+      <div className="session-tracklist scroll-area" role="group" aria-label="Available tracks">
         {tracks.length === 0 ? (
           <div className="session-tracklist__empty">
             <Icon name="waveform" />
@@ -98,7 +98,6 @@ export function CrateSelector({
           return (
             <button
               type="button"
-              role="listitem"
               key={track.path}
               className={`session-track ${selected ? "is-selected" : ""}`}
               aria-pressed={selected}

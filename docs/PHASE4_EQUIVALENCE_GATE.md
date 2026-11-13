@@ -1,8 +1,6 @@
 # Phase 4 equivalence and performance gate
 
-Status: **pending operator measurements**. Code extraction and the supported
-Python full-suite gate are confirmed green; that is necessary but not
-sufficient to certify before/after output equivalence.
+Status: **controlled three-track execution and decoded-PCM equivalence PASSED with quality rehearsal enabled; broader performance and release sign-off pending**. The supported Python full-suite gate was previously reported green. Without rehearsal, both branches correctly reject the same 16.1 dB RMS handoff; with the existing measured quality loop enabled, both branches render successfully and produce identical decoded PCM. This fixture-level result does not certify production DJ quality.
 
 The pre-extraction reference is Git commit
 `cb731ea035130590bfa39dddbc460085ebf723d7`, the parent of the first
@@ -27,28 +25,36 @@ export SAUND_BASELINE="$SAUND_MAIN/../saundai-phase4-baseline"
 git worktree add --detach "$SAUND_BASELINE" cb731ea035130590bfa39dddbc460085ebf723d7
 mkdir -p "$SAUND_MAIN/output/phase4-evidence"
 
+# Freeze the trained scoring model too; otherwise the two worktrees can
+# resolve different config/scoring-model.json files even for identical audio.
+export DJAI_CONFIG_DIR="$SAUND_MAIN/config"
+export SAUND_CACHE="$SAUND_MAIN/output/phase4-evidence/shared-analysis"
+
 # Invoke the same comparison script from the current checkout in both runs.
 # PYTHONPATH points to the code tree being evaluated; do not change the
 # audio directory, environment flags, or Python environment between runs.
 cd "$SAUND_BASELINE"
 PYTHONPATH="$SAUND_BASELINE/src" python "$SAUND_MAIN/scripts/phase4_equivalence.py" capture \
-  --audio-dir "$SAUND_AUDIO" \
-  --output "$SAUND_MAIN/output/phase4-evidence/baseline.json" --render
+  --audio-dir "$SAUND_AUDIO" --analysis-cache-dir "$SAUND_CACHE" \
+  --output "$SAUND_MAIN/output/phase4-evidence/baseline.json" --rehearse --render
 
 cd "$SAUND_MAIN"
 PYTHONPATH="$SAUND_MAIN/src" python scripts/phase4_equivalence.py capture \
-  --audio-dir "$SAUND_AUDIO" \
-  --output "output/phase4-evidence/current.json" --render
+  --audio-dir "$SAUND_AUDIO" --analysis-cache-dir "$SAUND_CACHE" \
+  --output "output/phase4-evidence/current.json" --rehearse --render
 
 python scripts/phase4_equivalence.py compare \
   output/phase4-evidence/baseline.json \
   output/phase4-evidence/current.json
 ```
 
-The comparison requires identical input-file SHA-256 digests, track order,
+The comparison requires identical input-file SHA-256 digests, full analyzed-track
+digests, scoring-model fingerprints, track order,
 transition execution signatures, program fingerprints, bounded transition
-metadata, alternative signatures, and decoded rendered PCM hashes. Nonzero
-exit signals a mismatch. It prints separate elapsed times for analysis,
+metadata, alternative signatures, and decoded rendered PCM hashes. A failed render still writes a JSON report, but returns nonzero; the
+comparison distinguishes a matching safety rejection from a successful PCM
+match. Any render rejection keeps the audio-equivalence gate open. Nonzero
+exit signals a mismatch or an unresolved safety rejection. It prints separate elapsed times for analysis,
 planning, and rendering; times are *observations*, not deterministic equality
 requirements. Do not weaken exact execution identity or hard safety to make
 this comparison pass.
@@ -87,11 +93,254 @@ before/after refactor A/B run.
 - [x] Supported Python suite green after modular planner/API extraction
 - [x] All HTTP endpoint registrations moved to feature routers without
       changing handler implementations
-- [ ] Fixed-input old/new execution signatures and program fingerprints match
-- [ ] Old/new decoded PCM render hashes match
+- [x] Fixed-input old/new execution signatures and program fingerprints match
+      (shared scoring model; both manual route [1,0,2] and automatic routing)
+- [x] Old/new decoded PCM render hashes match (rehearsed, safety-clean fixture)
 - [ ] Comparable old/new timings and resource metrics recorded and reviewed
-- [ ] Phase 4 exit decision written with paths to the actual evidence
+- [x] Interim Phase 4 decision documented with paths to the operator evidence
+- [x] Fixed-fixture safety-clean render decision recorded
+- [ ] Final Phase 4 exit after comparable planner latency/resource benchmark review
 
 If a mismatch appears, preserve the two reports and investigate the
 source/program/render differences instead of updating expected signatures
 or weakening the safety gate.
+
+## Controlled three-track operator results (November 13, 2026)
+
+The operator used the detached pre-refactor worktree and the current branch
+against the same symlinked fixture under `output/phase4-fixture`, the same
+`output/phase4-evidence/shared-analysis` cache, and **the same absolute
+`DJAI_CONFIG_DIR="$SAUND_MAIN/config"`**. Previously divergent routes and
+transition fingerprints were traced to a model-environment mismatch:
+baseline had no scoring model, whereas current used fingerprint
+`d98eaf8cd7af928d` with learned adjustments. Once both runs used the same
+model, the differences vanished. Do not attribute those differences to the
+planner extraction.
+
+- Fixed-order evidence: `output/phase4-evidence/baseline-controlled.json`,
+  `output/phase4-evidence/current-controlled.json`. Audio hashes, analysis
+  digests, model fingerprint, order and transitions **MATCH**.
+- Automatic-order evidence: `output/phase4-evidence/baseline-auto.json`,
+  `output/phase4-evidence/current-auto.json`. The same fields **MATCH**.
+- Render rejection evidence: `output/phase4-evidence/baseline-render.json`,
+  `output/phase4-evidence/current-render.json`. Both renderers reject the
+  first `echo_out_drop_in` transition at outgoing source exit `121.835102`
+  seconds with the same 16.1 dB RMS handoff failure; neither published
+  a completed render. Both measured the same RMS levels:
+  pre-tail `-16.47702` dB, transition head `-16.01121` dB,
+  transition tail `-28.3371` dB, post-head `-12.22134` dB.
+  The beginning jump is `0.47` dB and the end jump is `16.12` dB.
+- Planning timings are observational only: most recent render capture
+  measured baseline `5.491` s and current `4.949` s. They are **not**
+  a controlled performance benchmark or an optimization sign-off.
+
+### Rehearsed render equivalence — PASS (November 13, 2026)
+
+The operator used the same source audio, analyzed-track cache, scoring-model
+configuration, Python environment, and `--rehearse --render` flags on the
+pre-extraction worktree and current branch. The comparison reported:
+
+```text
+schema: MATCH
+audio_fingerprints: MATCH
+analysis_digests: MATCH
+scoring_model_fingerprint: MATCH
+order: MATCH
+transitions: MATCH
+rendered_pcm: MATCH
+render_status: baseline=passed current=passed
+Execution identity equivalence passed.
+```
+
+- Evidence: `output/phase4-evidence/baseline-rehearsed.json` and
+  `output/phase4-evidence/current-rehearsed.json`; corresponding WAV paths
+  use the same stems with `.wav` extensions.
+- Operator repeated the current rehearsed render successfully twice.
+- Single observed run timings: analysis `0.180` s for both; planning
+  baseline `13.937` s vs current `5.614` s; rendering baseline
+  `2.449` s vs current `3.111` s. These are **not** controlled performance
+  benchmarks. In particular, do not infer a planner speedup or render slowdown
+  from one pair of measurements.
+- The `--rehearse` flag opts in to the existing measured-candidate quality
+  loop, not a changed safety threshold or post-signature render alteration.
+  The original non-rehearsed safety rejection remains documented above.
+
+**Decision:** functional Phase 4 extraction equivalence is **verified** for
+this controlled three-track fixture, including identical decoded PCM after
+passing the original render safety checks. Keep the broader planner
+latency/resource benchmark and Phase 6 musical-quality release gate open.
+Review which rehearsed candidate was selected and ensure larger real-music
+crates meet the same safety expectations before any production-quality claim.
+
+## 13-track analysis and cached-graph benchmark (November 13, 2026)
+
+Operator fixture: exactly 13 supported files in `audio/uploads`, 156 directed
+edges, scout graph with 5 cues and 3,900 selected cue-pair observations out
+of 20,736 possible pairs. All four serial/parallel signature comparisons passed,
+and both branches used scoring-model fingerprint `d98eaf8cd7af928d`.
+
+| Run | Baseline analysis (s) | Current analysis (s) | Baseline graph (s) | Current graph (s) |
+| --- | ---: | ---: | ---: | ---: |
+| Nominal cold analysis | 182.114 | 183.427 | 1.217 | 1.202 |
+| Warm analysis | 0.334 | 0.358 | 1.119 | 1.145 |
+
+Reports are `output/phase4-evidence/benchmark-{baseline,current}-{cold,warm}.json`
+on the operator's machine. Both cold-analysis runs have 0/13 analysis-cache
+hits; both warm runs have 13/13 analysis-cache hits. **All four graph runs
+had 156/156 graph-pair cache hits**. As such, the benchmark demonstrates
+comparable analysis performance and warm graph retrieval, but **not**
+uncached graph computation. These are single-run observations, not a rigorous
+statistical speedup claim. The serial/parallel comparison uses 1 graph worker
+on both paths and therefore tests determinism rather than parallel scaling.
+
+After this measurement, `scripts/benchmark.py` was updated to point
+`DJAI_CACHE_DIR` at the benchmark-controlled graph cache root, so a
+nominally cold run cannot accidentally reuse a worktree's preexisting
+graph-pair cache. The operator subsequently repeated the cold graph measurements with the
+updated script and confirmed 0/156 graph hits during the first graph build,
+followed by 156/156 hits for the serial comparison. See the uncached
+results below. Broader end-to-end planner timing/resource measurements and
+the final Phase 4 benchmark exit decision remain separate.
+
+## 13-track isolated cold graph — PASS (November 13, 2026)
+
+The operator reran the same 13-track fixture with isolated
+`DJAI_CACHE_DIR` and `DJAI_CONFIG_DIR="$SAUND_MAIN/config"`, one
+graph worker, and the same scoring-model fingerprint
+`d98eaf8cd7af928d` in both worktrees.
+
+| First cold stage | Baseline | Refactored current |
+| --- | ---: | ---: |
+| Analysis time | 177.637488 s | 176.457204 s |
+| Analysis cache hits | 0/13 | 0/13 |
+| Graph computation time | 19.948242 s | 20.068013 s |
+| Graph cache hits/misses | 0/156; 156 misses | 0/156; 156 misses |
+| Graph scout cue pairs | 3,900 | 3,900 |
+| Serial graph cache replay | 1.256977 s | 1.241686 s |
+| Serial graph cache hits | 156/156 | 156/156 |
+| Deterministic signature match | true | true |
+
+Evidence: `output/phase4-evidence/benchmark-baseline-cold-graph.json`
+and `output/phase4-evidence/benchmark-current-cold-graph.json`.
+
+The observed cold graph delta is +0.119771 s (+0.60%) for the refactor,
+and cold analysis is -1.180284 s (-0.66%). Neither is evidence of a
+meaningful regression or statistically proven improvement without
+repeated measurements. Note that `--graph-workers 1 --compare-serial`
+does not measure multiprocessing scaling: the second serial graph
+execution is a warm-cache replay.
+
+**Checkpoint decision:** the Phase 4 graph extraction has reproducible
+cold-graph and warm-graph evidence with no observed material regression,
+in addition to the previously passed fixed-fixture decoded-PCM equivalence
+and supported Python suite. The broader 13-track *end-to-end* set planner
+latency and process resource profile (including route, sequence compile,
+rehearsal, fallbacks) have not been captured as controlled before/after
+benchmark evidence. Do not imply that the graph-only benchmark covers these
+stages or conclude a production-quality release gate from it.
+
+## Full 13-track planning benchmark (pending operator run)
+
+Use `scripts/phase4_full_planner_benchmark.py` from the **current branch** as
+the common test harness for both worktrees. Its `PYTHONPATH` determines which
+implementation is exercised. Use the identical `audio/uploads` fixture and
+absolute `DJAI_CONFIG_DIR`; avoid accidentally loading a different trained
+scoring model. The script requires exactly 13 supported audio files.
+
+The benchmark measures full `make_set_plan` execution, including whichever
+graph, route, compile, professional-brain and quality-rehearsal paths are selected
+by the environment. It records graph cache hit/miss counts, the planner's
+internal stage breakdown, fallback and emergency counts, transition identity,
+and process peak RSS. It **does not** claim that an unrendered full set passed
+final PCM verification; that remains the separate three-track render gate.
+
+Run from the operator's configured worktrees:
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+export DJAI_CONFIG_DIR="$SAUND_MAIN/config"
+export SAUND_BENCH_AUDIO="$SAUND_MAIN/audio/uploads"
+
+cd "$SAUND_BASELINE"
+PYTHONHASHSEED=0 PYTHONPATH="$SAUND_BASELINE/src" \
+python "$SAUND_MAIN/scripts/phase4_full_planner_benchmark.py" capture \
+  --audio-dir "$SAUND_BENCH_AUDIO" \
+  --cache-dir "$SAUND_BASELINE/.djai-cache/phase4-full-benchmark" \
+  --cold-graph \
+  --output "$SAUND_MAIN/output/phase4-evidence/full-baseline.json"
+
+cd "$SAUND_MAIN"
+PYTHONHASHSEED=0 PYTHONPATH="$SAUND_MAIN/src" \
+python scripts/phase4_full_planner_benchmark.py capture \
+  --audio-dir "$SAUND_BENCH_AUDIO" \
+  --cache-dir "$SAUND_MAIN/.djai-cache/phase4-full-benchmark" \
+  --cold-graph \
+  --output output/phase4-evidence/full-current.json
+
+python scripts/phase4_full_planner_benchmark.py compare \
+  output/phase4-evidence/full-baseline.json \
+  output/phase4-evidence/full-current.json
+```
+
+The default run preserves existing quality rehearsal and automatic-delivery
+safety behavior. Each run writes its JSON even if planning fails; a failed
+planning or safety outcome returns a nonzero exit status and is **not** a gate
+pass. The optional `--cold-analysis` flag forces fresh analyses; leave it
+unset when comparing the already validated analysis stage independently.
+`--cold-graph` clears only the isolated graph-pair cache used by this
+benchmark. The graph and rehearsal paths may have other caches: confirm stats
+and context before claiming a fully uncached end-to-end execution.
+
+Review outcomes and repeat under controlled conditions before certifying
+performance. Timing and process RSS comparisons are diagnostic, not proof
+of a speedup from a single capture. Record final evidence and explicitly close
+Phase 4 only after reviewing the remaining results.
+
+## Full 13-track planner before/after — identity PASS (November 13, 2026)
+
+The operator used `scripts/phase4_full_planner_benchmark.py` on the same
+13 real files in `audio/uploads`, the same scoring-model configuration,
+1 graph worker and isolated cold graph caches. Captures:
+
+- `output/phase4-evidence/full-baseline.json`
+- `output/phase4-evidence/full-current.json`
+
+The comparison reported **MATCH** for schema, track count, audio SHA,
+analysis digests, scoring model fingerprint, success status, full track
+order, all transitions including execution signatures, fallback count,
+and emergency count.
+
+| Metric | Pre-extraction baseline | Refactored current | Observed change |
+| --- | ---: | ---: | ---: |
+| Cold analysis | 177.0037 s | 176.1217 s | -0.5% |
+| Total set planning | 518.2782 s | 530.0372 s | +2.3% |
+| Total analysis + planning | 695.2922 s | 706.1695 s | +1.6% |
+| Graph stage | 20.002265 s | 20.035349 s | +0.2% |
+| Route search (9 calls) | 316.201502 s | 320.755810 s | +1.4% |
+| Compile/rehearsal (9 calls) | 201.903657 s | 209.085011 s | +3.6% |
+| Peak process RSS | 3,319,955,456 bytes | 3,441,754,112 bytes | +3.7% |
+| Graph cache | 0 hits / 156 misses | 0 hits / 156 misses | Match |
+| Fallback transitions | 11 | 11 | Match |
+| Emergency transitions | 9 | 9 | Match |
+
+Both runs returned `status=passed` from **planning**. This status does
+**not** mean a complete 13-track rendered mix passed the final audio
+verifier: this benchmark does not render a set. Previous three-track
+rehearsed decoded-PCM equivalence remains the render evidence.
+
+**Review outcome:** full-planner identity and bounded large-crate performance
+are recorded, with no demonstrated major refactor-related slowdown in this
+one paired execution. Current planning and peak RSS were modestly higher;
+single-run deltas are descriptive, not statistically significant estimates.
+The very high fallback rate (11/12 edges) and emergency count (9/12)
+are shared pre-existing music-quality debts, not proof of suitable live
+delivery. These require a dedicated larger-crate quality and rendered-audio
+gate before production release.
+
+The **Phase 4 refactor correctness and controlled benchmark evidence gates
+are satisfied at fixture scope**, with the limits above explicitly recorded.
+A repeat-run performance distribution, broader fixtures, parallel-worker
+scaling and release-level real-music listening remain desirable Phase 6
+validation; they are not established by this result. No audio safety limit
+was changed, and the result does not certify production readiness.

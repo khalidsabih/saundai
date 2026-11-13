@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,13 @@ def main() -> None:
         shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True)
 
+    # Keep graph-pair results inside the benchmark's own cold/warm cache root.
+    # Previously the benchmark reset only its analysis cache, while the graph
+    # builder used DJAI_CACHE_DIR (or the worktree's global .djai-cache).
+    # That made every nominally cold graph run a 100%-cache-hit run.
+    graph_cache_root = root / "graph-runtime"
+    os.environ["DJAI_CACHE_DIR"] = str(graph_cache_root)
+
     parallel_analyses, parallel_analysis_stats = analyze_once(
         tracks,
         cache_dir=root / "parallel-analysis",
@@ -94,17 +102,51 @@ def main() -> None:
         for to_index, track_b in enumerate(parallel_analyses)
         if from_index != to_index
     )
-    if parallel_session.compatibility_evaluations != expected_compatibility_evaluations:
-        raise SystemExit(
-            "Pair-evidence count mismatch: compatibility was not evaluated exactly once per unique cue pair."
-        )
+    # Large crates use a bounded scout cue pool. The full Cartesian
+    # candidate count is an upper bound, not the number actually evaluated.
+    # Verify each stored matrix contains exactly one observation per selected
+    # exit/entry pair, and ensure the session counter agrees with that sum.
+    def validate_pair_evidence(session: PlanningSession, label: str) -> int:
+        if len(session.pair_evidence) != len(tracks) * (len(tracks) - 1):
+            raise SystemExit(
+                f"{label}: missing graph pair evidence: "
+                f"{len(session.pair_evidence)} of {len(tracks) * (len(tracks) - 1)}"
+            )
+        selected_count = 0
+        for key, matrix in session.pair_evidence.items():
+            expected = len(matrix.exit_candidates) * len(matrix.entry_candidates)
+            identities = [(pair.exit_index, pair.entry_index) for pair in matrix.pairs]
+            if len(identities) != expected or len(set(identities)) != expected:
+                raise SystemExit(
+                    f"{label}: incomplete or duplicated cue-pair evidence for {key}: "
+                    f"{len(identities)} entries, {len(set(identities))} unique, "
+                    f"{expected} selected pairs"
+                )
+            selected_count += expected
+        if session.compatibility_evaluations != selected_count:
+            raise SystemExit(
+                f"{label}: session evidence counter {session.compatibility_evaluations} "
+                f"does not match {selected_count} selected pairs"
+            )
+        if selected_count > expected_compatibility_evaluations:
+            raise SystemExit(
+                f"{label}: selected cue-pair count exceeds full Cartesian bound"
+            )
+        return selected_count
+
+    evaluated_cue_pairs = validate_pair_evidence(parallel_session, "parallel")
 
     report: dict[str, Any] = {
         "djai_version": DJAI_VERSION,
         "track_count": len(tracks),
         "directed_pair_count": len(tracks) * (len(tracks) - 1),
-        "unique_cue_pair_count": expected_compatibility_evaluations,
+        "full_cartesian_cue_pair_count": expected_compatibility_evaluations,
+        "selected_cue_pair_count": evaluated_cue_pairs,
+        "unique_cue_pair_count": evaluated_cue_pairs,
         "one_compatibility_evaluation_per_cue_pair": True,
+        "graph_mode": parallel_session.graph_mode,
+        "graph_cache_isolated": True,
+        "graph_cache_root": str(graph_cache_root),
         "parallel": {
             "analysis": parallel_analysis_stats.to_dict(),
             "graph": parallel_session.to_dict(),
@@ -119,8 +161,12 @@ def main() -> None:
             use_cache=args.warm_cache,
         )
         serial_graph, serial_session = graph_once(serial_analyses, workers=1)
-        if serial_session.compatibility_evaluations != expected_compatibility_evaluations:
-            raise SystemExit("Serial pair-evidence count differs from the unique cue-pair count.")
+        serial_evaluated_cue_pairs = validate_pair_evidence(serial_session, "serial")
+        if serial_evaluated_cue_pairs != evaluated_cue_pairs:
+            raise SystemExit(
+                f"Serial and parallel selected cue-pair counts differ: "
+                f"{serial_evaluated_cue_pairs} vs {evaluated_cue_pairs}"
+            )
         serial_signature = graph_signature(serial_graph)
         parallel_signature = graph_signature(parallel_graph)
         report["serial"] = {

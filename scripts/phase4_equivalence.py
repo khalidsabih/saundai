@@ -38,6 +38,7 @@ def _pcm_digest(path: Path) -> dict[str, object]:
 
 def capture(args: argparse.Namespace) -> int:
     from djai.cache import analyze_tracks, discover_tracks
+    from djai.candidate_renderer import QualityGateConfig
     from djai.decision import validate_execution_plan
     from djai.set_planner import make_set_plan
     from djai.set_renderer import render_set
@@ -61,6 +62,11 @@ def capture(args: argparse.Namespace) -> int:
         cache_dir=args.analysis_cache_dir or ".djai-cache/tracks",
     )
     analysis_seconds = time.perf_counter() - started
+    from djai.planning_context import PlanningSession, scoring_model_fingerprint
+    # Snapshot model once per capture: don't accidentally compare a worktree
+    # with no trained model against one with an active learned scorer.
+    planning_session = PlanningSession()
+    scoring_fingerprint = scoring_model_fingerprint(planning_session.scoring_model)
     # Prove the two planner runs consumed identical analyzed features.
     # Source hashes alone do not establish perceptual evidence identity.
     analysis_digests = [
@@ -82,6 +88,159 @@ def capture(args: argparse.Namespace) -> int:
                 f"--manual-order must be a permutation of 0..{len(paths) - 1}"
             )
 
+    selection_trace: list[dict[str, object]] = []
+    if args.trace_selection:
+        import djai.set_planner as planner_module
+
+        original_select = planner_module._select_alternative
+        original_exit = planner_module._sequence_exit_candidates
+        original_entry = planner_module._sequence_entry_candidates
+
+        def trace_exit(track, **kwargs):
+            result = original_exit(track, **kwargs)
+            selection_trace.append({
+                "stage": "exit_cues",
+                "track": track.title,
+                "source_cursor": kwargs.get("source_cursor"),
+                "required_source": kwargs.get("required_source"),
+                "cues": [
+                    {
+                        "time": cue.time_seconds,
+                        "bar": cue.bar_index,
+                        "section": cue.section_label,
+                        "score": cue.score,
+                    }
+                    for cue in result[0]
+                ],
+            })
+            return result
+
+        def trace_entry(track, **kwargs):
+            result = original_entry(track, **kwargs)
+            selection_trace.append({
+                "stage": "entry_cues",
+                "track": track.title,
+                "cues": [
+                    {
+                        "time": cue.time_seconds,
+                        "bar": cue.bar_index,
+                        "section": cue.section_label,
+                        "score": cue.score,
+                    }
+                    for cue in result
+                ],
+            })
+            return result
+
+        def trace_select(plans, track_a, track_b, **kwargs):
+            selected = original_select(plans, track_a, track_b, **kwargs)
+            selection_trace.append({
+                "stage": "select_alternative",
+                "from": track_a.title,
+                "to": track_b.title,
+                "plans": [
+                    {
+                        "style": candidate.style,
+                        "technique": candidate.technique,
+                        "score": candidate.score,
+                        "selection_utility": candidate.metadata.get("selection_utility"),
+                        "exit": candidate.exit_time_a,
+                        "entry": candidate.entry_time_b,
+                        "signature": candidate.execution_signature,
+                    }
+                    for candidate in plans
+                ],
+                "winner": selected[0].execution_signature,
+            })
+            return selected
+
+        planner_module._sequence_exit_candidates = trace_exit
+        planner_module._sequence_entry_candidates = trace_entry
+        planner_module._select_alternative = trace_select
+
+        # Capture the candidate pool BEFORE downstream DJMove ranking, metadata
+        # sealing and final edge selection. The pre-extraction planner imports
+        # this callback in set_planner; the refactor imports it in its helper.
+        import dataclasses
+
+        def evidence_digest(matrix):
+            if matrix is None:
+                return None
+            payload = json.dumps(
+                dataclasses.asdict(matrix),
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        def trace_candidate_pool(original):
+            def traced(track_a, track_b, **kwargs):
+                candidates = original(track_a, track_b, **kwargs)
+                matrix = kwargs.get("evidence_matrix")
+                selection_trace.append({
+                    "stage": "candidate_pool",
+                    "from": track_a.title,
+                    "to": track_b.title,
+                    "matrix_digest": evidence_digest(matrix),
+                    "matrix_pairs": len(matrix.pairs) if matrix is not None else None,
+                    "matrix_detail": (
+                        {
+                            "scoring_model_fingerprint": matrix.scoring_model_fingerprint,
+                            "exit_cues": [
+                                [v.bar_index, v.time_seconds, v.score]
+                                for v in matrix.exit_candidates
+                            ],
+                            "entry_cues": [
+                                [v.bar_index, v.time_seconds, v.score]
+                                for v in matrix.entry_candidates
+                            ],
+                            "pairs": [
+                                {
+                                    "indices": [p.exit_index, p.entry_index],
+                                    "overall": p.breakdown.overall,
+                                    "breakdown": dataclasses.asdict(p.breakdown),
+                                }
+                                for p in matrix.pairs
+                            ],
+                        }
+                        if matrix is not None else None
+                    ),
+                    "styles": kwargs.get("styles"),
+                    "per_style": kwargs.get("per_style"),
+                    "effective_bpm_a": kwargs.get("effective_bpm_a"),
+                    "render_rate_a": kwargs.get("render_rate_a"),
+                    "stems_available": kwargs.get("stems_available"),
+                    "candidates": [
+                        {
+                            "style": plan.style,
+                            "technique": plan.technique,
+                            "score": plan.score,
+                            "exit": plan.exit_time_a,
+                            "entry": plan.entry_time_b,
+                            "signature": plan.execution_signature,
+                            "program_fingerprint": plan.performance_program_fingerprint,
+                        }
+                        for plan in candidates
+                    ],
+                })
+                return candidates
+            return traced
+
+        # set_planner retains its historical imported symbol after extraction,
+        # but its current compiler calls the private helper's imported symbol.
+        # Only wrap the symbol used by the active compiler to avoid duplicates.
+        if getattr(planner_module._compile_sequence_edges, "__code__", None) is not None and (
+            "_build_sequence_candidate_pool"
+            in planner_module._compile_sequence_edges.__code__.co_names
+        ):
+            import djai.planner_sequence_candidates as sequence_candidates
+            original_pool = sequence_candidates.plan_transition_candidate_pool
+            sequence_candidates.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
+        else:
+            original_pool = planner_module.plan_transition_candidate_pool
+            planner_module.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
+
     started = time.perf_counter()
     plan = make_set_plan(
         analyses,
@@ -97,7 +256,14 @@ def capture(args: argparse.Namespace) -> int:
         minimum_body_seconds=8.0,
         minimum_body_fraction=0.10,
         graph_workers=1,
-        quality_loop=None,
+        planning_session=planning_session,
+        quality_loop=(
+            QualityGateConfig.from_environment(
+                enabled=True,
+                top_k=4,
+                log_path=None,
+            ) if args.rehearse else None
+        ),
         automatic_delivery=False,
     )
     planning_seconds = time.perf_counter() - started
@@ -125,22 +291,93 @@ def capture(args: argparse.Namespace) -> int:
 
     rendered = None
     render_seconds = None
+    render_status = "not_requested"
+    render_failure = None
+    render_diagnostics: list[dict[str, object]] = []
     if args.render:
+        # Instrument the existing verifier's measurement call. We do not
+        # override the verdict, mutate samples, or weaken any hard threshold.
+        import math
+        import numpy as np
+        import djai.set_renderer as renderer_module
+
+        original_measure = renderer_module.measure_transition_audio
+
+        def measured_with_diagnostics(*, pre, transition, post, sample_rate, plan, **kwargs):
+            measured = original_measure(
+                pre=pre, transition=transition, post=post,
+                sample_rate=sample_rate, plan=plan, **kwargs,
+            )
+            frames = max(256, int(round(sample_rate * 1.5)))
+            edge_frames = max(256, min(frames, max(1, transition.shape[-1] // 3)))
+
+            def rms_db(audio):
+                mono = np.asarray(audio, dtype=np.float64).mean(axis=0) if audio.ndim == 2 else np.asarray(audio, dtype=np.float64)
+                if mono.size == 0:
+                    return -120.0
+                return round(float(20 * math.log10(max(float(np.sqrt(np.mean(mono * mono) + 1e-12)), 1e-9))), 5)
+
+            pre_db = rms_db(pre[..., -frames:])
+            head_db = rms_db(transition[..., :edge_frames])
+            tail_db = rms_db(transition[..., -edge_frames:])
+            post_db = rms_db(post[..., :frames])
+            start_jump = round(abs(head_db - pre_db), 5)
+            end_jump = round(abs(post_db - tail_db), 5)
+            render_diagnostics.append({
+                "edge_index": len(render_diagnostics),
+                "from_track": plan.track_a,
+                "to_track": plan.track_b,
+                "execution_signature": plan.execution_signature,
+                "technique": plan.technique,
+                "transition_mode": plan.transition_mode,
+                "exit_time_a": plan.exit_time_a,
+                "entry_time_b": plan.entry_time_b,
+                "sample_rate": sample_rate,
+                "rms_db": {
+                    "pre_tail": pre_db,
+                    "transition_head": head_db,
+                    "transition_tail": tail_db,
+                    "post_head": post_db,
+                },
+                "rms_jump_db": {
+                    "start": start_jump,
+                    "end": end_jump,
+                },
+                "failure_boundary": "start" if start_jump >= end_jump else "end",
+                "hard_failures": list(measured.hard_failures),
+                "warnings": list(measured.warnings),
+            })
+            return measured
+
+        renderer_module.measure_transition_audio = measured_with_diagnostics
         started = time.perf_counter()
-        render_path, _report_path = render_set(
-            plan,
-            Path(args.output).with_suffix(".wav"),
-        )
-        render_seconds = time.perf_counter() - started
-        rendered = _pcm_digest(render_path)
+        try:
+            render_path, _report_path = render_set(
+                plan,
+                Path(args.output).with_suffix(".wav"),
+            )
+            rendered = _pcm_digest(render_path)
+            render_status = "passed"
+        except RuntimeError as exc:
+            # A rejected render is evidence, never a valid PCM-equivalence pass.
+            # Preserve the verifier's exact message without bypassing it.
+            render_status = "rejected"
+            render_failure = str(exc)
+        finally:
+            render_seconds = time.perf_counter() - started
 
     report = {
         "schema": "phase4-equivalence-v1",
         "audio_fingerprints": fingerprints,
         "analysis_digests": analysis_digests,
+        "scoring_model_fingerprint": scoring_fingerprint,
         "order": plan.order,
         "transitions": transitions,
+        **({"selection_trace": selection_trace} if args.trace_selection else {}),
         "rendered_pcm": rendered,
+        "render_status": render_status,
+        "render_failure": render_failure,
+        "render_diagnostics": render_diagnostics,
         "timing_seconds": {
             "analysis": round(analysis_seconds, 4),
             "planning": round(planning_seconds, 4),
@@ -150,7 +387,7 @@ def capture(args: argparse.Namespace) -> int:
             "python": sys.version.split()[0],
             "platform": sys.platform,
             "graph_workers": 1,
-            "quality_loop": False,
+            "quality_loop": bool(args.rehearse),
             "automatic_delivery": False,
             "manual_order": args.manual_order,
             "analysis_cache_dir": args.analysis_cache_dir,
@@ -169,14 +406,22 @@ def capture(args: argparse.Namespace) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Captured {len(transitions)} edges: {output}")
+    if render_status == "rejected":
+        print(f"RENDER REJECTED (report retained): {render_failure}", file=sys.stderr)
+        return 2
     return 0
 
 
 def compare(args: argparse.Namespace) -> int:
     baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
     current = json.loads(Path(args.current).read_text(encoding="utf-8"))
-    keys = ("schema", "audio_fingerprints", "analysis_digests", "order", "transitions", "rendered_pcm")
+    keys = (
+        "schema", "audio_fingerprints", "analysis_digests",
+        "scoring_model_fingerprint", "order", "transitions", "rendered_pcm",
+    )
     mismatches = [key for key in keys if baseline.get(key) != current.get(key)]
+    baseline_render_status = baseline.get("render_status", "unknown")
+    current_render_status = current.get("render_status", "unknown")
     baseline_times = baseline.get("timing_seconds", {})
     current_times = current.get("timing_seconds", {})
     print("Phase 4 comparison:")
@@ -201,6 +446,37 @@ def compare(args: argparse.Namespace) -> int:
             for field in sorted(set(a) | set(b)):
                 if a.get(field) != b.get(field):
                     print(f"    {field}: baseline={a.get(field)!r} current={b.get(field)!r}")
+    if baseline.get("selection_trace") is not None and current.get("selection_trace") is not None:
+        a_trace = baseline["selection_trace"]
+        b_trace = current["selection_trace"]
+        print(f"  selection trace entries: baseline={len(a_trace)} current={len(b_trace)}")
+        for index in range(max(len(a_trace), len(b_trace))):
+            a = a_trace[index] if index < len(a_trace) else None
+            b = b_trace[index] if index < len(b_trace) else None
+            if a != b:
+                print(f"  first selection trace mismatch at step {index + 1}:")
+                print(f"    baseline: {json.dumps(a, sort_keys=True)}")
+                if a and b and a.get("stage") == b.get("stage") == "candidate_pool":
+                    ma = a.get("matrix_detail") or {}
+                    mb = b.get("matrix_detail") or {}
+                    for name in ("scoring_model_fingerprint", "exit_cues", "entry_cues"):
+                        if ma.get(name) != mb.get(name):
+                            print(f"    matrix {name}: baseline={ma.get(name)!r} current={mb.get(name)!r}")
+                    for pair_index, (pa, pb) in enumerate(zip(ma.get("pairs", []), mb.get("pairs", []))):
+                        if pa != pb:
+                            print(f"    first changed evidence pair {pair_index}:")
+                            print(f"      baseline: {json.dumps(pa, sort_keys=True)}")
+                            print(f"      current:  {json.dumps(pb, sort_keys=True)}")
+                            break
+                    for field in ("candidates", "effective_bpm_a", "render_rate_a", "stems_available"):
+                        if a.get(field) != b.get(field):
+                            print(f"    {field}:")
+                            print(f"      baseline: {json.dumps(a.get(field), sort_keys=True)}")
+                            print(f"      current:  {json.dumps(b.get(field), sort_keys=True)}")
+                else:
+                    print(f"    baseline: {json.dumps(a, sort_keys=True)}")
+                    print(f"    current:  {json.dumps(b, sort_keys=True)}")
+                break
     if baseline.get("context") != current.get("context"):
         print(f"  baseline context: {baseline.get('context')!r}")
         print(f"  current context:  {current.get('context')!r}")
@@ -209,8 +485,39 @@ def compare(args: argparse.Namespace) -> int:
         new = current_times.get(key)
         if old is not None and new is not None:
             print(f"  {key}: baseline={old:.3f}s current={new:.3f}s ratio={new / max(old, 1e-9):.3f}x")
+    if "scoring_model_fingerprint" in mismatches:
+        print(
+            "Scoring models differ: use the SAME absolute DJAI_CONFIG_DIR "
+            "on both worktrees before interpreting planner differences.",
+            file=sys.stderr,
+        )
     if mismatches:
         print("FAILED equivalence fields: " + ", ".join(mismatches), file=sys.stderr)
+        return 1
+    print(f"  render_status: baseline={baseline_render_status} current={current_render_status}")
+    if baseline_render_status == "rejected" or current_render_status == "rejected":
+        print(
+            "RENDER SAFETY GATE NOT PASSED. Matching rejection does not prove PCM equivalence.",
+            file=sys.stderr,
+        )
+        print(f"  baseline failure: {baseline.get('render_failure')!r}")
+        print(f"  current failure:  {current.get('render_failure')!r}")
+        for label, report in (("baseline", baseline), ("current", current)):
+            diagnostics = report.get("render_diagnostics") or []
+            if diagnostics:
+                print(f"  {label} render diagnostics:")
+                for edge in diagnostics:
+                    print(
+                        f"    edge {edge['edge_index'] + 1} "
+                        f"{edge['technique']} at {edge['exit_time_a']:.3f}s: "
+                        f"start={edge['rms_jump_db']['start']:.2f}dB, "
+                        f"end={edge['rms_jump_db']['end']:.2f}dB; "
+                        f"worst={edge['failure_boundary']}"
+                    )
+                    print(f"      RMS levels: {edge['rms_db']}")
+        return 2
+    if baseline_render_status != current_render_status:
+        print("FAILED: differing render statuses.", file=sys.stderr)
         return 1
     if baseline.get("rendered_pcm") is None:
         print("WARNING: rendering was not captured; exact-render equivalence is unverified.")
@@ -225,6 +532,12 @@ def main() -> int:
     capture_parser.add_argument("--audio-dir", required=True)
     capture_parser.add_argument("--output", required=True)
     capture_parser.add_argument("--render", action="store_true")
+    capture_parser.add_argument(
+        "--rehearse", action="store_true",
+        help="Opt in to existing measured candidate selection before rendering; "
+             "does not override final renderer safety validation",
+    )
+    capture_parser.add_argument("--trace-selection", action="store_true")
     capture_parser.add_argument(
         "--manual-order",
         help="Comma-separated track indices, e.g. 1,0,2; isolate compiler from route search",

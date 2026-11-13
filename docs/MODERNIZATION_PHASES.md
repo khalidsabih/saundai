@@ -1,6 +1,6 @@
 # SAUND.AI modernization phases
 
-Status: **Phases 1–3 complete; Phase 4 extraction complete, equivalence/benchmark exit evidence pending**. This plan governs engineering consolidation on top of
+Status: **Phases 1–4 fixture-scoped gates verified; Phase 5 frontend consolidation audit in progress; Phase 6 release-quality gate pending**. This plan governs engineering consolidation on top of
 the existing Phase 13–15 implementation; it does not replace the product feature
 roadmap in [ROADMAP.md](ROADMAP.md).
 
@@ -74,12 +74,35 @@ order optimizer respects injectable legacy planning hooks.
 For exact operator commands and the fixed pre-extraction commit, see
 [PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
 
-**Not yet certified for Phase 4 exit:** a recorded before/after fixed-fixture
-execution-signature and exact-render comparison, plus comparable planner
-latency/resource benchmark evidence. Existing regression tests cover individual
-contracts but are not a substitute for an archived equivalence report. Until
-those results are recorded, Phase 4 is **implementation-complete, exit-pending**.
-Do not declare Phase 5 complete on the strength of Python test results alone.
+**Phase 4 controlled-fixture equivalence passed (2026-11-13):** the operator
+compared pre-extraction commit `cb731ea0` against the current branch with the
+same three real tracks, analyzed evidence, scoring-model snapshot and automatic
+route configuration. The track order, plan/execution signatures and program
+fingerprints matched. With the existing measured quality loop enabled on both
+branches, the final safety checks passed and decoded rendered PCM hashes
+**MATCHED**. Both branches independently rejected the unrehearsed fixture for
+the same hard 16.1 dB RMS transition-boundary defect; no safety limit was
+weakened. The archived operator evidence is identified in
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
+**Phase 4 controlled benchmark checkpoint (2026-11-13):** all 13-track
+full-planner source hashes, analysis digests, scoring-model fingerprint, track
+order, transition execution signatures, fallback count, and emergency count
+**MATCH** between baseline and refactored code. Isolated cold-graph work
+measured 19.95 s vs 20.07 s, while cold end-to-end planning measured
+518.28 s vs 530.04 s and peak RSS 3.320 GB vs 3.442 GB. These modest
+single-run deltas do not establish a statistically reliable regression or
+speedup. See the evidence and constraints in
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
+**Phase 4 refactor exit: fixture-scoped correctness and benchmark evidence
+verified.** The operator's supported Python suite, three-track rehearsed
+render PCM identity, and 13-track full-planner identity/performance checks
+support proceeding to Phase 5 frontend consolidation. **Not a release or
+music-quality approval:** 11 fallback transitions and 9 emergency transitions
+out of 12 large-crate edges remain on both branches; investigate and validate
+them with real music, rendered-audio safety, and listening in Phase 6.
+Do not declare Phase 5 complete on the strength of these Python gates.
 
 ## Phase 5 — Frontend consolidation
 
@@ -90,6 +113,15 @@ engine-state projections. Avoid using literal visual copy as a behavioral test.
 
 **Exit gate:** typecheck, build, critical Playwright flows, keyboard/mobile
 checks, upload, planning, review, audition and Live smoke tests pass.
+
+**Phase 5 audit checkpoint (2026-11-13):** the single Next.js entry page
+switches between Create (`SimpleExperience`) and Studio (`ProWorkspace`);
+both use the shared session and transport modules. The existing cascade
+imports five global stylesheets; preserve ordering and behavior until
+desktop/mobile visual and Playwright checks support scoped extraction.
+The initial ownership and test plan is recorded in
+[PHASE5_FRONTEND_AUDIT.md](PHASE5_FRONTEND_AUDIT.md). No Phase 5 component
+deletions or stylesheet migrations have been made or certified.
 
 ## Phase 6 — Release evidence and real-music quality gate
 
