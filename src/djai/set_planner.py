@@ -1635,7 +1635,7 @@ class _BeamRouteState:
 
 
 def _build_filtered_beam_route(
-    opener: int,
+    opener: int | Sequence[int],
     analyses: list[TrackAnalysis],
     graph: dict[tuple[int, int], TransitionEdge],
     *,
@@ -1652,14 +1652,20 @@ def _build_filtered_beam_route(
     stays cheap and broad, while expensive graph materialization is batched once
     per beam depth across all surviving partial routes.
     """
-    initial_state = build_set_state([analyses[opener]])
-    initial_dj = build_dj_state(
-        analyses[opener],
-        source_cursor=0.0,
-        effective_bpm=analyses[opener].bpm,
-        render_rate=1.0,
-        set_state=initial_state,
+    opener_values = (
+        [int(opener)]
+        if isinstance(opener, int)
+        else [int(value) for value in opener]
     )
+    if not opener_values:
+        return _CompleteMoveRoute(
+            order=(),
+            decisions=(),
+            score=0.0,
+            completed=False,
+            reason="no opener candidates",
+        )
+
     beam_width = max(
         2,
         min(
@@ -1668,15 +1674,25 @@ def _build_filtered_beam_route(
         ),
     )
     branch_width = max(2, min(6, int(config.search_branch_width)))
-    beam: list[_BeamRouteState] = [
-        _BeamRouteState(
-            order=(opener,),
-            plans=(),
-            decisions=(),
-            dj_state=initial_dj,
-            score_total=0.0,
+    beam: list[_BeamRouteState] = []
+    for opener_index in opener_values:
+        initial_state = build_set_state([analyses[opener_index]])
+        initial_dj = build_dj_state(
+            analyses[opener_index],
+            source_cursor=0.0,
+            effective_bpm=analyses[opener_index].bpm,
+            render_rate=1.0,
+            set_state=initial_state,
         )
-    ]
+        beam.append(
+            _BeamRouteState(
+                order=(opener_index,),
+                plans=(),
+                decisions=(),
+                dj_state=initial_dj,
+                score_total=0.0,
+            )
+        )
 
     for _step in range(1, len(analyses)):
         expanded: list[_BeamRouteState] = []
@@ -2043,9 +2059,12 @@ def build_complete_move_route(
         "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
     ).strip().lower() in {"1", "true", "yes", "on"}
     if experimental_retrieval and cfg.mode == "move_authoritative":
+        # Compare opener candidates inside one shared beam. Running a complete
+        # beam independently for each opener multiplies sparse graph work while
+        # preventing candidate-pair batching across opener hypotheses.
         routes = [
             _build_filtered_beam_route(
-                opener,
+                tuple(openers),
                 analyses,
                 graph,
                 end_index=end_index,
@@ -2055,7 +2074,6 @@ def build_complete_move_route(
                 ensure_pairs=ensure_pairs,
                 timing_intent=timing_intent,
             )
-            for opener in openers
         ]
     else:
         routes = [
