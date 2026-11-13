@@ -178,6 +178,28 @@ def capture(args: argparse.Namespace) -> int:
                     "to": track_b.title,
                     "matrix_digest": evidence_digest(matrix),
                     "matrix_pairs": len(matrix.pairs) if matrix is not None else None,
+                    "matrix_detail": (
+                        {
+                            "scoring_model_fingerprint": matrix.scoring_model_fingerprint,
+                            "exit_cues": [
+                                [v.bar_index, v.time_seconds, v.score]
+                                for v in matrix.exit_candidates
+                            ],
+                            "entry_cues": [
+                                [v.bar_index, v.time_seconds, v.score]
+                                for v in matrix.entry_candidates
+                            ],
+                            "pairs": [
+                                {
+                                    "indices": [p.exit_index, p.entry_index],
+                                    "overall": p.breakdown.overall,
+                                    "breakdown": dataclasses.asdict(p.breakdown),
+                                }
+                                for p in matrix.pairs
+                            ],
+                        }
+                        if matrix is not None else None
+                    ),
                     "styles": kwargs.get("styles"),
                     "per_style": kwargs.get("per_style"),
                     "effective_bpm_a": kwargs.get("effective_bpm_a"),
@@ -343,7 +365,26 @@ def compare(args: argparse.Namespace) -> int:
             if a != b:
                 print(f"  first selection trace mismatch at step {index + 1}:")
                 print(f"    baseline: {json.dumps(a, sort_keys=True)}")
-                print(f"    current:  {json.dumps(b, sort_keys=True)}")
+                if a and b and a.get("stage") == b.get("stage") == "candidate_pool":
+                    ma = a.get("matrix_detail") or {}
+                    mb = b.get("matrix_detail") or {}
+                    for name in ("scoring_model_fingerprint", "exit_cues", "entry_cues"):
+                        if ma.get(name) != mb.get(name):
+                            print(f"    matrix {name}: baseline={ma.get(name)!r} current={mb.get(name)!r}")
+                    for pair_index, (pa, pb) in enumerate(zip(ma.get("pairs", []), mb.get("pairs", []))):
+                        if pa != pb:
+                            print(f"    first changed evidence pair {pair_index}:")
+                            print(f"      baseline: {json.dumps(pa, sort_keys=True)}")
+                            print(f"      current:  {json.dumps(pb, sort_keys=True)}")
+                            break
+                    for field in ("candidates", "effective_bpm_a", "render_rate_a", "stems_available"):
+                        if a.get(field) != b.get(field):
+                            print(f"    {field}:")
+                            print(f"      baseline: {json.dumps(a.get(field), sort_keys=True)}")
+                            print(f"      current:  {json.dumps(b.get(field), sort_keys=True)}")
+                else:
+                    print(f"    baseline: {json.dumps(a, sort_keys=True)}")
+                    print(f"    current:  {json.dumps(b, sort_keys=True)}")
                 break
     if baseline.get("context") != current.get("context"):
         print(f"  baseline context: {baseline.get('context')!r}")
