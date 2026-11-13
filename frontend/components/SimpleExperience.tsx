@@ -20,6 +20,7 @@ import { HeroSoundtrack, type HeroSoundtrackHandle } from "./HeroSoundtrack";
 import { Icon } from "./Icon";
 import { LivePlayer } from "./LivePlayer";
 import { AppShell } from "./product/AppShell";
+import { BuildProgress } from "./intelligence/BuildProgress";
 
 const INTRO_PROGRESS_DELAY_MS = 180;
 const INTRO_PROGRESS_DURATION_MS = 6_800;
@@ -78,20 +79,6 @@ function friendlyError(message: string) {
   return { title: "SAUND could not continue.", detail: message, technical: message };
 }
 
-function jobStage(job: JobRecord | null) {
-  if (!job) return { index: 0, eyebrow: "System armed", headline: "Ready to take the room.", detail: "The Executive will prepare the performance before audio is allowed to run." };
-  const key = job.stage.toLowerCase();
-  if (key.includes("render") || key.includes("final") || key.includes("deliver") || key.includes("encode")) {
-    return { index: 3, eyebrow: "Execution preparation", headline: "Committing the performance.", detail: job.message || "Rendering the validated plan and checking the execution contract." };
-  }
-  if (key.includes("headphone") || key.includes("rehears") || key.includes("measure") || key.includes("transition")) {
-    return { index: 2, eyebrow: "Private audition", headline: "Listening before committing.", detail: job.message || "AI Headphones and the Professional Brain are judging the handoffs." };
-  }
-  if (key.includes("analy") || key.includes("stem") || key.includes("feature") || key.includes("cached")) {
-    return { index: 0, eyebrow: "Music understanding", headline: "Reading the crate.", detail: job.message || "Understanding rhythm, structure, energy and usable performance layers." };
-  }
-  return { index: 1, eyebrow: "Executive planning", headline: "Thinking ahead.", detail: job.message || "Building the route, move sequence and prepared horizon." };
-}
 
 export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -145,7 +132,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   const selectedReady = selectedPaths.length >= 2 && readySelectedCount === selectedPaths.length && failedSelectedCount === 0;
   const canStartSession = selectedPaths.length >= 2 && failedSelectedCount === 0 && !job && !uploading;
   const currentJourney = journeys.find((item) => item.value === journey) ?? journeys[0];
-  const currentJobStage = jobStage(job);
 
   const refresh = useCallback(async () => {
     try {
@@ -624,27 +610,7 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
             </div>
 
             {job && (
-              <section className="session-preparing" aria-live="polite">
-                <div className="session-preparing__copy">
-                  <span className="autonomous-kicker">{currentJobStage.eyebrow}</span>
-                  <h2>{currentJobStage.headline}</h2>
-                  <p>{currentJobStage.detail}</p>
-                </div>
-                <div className="session-preparing__progress">
-                  <div className="session-preparing__rail"><i style={{ width: `${Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%` }} /></div>
-                  <div className="session-preparing__stages">
-                    {["Understand", "Explore", "Rehearse", "Decide"].map((stage, index) => (
-                      <span key={stage} className={index < currentJobStage.index ? "is-complete" : index === currentJobStage.index ? "is-active" : ""}>
-                        <i />{stage}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="session-preparing__status">
-                  <strong>{Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%</strong>
-                  {job.cancellable && <button type="button" onClick={() => void cancelActiveJob()}>Cancel</button>}
-                </div>
-              </section>
+              <BuildProgress job={job} onCancel={() => void cancelActiveJob()} />
             )}
 
             {error && (() => {
