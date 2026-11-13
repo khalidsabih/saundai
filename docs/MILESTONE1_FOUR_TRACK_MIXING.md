@@ -265,3 +265,41 @@ Look for agreement between multiple independent windows, then validate
 the true musical beat positions against audio before modifying the
 production analysis contract. Nothing in this script modifies caches,
 training authority, renderer, or phase safety.
+
+## Experimental, fail-closed tempo reconciliation
+
+Independent audio checks indicated that the saved 117.45 BPM for Mind
+Against diverged from roughly 120 BPM onset periodicity, while Agents
+of Time also showed a discrepancy. To test the hypothesis **without
+changing default production mixing**, enable the analyzer's opt-in
+`DJAI_TEMPO_CONSISTENCY=1` switch during a new four-track run:
+
+```bash
+DJAI_TEMPO_CONSISTENCY=1 DJAI_DECISION_TRACE=1 \
+python scripts/milestone1_four_track.py \
+  "audio/uploads/AL021_-_Agents_Of_Time_-_Dream_Vision.wav" \
+  "audio/uploads/AL016_-_Tale_Of_Us_-_Nova.wav" \
+  "audio/uploads/Ben Böhmer - Beyond Beliefs (Official Visualiser).wav" \
+  "audio/uploads/AL035 - Mind Against - Walking Away.wav" \
+  --journey balanced \
+  --output-dir output/milestone1-tempo-consistency
+```
+
+This **experimental**, DJ-tempo-range-only policy changes the scalar
+global BPM only if the whole beat-grid span and three distributed,
+independently computed onset-periodicity windows agree within 0.6%,
+their normalized ACF strengths are each >=0.5, and the difference from
+the original BPM is between 0.8% and 7%. Otherwise it retains the
+original BPM. It does **not** interpolate, rewarp or alter original
+detected beat timestamps or downbeats. It does not guarantee correct
+beat alignment or a musical transition. Changed BPM propagates to
+tempo curves, derived bar durations and candidate features on the
+fresh analysis.
+
+The switch is OFF by default, and analysis caches use separate
+fingerprints for ON/OFF modes. Opt-in results do not overwrite the
+default feature-store projections. Analyze the new plan's
+`tracks[].analysis.neural_evidence.tempo_consistency` record for
+each track's decision and evidence. Do not promote this policy to
+default without audio-level and phase-lock regression validation.
+All Beat Integrity limits and emergency fallback paths remain unchanged.
