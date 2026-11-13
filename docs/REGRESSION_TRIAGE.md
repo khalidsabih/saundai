@@ -101,6 +101,29 @@ intro. Track emergency count, fallback count, same-track order constraints,
 end-of-set energy, score and listening evidence; never skip an edge
 without validation or relax hard safety thresholds.
 
+## Phase 4 full-suite and API-router checkpoint (2026-11-13)
+
+The operator confirmed `python -m pytest -q --tb=short` green on the
+`phase-13-15-time-live-venue-hardening` branch after extracting the sequence
+compiler tail and registering the HTTP API through feature routers. Earlier
+full-suite failures during this migration were resolved without relaxing
+hard-audio-safety checks:
+
+- Large-crate opener test: the extracted order optimizer bypassed patched
+  `set_planner` policy callbacks. The original policy, unified search and
+  local-refinement hooks are now injected at the compatibility boundary.
+- Engineering integrity contract: a test pinned literal `@app` decorators
+  in `api.py`; it now checks the actual FastAPI route table and handler.
+- Job progress contract: a test sliced handler source using the relocated
+  decorators; it now checks route identity and inspects the actual automatic
+  set handler's backend-driven stage reporting.
+
+The operator's final run was reported as passing; known deprecation and audio
+fixture warnings, plus a skip, remain non-failing. No fixed-fixture
+before/after signature/render comparison or comparable Phase 4 performance
+benchmark has been supplied, so these remain open evidence requirements,
+not certified results.
+
 ## Full-suite failures requiring separate review
 
 | Area | Tests / observations from old log | Current disposition |
