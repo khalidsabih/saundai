@@ -39,4 +39,5 @@ jobs:
             tests/test_decision_trace.py \
             tests/test_rejected_beat_grid_diagnostics.py \
             tests/test_phase_drift_decomposition.py \
+            tests/test_independent_overlap_audio_tempo.py \
             tests/test_phase_lock_trace_summary.py
