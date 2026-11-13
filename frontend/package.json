@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
+    "test:jobs": "node scripts/test-job-lifecycle.mjs",
     "e2e": "playwright test",
     "prebuild": "node scripts/write-build-info.mjs"
   },
