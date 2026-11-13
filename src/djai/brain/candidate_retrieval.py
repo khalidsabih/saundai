@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from ..compatibility import genre_compatibility, harmonic_compatibility, tempo_compatibility
+from .crate_topk import crate_aware_topk_enabled
 from ..intelligence.embeddings import embedding_similarity
 from ..intelligence.neural_policy import experimental_next_track_prediction, next_track_prediction
 from ..models import TrackAnalysis
@@ -243,10 +244,23 @@ def retrieve_candidate_tracks(
         learned = (
             experimental_next_track_prediction(current, analyses[index], set_state=set_state)
             if cfg.experimental_learned_filter
+            else next_track_prediction(current, analyses[index], set_state=set_state)
+            if crate_aware_topk_enabled()
             else None
         )
-        if learned is not None and learned.available:
-            learned_weight = cfg.learned_weight
+        # Research-only checkpoints are permitted in opt-in retrieval
+        # experiments; normal planning uses only authority-granted models.
+        learned_usable = bool(
+            learned is not None
+            and learned.available
+            and (cfg.experimental_learned_filter or learned.authority > 0.0)
+        )
+        if learned_usable:
+            learned_weight = (
+                cfg.learned_weight
+                if cfg.experimental_learned_filter
+                else min(cfg.learned_weight, float(learned.authority))
+            )
             score = _clamp(
                 (1.0 - learned_weight) * deterministic_score
                 + learned_weight * float(learned.score)
@@ -258,7 +272,7 @@ def retrieve_candidate_tracks(
                 "learned_confidence": float(learned.confidence),
                 "learned_weight": learned_weight,
             }
-            reason = "learned next-track filter + deterministic musical guard"
+            reason = "authority-validated next-track model + deterministic musical guard" if not cfg.experimental_learned_filter else "experimental learned next-track filter + deterministic musical guard"
         else:
             score = deterministic_score
             components = {
@@ -269,8 +283,10 @@ def retrieve_candidate_tracks(
                 "learned_weight": 0.0,
             }
             reason = (
-                "deterministic retrieval; learned next-track filter unavailable"
+                "deterministic retrieval; experimental checkpoint unavailable"
                 if cfg.experimental_learned_filter
+                else "deterministic retrieval; no authoritative next-track checkpoint"
+                if crate_aware_topk_enabled()
                 else "deterministic retrieval; learned next-track filter disabled"
             )
 
