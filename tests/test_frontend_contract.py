@@ -134,7 +134,7 @@ def test_create_allows_guest_setup_but_gates_build_on_account() -> None:
     assert 'className={`session-dropzone ${dragging ? "is-dragging" : ""}`}' in crate
     assert 'if (!account)' in simple
     assert 'setAccountDialogReason("build")' in simple
-    assert '"Build my set"' in intent
+    assert "Build my set" in intent
     assert 'Log in to start.' in account_dialog
     assert 'Your tracks and direction stay exactly as they are.' in account_dialog
     assert 'getAuthSession' in session
@@ -169,7 +169,7 @@ def test_frontend_exposes_real_autonomous_dj_performance_state() -> None:
     assert "Tempo handoff" in inspector
     assert "Musical ownership" in inspector
     assert "tempo_release" in live
-    assert "DECK B" in live
+    assert "Deck B owns tempo" in live
     assert "WHAT SAUND KNOWS" in lab
     assert "WHAT SAUND IS LEARNING" in lab
     assert "WHAT CAN AFFECT LIVE" in lab
@@ -278,5 +278,5 @@ def test_release_candidate_status_is_visible_but_non_blocking_in_studio() -> Non
     assert 'release.authority.planner_mode === "move_authoritative"' in studio
     assert "Executive route" in studio
     assert "Shadow route" in studio
-    assert '"/api/release/readiness"' in api
+    assert '"/api/release/status"' in api
     assert "ReleaseReadiness" in types
