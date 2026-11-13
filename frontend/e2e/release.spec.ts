@@ -270,7 +270,7 @@ test("live performance makes NOW, NEXT, FUTURE and the Executive the product sur
   await page.getByRole("button", { name: /Perform Live/ }).click();
 
   await expect(page.getByText(/NOW ·/).first()).toBeVisible();
-  await expect(page.getByText("NEXT", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Next and future horizon" }).getByText("NEXT", { exact: true })).toBeVisible();
   await expect(page.getByText("FUTURE", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("EXECUTIVE", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Afterglow", { exact: true }).first()).toBeVisible();
