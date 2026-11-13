@@ -1,3 +1,6 @@
+import ast
+import inspect
+
 import numpy as np
 
 from djai.music.tempo_consistency import _acf_tempo, reconcile_bpm
@@ -56,3 +59,13 @@ def test_retains_when_grid_matches_global():
 
 def test_acf_flat_has_no_candidate():
     assert _acf_tempo(np.zeros(2000), frames_per_second=43.0, low=105, high=140) is None
+
+
+def test_analyze_track_does_not_shadow_os_after_tempo_gate():
+    from djai.analysis import analyze_track
+    body = ast.parse(inspect.getsource(analyze_track)).body[0]
+    assert all(
+        not (isinstance(node, ast.Import) and any(alias.name == "os" for alias in node.names))
+        and not (isinstance(node, ast.ImportFrom) and node.module == "os")
+        for node in ast.walk(body)
+    )
