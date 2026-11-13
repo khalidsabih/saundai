@@ -4311,6 +4311,23 @@ def make_set_plan(
                 "graph_mode": session.graph_mode,
                 "graph_pair_count": session.graph_pair_count,
                 "graph_scout_cues": session.graph_scout_cues,
+                "graph_build_calls": session.graph_build_calls,
+                "graph_cache_hits": session.graph_cache_hits,
+                "graph_cache_misses": session.graph_cache_misses,
+                "graph_cache_hit_rate": round(
+                    session.graph_cache_hits
+                    / max(1, session.graph_cache_hits + session.graph_cache_misses),
+                    6,
+                ),
+                "effective_sparse_attempts": len(complete_move_runs),
+                "best_sparse_partial_tracks": max(
+                    (len(item.order) for item in complete_move_runs),
+                    default=0,
+                ),
+                "completed_sparse_attempts": sum(
+                    1 for item in complete_move_runs if item.completed
+                ),
+                "broad_graph_materialized": broad_graph_materialized,
                 "policy_start_limit": (
                     _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8)
                     if len(analyses) >= _large_set_threshold()
