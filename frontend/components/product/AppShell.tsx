@@ -70,7 +70,6 @@ export function AppShell({
         </nav>
 
         <div className="product-shell__footer">
-          <div className="product-shell__health"><i /> Engine ready</div>
           <button type="button" className="product-shell__account" onClick={onAccount}>
             {accountLabel}
           </button>
