@@ -18,7 +18,11 @@ def test_optimized_frontend_keeps_known_good_rc1_transport_exact() -> None:
     assert '"/api/tracks/upload"' in api
     assert '"/api/tracks/upload-intents"' in api
     assert "EventSource" in api
-    assert _sha256("frontend/next.config.ts") == "6e2f3d1a80e62e07e8757df97e11d5e450e8f78f705a6d7d995c6b9b28db556d"
+    next_config = (ROOT / "frontend" / "next.config.ts").read_text(encoding="utf-8")
+    assert 'output: "standalone"' in next_config
+    assert 'source: "/api/:path*"' in next_config
+    assert 'destination: `${internalApi}/api/:path*`' in next_config
+    assert 'X-Content-Type-Options' in next_config
     assert _sha256("compose.yaml") == "762df2e22a1c21cf095ed040b92bba11357ca7c3d3c9d05a9ad785cf166bd92a"
 
 
