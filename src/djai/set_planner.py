@@ -664,13 +664,15 @@ def build_transition_graph(
 ) -> dict[tuple[int, int], TransitionEdge]:
     """Build native-state directional edges, optionally for a sparse pair set.
 
-    1.7.1 uses ``pair_indices`` to materialize only the edges reached by lazy
-    candidate retrieval. Omitting it preserves the historical all-pairs graph.
+    Cached pair evidence is resolved in the parent process before worker
+    selection. Only true cache misses are submitted to graph workers, and
+    worker results are persisted back into the same pair cache.
     """
     if len(analyses) < 2:
         raise ValueError("A set needs at least two tracks.")
 
     active_session = session if session is not None else PlanningSession()
+    active_session.graph_build_calls += 1
     stem_maps = {index: find_cached_stems(track.path) for index, track in enumerate(analyses)}
     if pair_indices is None:
         pairs = [
@@ -691,57 +693,89 @@ def build_transition_graph(
     total = len(tasks)
     if total == 0:
         return {}
+
     scout_cues = _graph_scout_cue_limit(len(analyses))
-    selection = resolve_worker_selection("graph", total, requested=workers)
-    active_session.graph_workers = selection.workers
     active_session.graph_mode = "lazy" if pair_indices is not None else ("scout" if scout_cues else "full")
     active_session.graph_scout_cues = scout_cues
     started = time.perf_counter()
     results: dict[tuple[int, int], _GraphPairResult] = {}
+    cache_keys: dict[tuple[int, int], str] = {}
+    missing_tasks: list[_GraphPairTask] = []
+    model_fingerprint = scoring_model_fingerprint(active_session.scoring_model)
 
-    if not selection.parallel:
-        for completed, task in enumerate(tasks, start=1):
+    # Cache lookup is intentionally outside the serial/parallel split. Previous
+    # behavior bypassed the cache entirely when a process pool was used.
+    for task in tasks:
+        track_a = analyses[task.from_index]
+        track_b = analyses[task.to_index]
+        key = (task.from_index, task.to_index)
+        cache_key = _graph_pair_cache_key(
+            track_a,
+            track_b,
+            tempo_policy=tempo_policy,
+            preferred_style=preferred_style,
+            journey=journey,
+            scout_cues=scout_cues,
+            model_fingerprint=model_fingerprint,
+        )
+        cache_keys[key] = cache_key
+        result = _load_graph_pair_cache(
+            cache_key,
+            from_index=task.from_index,
+            to_index=task.to_index,
+            track_a=track_a,
+            track_b=track_b,
+        )
+        if result is None:
+            missing_tasks.append(task)
+            active_session.graph_cache_misses += 1
+        else:
+            results[key] = result
+            active_session.graph_cache_hits += 1
+
+    completed = len(results)
+    if progress and completed:
+        progress(
+            "graph",
+            completed,
+            total,
+            f"{completed}/{total} transition pairs restored from cache",
+        )
+
+    selection = resolve_worker_selection("graph", len(missing_tasks), requested=workers)
+    active_session.graph_workers = max(active_session.graph_workers, selection.workers)
+
+    if missing_tasks and not selection.parallel:
+        for task in missing_tasks:
             track_a = analyses[task.from_index]
             track_b = analyses[task.to_index]
             if progress:
-                progress("graph", completed - 1, total, f"{track_a.title} -> {track_b.title}")
-            cache_key = _graph_pair_cache_key(
-                track_a,
-                track_b,
+                progress("graph", completed, total, f"{track_a.title} -> {track_b.title}")
+            result = _plan_graph_pair_core(
+                task,
+                analyses=analyses,
                 tempo_policy=tempo_policy,
                 preferred_style=preferred_style,
                 journey=journey,
-                scout_cues=scout_cues,
-                model_fingerprint=scoring_model_fingerprint(active_session.scoring_model),
+                stem_maps=stem_maps,
+                scoring_model=active_session.scoring_model,
             )
-            result = _load_graph_pair_cache(
-                cache_key,
-                from_index=task.from_index,
-                to_index=task.to_index,
-                track_a=track_a,
-                track_b=track_b,
-            )
-            cache_hit = result is not None
-            if result is None:
-                result = _plan_graph_pair_core(
-                    task,
-                    analyses=analyses,
-                    tempo_policy=tempo_policy,
-                    preferred_style=preferred_style,
-                    journey=journey,
-                    stem_maps=stem_maps,
-                    scoring_model=active_session.scoring_model,
-                )
-                _store_graph_pair_cache(cache_key, result)
-            results[(result.from_index, result.to_index)] = result
+            key = (result.from_index, result.to_index)
+            results[key] = result
+            _store_graph_pair_cache(cache_keys[key], result)
+            completed += 1
             if progress:
-                detail = f"{result.label} · cached" if cache_hit else result.label
-                progress("graph", completed, total, detail)
-    else:
+                progress("graph", completed, total, result.label)
+    elif missing_tasks:
         prepare_process_environment()
         if progress:
             mode = f"scout {scout_cues}x{scout_cues}" if scout_cues else "full cue graph"
-            progress("graph", 0, total, f"{selection.workers} graph workers · {mode}")
+            progress(
+                "graph",
+                completed,
+                total,
+                f"{selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
+            )
         with ProcessPoolExecutor(
             max_workers=selection.workers,
             mp_context=process_context(),
@@ -755,12 +789,16 @@ def build_transition_graph(
                 active_session.scoring_model,
             ),
         ) as executor:
-            future_map = {executor.submit(_plan_graph_pair_worker, task): task for task in tasks}
-            completed = 0
+            future_map = {
+                executor.submit(_plan_graph_pair_worker, task): task
+                for task in missing_tasks
+            }
             try:
                 for future in as_completed(future_map):
                     result = future.result()
-                    results[(result.from_index, result.to_index)] = result
+                    key = (result.from_index, result.to_index)
+                    results[key] = result
+                    _store_graph_pair_cache(cache_keys[key], result)
                     completed += 1
                     if progress:
                         progress("graph", completed, total, result.label)
