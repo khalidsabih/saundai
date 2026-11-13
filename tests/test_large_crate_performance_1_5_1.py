@@ -252,3 +252,45 @@ def test_unauthorized_model_does_not_change_retrieval_ranking(tmp_path: Path, mo
     assert learned.selected == deterministic.selected
     assert all(row.components["learned_weight"] == 0.0 for row in learned.ranked)
 
+
+
+def test_authorized_model_can_reorder_small_route_shortlist(tmp_path: Path, monkeypatch) -> None:
+    from djai.brain import candidate_retrieval
+    from djai.brain.set_state import SetState
+
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "1")
+    tracks = []
+    for i in range(4):
+        p = tmp_path / f"model-{i}.wav"
+        p.write_bytes(b"x")
+        tracks.append(analysis(p, bpm=124.0, energy=0.5))
+
+    class Prediction:
+        available = True
+        authority = 0.8
+        confidence = 0.9
+
+        def __init__(self, score):
+            self.score = score
+
+    def predict(a, b, *, set_state=None):
+        return Prediction(1.0 if b is tracks[3] else 0.0)
+
+    monkeypatch.setattr(candidate_retrieval, "next_track_prediction", predict)
+    monkeypatch.setattr(
+        candidate_retrieval, "_cheap_score",
+        lambda *args, **kwargs: (0.5, {
+            "tempo": 0.5, "harmonic": 0.5, "energy_bridge": 0.5,
+            "embedding": 0.5, "genre": 0.5, "set_context": 0.5,
+        }),
+    )
+    monkeypatch.setattr(
+        candidate_retrieval, "_future_survivability_score",
+        lambda *args: (0.5, {"future_option_count": 2.0}),
+    )
+    result = candidate_retrieval.retrieve_candidate_tracks(
+        current_index=0, candidate_indices=[1, 2, 3], analyses=tracks,
+        set_state=SetState(), journey="balanced", progress=0.5, width=2,
+    )
+    assert result.selected[0] == 3
+    assert result.ranked[0].components["learned_weight"] > 0.0
