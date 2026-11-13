@@ -1857,6 +1857,68 @@ def _large_crate_complete_move_config(
     )
 
 
+def _route_search_signature(
+    config: CompleteMoveConfig,
+    track_count: int,
+) -> tuple[int, ...]:
+    effective = _large_crate_complete_move_config(config, track_count)
+    return (
+        int(effective.lookahead_moves),
+        int(effective.search_branch_width),
+        int(effective.lazy_candidate_width),
+        int(effective.lazy_expansion_width),
+        int(effective.opener_candidates),
+        int(effective.candidates_per_track),
+    )
+
+
+def _progressive_sparse_configs(
+    config: CompleteMoveConfig,
+    track_count: int,
+    *,
+    experimental_retrieval: bool,
+) -> tuple[CompleteMoveConfig, ...]:
+    """Return only widening configs that materially change effective search.
+
+    Large-crate caps can make nominal tiers equivalent. Re-running an
+    equivalent tier repeats expensive sparse graph work without increasing
+    route coverage.
+    """
+    requested_tiers = (
+        ((8, 3, 3), (10, 4, 3), (12, 4, 4))
+        if experimental_retrieval
+        else ((8, 4, 3),)
+    )
+    seen_signatures = {_route_search_signature(config, track_count)}
+    result: list[CompleteMoveConfig] = []
+    for candidate_width, opener_count, branch_width in requested_tiers:
+        candidate_cfg = replace(
+            config,
+            opener_candidates=min(
+                track_count,
+                max(config.opener_candidates, opener_count),
+            ),
+            search_branch_width=min(
+                candidate_width,
+                max(config.search_branch_width, branch_width),
+            ),
+            lazy_candidate_width=min(
+                max(1, track_count - 1),
+                max(config.lazy_candidate_width, candidate_width),
+            ),
+            lazy_expansion_width=min(
+                max(2, candidate_width),
+                max(config.lazy_expansion_width, 4),
+            ),
+        )
+        signature = _route_search_signature(candidate_cfg, track_count)
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        result.append(candidate_cfg)
+    return tuple(result)
+
+
 def build_complete_move_route(
     analyses: list[TrackAnalysis],
     graph: dict[tuple[int, int], TransitionEdge],
@@ -3614,51 +3676,11 @@ def make_set_plan(
                 experimental_retrieval = os.environ.get(
                     "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
                 ).strip().lower() in {"1", "true", "yes", "on"}
-                requested_tiers = (
-                    ((8, 3, 3), (10, 4, 3), (12, 4, 4))
-                    if experimental_retrieval
-                    else ((8, 4, 3),)
+                expansion_tiers = _progressive_sparse_configs(
+                    complete_move_cfg,
+                    len(analyses),
+                    experimental_retrieval=experimental_retrieval,
                 )
-
-                def _route_search_signature(value: CompleteMoveConfig) -> tuple[int, ...]:
-                    effective = _large_crate_complete_move_config(value, len(analyses))
-                    return (
-                        int(effective.lookahead_moves),
-                        int(effective.search_branch_width),
-                        int(effective.lazy_candidate_width),
-                        int(effective.lazy_expansion_width),
-                        int(effective.opener_candidates),
-                        int(effective.candidates_per_track),
-                    )
-
-                expansion_tiers: list[CompleteMoveConfig] = []
-                seen_signatures = {_route_search_signature(complete_move_cfg)}
-                for candidate_width, opener_count, branch_width in requested_tiers:
-                    candidate_cfg = replace(
-                        complete_move_cfg,
-                        opener_candidates=min(
-                            len(analyses),
-                            max(complete_move_cfg.opener_candidates, opener_count),
-                        ),
-                        search_branch_width=min(
-                            candidate_width,
-                            max(complete_move_cfg.search_branch_width, branch_width),
-                        ),
-                        lazy_candidate_width=min(
-                            max(1, len(analyses) - 1),
-                            max(complete_move_cfg.lazy_candidate_width, candidate_width),
-                        ),
-                        lazy_expansion_width=min(
-                            max(2, candidate_width),
-                            max(complete_move_cfg.lazy_expansion_width, 4),
-                        ),
-                    )
-                    signature = _route_search_signature(candidate_cfg)
-                    if signature in seen_signatures:
-                        continue
-                    seen_signatures.add(signature)
-                    expansion_tiers.append(candidate_cfg)
-
                 total_tiers = len(expansion_tiers)
                 for tier_index, expanded_cfg in enumerate(expansion_tiers, start=1):
                     if progress:
