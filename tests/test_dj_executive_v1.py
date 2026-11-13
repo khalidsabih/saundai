@@ -59,7 +59,7 @@ def test_dj_executive_observes_authoritative_plan_without_taking_authority(tmp_p
     assert report["decision_count"] == len(plan.transitions)
     assert report["lifecycle"] == [
         "observe", "propose", "assess_brittleness", "allocate_thinking",
-        "search", "audition", "prepare", "validate", "commit"
+        "search", "audition", "prepare", "prepare_backup", "validate", "commit"
     ]
     assert report["utilization"]["final_order"] == plan.order
     assert report["utilization"]["complete_move_decisions_correlated"] == len(plan.transitions)
