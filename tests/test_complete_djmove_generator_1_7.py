@@ -12,6 +12,7 @@ from djai.brain.move_generator import (
     generate_complete_moves,
 )
 from djai.brain.set_state import build_set_state
+from djai.planning_context import PlanningSession
 from djai.set_planner import (
     _progressive_sparse_configs,
     _route_search_signature,
@@ -213,3 +214,28 @@ def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers() -> Non
     assert len(signatures) == len(set(signatures))
     assert len(configs) == 1
     assert _route_search_signature(configs[0], 30)[2] == 12
+
+
+def test_parallel_graph_build_reuses_pair_cache_on_repeat(tmp_path: Path, monkeypatch) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_CACHE_DIR", str(tmp_path / "cache"))
+
+    first_session = PlanningSession(scoring_model=None)
+    first = build_transition_graph(
+        tracks,
+        workers=2,
+        session=first_session,
+    )
+    assert len(first) == 12
+    assert first_session.graph_cache_misses == 12
+
+    second_session = PlanningSession(scoring_model=None)
+    second = build_transition_graph(
+        tracks,
+        workers=2,
+        session=second_session,
+    )
+    assert len(second) == 12
+    assert second_session.graph_cache_hits == 12
+    assert second_session.graph_cache_misses == 0
+    assert second_session.graph_build_calls == 1
