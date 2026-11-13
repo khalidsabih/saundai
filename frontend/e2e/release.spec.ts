@@ -120,8 +120,8 @@ test("guest can shape a set and is asked to log in only when building", async ({
 
   await page.goto("/");
   await completeIntro(page);
-  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
 
@@ -166,8 +166,8 @@ test("Create turns selected music into a finished set", async ({ page }) => {
   await expect(page.getByText("Autonomous DJ system")).toBeVisible();
   await completeIntro(page);
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
 
@@ -264,8 +264,8 @@ test("live performance makes NOW, NEXT, FUTURE and the Executive the product sur
 
   await page.goto("/");
   await completeIntro(page);
-  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
   await page.getByRole("button", { name: /Perform Live/ }).click();
 
@@ -308,8 +308,8 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   await page.goto("/");
   await completeIntro(page);
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: "Brain", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: /Complex underneath/ })).toBeVisible();
@@ -322,8 +322,8 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
 
   await page.getByRole("button", { name: "Perform", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Aurora\.wav/, pressed: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Afterglow\.wav/, pressed: true })).toBeVisible();
+  await expect(page.getByRole("listitem", { name: /Aurora\.wav/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("listitem", { name: /Afterglow\.wav/ })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("Studio is the Human × Executive intelligence workbench", async ({ page }) => {
@@ -351,12 +351,21 @@ test("API failure becomes an actionable visible error", async ({ page }) => {
   await page.goto("/");
   await completeIntro(page);
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("Engine unavailable");
+  await expect(page.getByRole("region", { name: "Create an autonomous DJ set" }).getByRole("alert")).toContainText("Engine unavailable");
   await expect(page.getByRole("button", { name: "Dismiss error" })).toBeVisible();
 });
 
 test("Training Lab collects blind preferences without exposing candidate metadata", async ({ page }) => {
   await mockLibrary(page);
+  // TrainingLab refreshes library, training status, dataset builder and brain
+  // together. Mock all four to keep the browser contract test independent of
+  // a running API or slow network proxy.
+  await page.route("**/api/dataset-builder/status", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
+  await page.route("**/api/brain/status", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
   const labStatus = {
     schema_version: "1.0",
     track_count: 3,
