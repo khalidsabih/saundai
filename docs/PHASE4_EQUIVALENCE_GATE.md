@@ -171,3 +171,33 @@ passing the original render safety checks. Keep the broader planner
 latency/resource benchmark and Phase 6 musical-quality release gate open.
 Review which rehearsed candidate was selected and ensure larger real-music
 crates meet the same safety expectations before any production-quality claim.
+
+## 13-track analysis and cached-graph benchmark (November 13, 2026)
+
+Operator fixture: exactly 13 supported files in `audio/uploads`, 156 directed
+edges, scout graph with 5 cues and 3,900 selected cue-pair observations out
+of 20,736 possible pairs. All four serial/parallel signature comparisons passed,
+and both branches used scoring-model fingerprint `d98eaf8cd7af928d`.
+
+| Run | Baseline analysis (s) | Current analysis (s) | Baseline graph (s) | Current graph (s) |
+| --- | ---: | ---: | ---: | ---: |
+| Nominal cold analysis | 182.114 | 183.427 | 1.217 | 1.202 |
+| Warm analysis | 0.334 | 0.358 | 1.119 | 1.145 |
+
+Reports are `output/phase4-evidence/benchmark-{baseline,current}-{cold,warm}.json`
+on the operator's machine. Both cold-analysis runs have 0/13 analysis-cache
+hits; both warm runs have 13/13 analysis-cache hits. **All four graph runs
+had 156/156 graph-pair cache hits**. As such, the benchmark demonstrates
+comparable analysis performance and warm graph retrieval, but **not**
+uncached graph computation. These are single-run observations, not a rigorous
+statistical speedup claim. The serial/parallel comparison uses 1 graph worker
+on both paths and therefore tests determinism rather than parallel scaling.
+
+After this measurement, `scripts/benchmark.py` was updated to point
+`DJAI_CACHE_DIR` at the benchmark-controlled graph cache root, so a
+nominally cold run cannot accidentally reuse a worktree's preexisting
+graph-pair cache. The operator must repeat at least the cold graph
+measurements with the updated script. Expected cold evidence has 0/156
+graph-pair cache hits (for the first graph build) and 156/156 on the warm
+run. Before calling Phase 4 finished, review those timings and any
+larger-crate end-to-end planner timing/resource regressions separately.
