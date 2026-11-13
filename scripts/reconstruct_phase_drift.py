@@ -13,6 +13,13 @@ import json
 import math
 from pathlib import Path
 from typing import Any
+import sys
+
+# Support direct invocation: python scripts/reconstruct_phase_drift.py
+ROOT = Path(__file__).resolve().parents[1]
+for location in (ROOT, ROOT / "src"):
+    if str(location) not in sys.path:
+        sys.path.insert(0, str(location))
 
 from scripts.diagnose_rejected_beat_grids import full_beat_cache
 from djai.performance.deck import _continuous_beat_position, _unwrapped_beat_numbers
