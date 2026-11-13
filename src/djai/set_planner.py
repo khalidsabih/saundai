@@ -2015,8 +2015,8 @@ def _progressive_sparse_configs(
                 max(config.lazy_candidate_width, candidate_width),
             ),
             lazy_expansion_width=min(
-                max(2, candidate_width),
-                max(config.lazy_expansion_width, 4),
+                max(2, track_count - 1),
+                max(config.lazy_expansion_width, candidate_width),
             ),
         )
         signature = _route_search_signature(
