@@ -114,6 +114,9 @@ class PlanningSession:
     graph_mode: str = "full"
     graph_pair_count: int = 0
     graph_scout_cues: int = 0
+    graph_build_calls: int = 0
+    graph_cache_hits: int = 0
+    graph_cache_misses: int = 0
 
     def store(self, key: tuple[int, int], matrix: PairEvidenceMatrix) -> None:
         previous = self.pair_evidence.get(key)
@@ -135,6 +138,13 @@ class PlanningSession:
             "graph_mode": self.graph_mode,
             "graph_pair_count": self.graph_pair_count,
             "graph_scout_cues": self.graph_scout_cues,
+            "graph_build_calls": self.graph_build_calls,
+            "graph_cache_hits": self.graph_cache_hits,
+            "graph_cache_misses": self.graph_cache_misses,
+            "graph_cache_hit_rate": round(
+                self.graph_cache_hits / max(1, self.graph_cache_hits + self.graph_cache_misses),
+                6,
+            ),
             "scoring_model_fingerprint": scoring_model_fingerprint(self.scoring_model),
         }
 
