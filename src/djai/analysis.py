@@ -1833,7 +1833,6 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     # DJAI 3.1 musical representation. The default auto backend uses a local
     # pretrained MERT model when installed/cached, otherwise the deterministic
     # statistical representation. Set DJAI_EMBEDDINGS_ENABLED=0 to disable.
-    import os
     if os.environ.get("DJAI_EMBEDDINGS_ENABLED", "1").strip().lower() not in {"0", "false", "off", "no"}:
         from .intelligence.embeddings import embed_track_array, section_embeddings_from_array
         try:
