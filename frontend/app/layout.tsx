@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import "./design-tokens.css";
 import "./autonomous.css";
 import "./studio-intelligence.css";
+import "./product-system.css";
 
 export const metadata: Metadata = {
   title: "SAUND.AI — The autonomous DJ.",

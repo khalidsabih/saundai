@@ -40,6 +40,9 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
     unified = dict(metadata.get("unified_transition_intelligence", {}) or {})
     timing = dict(metadata.get("timing", {}) or {})
     timing_state = dict(timing.get("state", {}) or {})
+    large_crate = dict(metadata.get("large_crate_planning", {}) or {})
+    performance = dict(metadata.get("performance", {}) or {})
+    planning_performance = dict(performance.get("planning", {}) or {})
 
     hard_failures: list[dict[str, Any]] = []
     measured_scores: list[float] = []
@@ -117,6 +120,8 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
             if isinstance(full_set_benchmark, dict)
             else None
         ),
+        "large_crate_planning": large_crate,
+        "planning_performance": planning_performance,
         "planning_ready": planning_ready,
     }
 
@@ -207,6 +212,11 @@ def validate_real_music_library(
                 "warnings": [],
                 "error_type": type(exc).__name__,
                 "error": str(exc),
+                "planner_diagnostics": (
+                    dict(getattr(exc, "diagnostics"))
+                    if isinstance(getattr(exc, "diagnostics", None), dict)
+                    else None
+                ),
             }
             (run_dir / "failure.json").write_text(
                 json.dumps(failure, indent=2, sort_keys=True) + "\n",

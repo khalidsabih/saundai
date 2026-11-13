@@ -7,11 +7,12 @@ from typing import Any, Sequence
 
 from ..compatibility import genre_compatibility, harmonic_compatibility, tempo_compatibility
 from ..intelligence.embeddings import embedding_similarity
+from ..intelligence.neural_policy import experimental_next_track_prediction, next_track_prediction
 from ..models import TrackAnalysis
 from .crowd_state import CrowdDirective, crowd_alignment_adjustment
 from .set_state import SetState, next_track_context_score, track_state_vector
 
-RETRIEVAL_VERSION = "1.7.1"
+RETRIEVAL_VERSION = "1.8.1"
 
 
 def _clamp(value: float) -> float:
@@ -25,18 +26,36 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateRetrievalConfig:
-    width: int = 10
-    expansion_width: int = 10
+    width: int = 6
+    expansion_width: int = 4
     minimum_diverse: int = 2
+    learned_weight: float = 0.68
+    experimental_learned_filter: bool = False
 
     @classmethod
     def from_environment(cls) -> "CandidateRetrievalConfig":
         return cls(
-            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 10))),
-            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 10))),
+            width=max(3, min(32, _int_env("DJAI_LAZY_CANDIDATE_WIDTH", 6))),
+            expansion_width=max(2, min(32, _int_env("DJAI_LAZY_EXPANSION_WIDTH", 4))),
             minimum_diverse=max(1, min(6, _int_env("DJAI_LAZY_MIN_DIVERSE", 2))),
+            learned_weight=max(0.0, min(0.85, _float_env("DJAI_NEURAL_RETRIEVAL_WEIGHT", 0.68))),
+            experimental_learned_filter=_bool_env("DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", False),
         )
 
 
@@ -87,6 +106,60 @@ def _embedding_score(current: TrackAnalysis, candidate: TrackAnalysis) -> float:
     if not current.music_embedding or not candidate.music_embedding:
         return 0.5
     return _clamp(embedding_similarity(current.music_embedding, candidate.music_embedding))
+
+
+def _pair_continuity_score(current: TrackAnalysis, candidate: TrackAnalysis) -> float:
+    """Cheap static pair plausibility for route survivability."""
+    tempo, _ = tempo_compatibility(current.bpm, candidate.bpm)
+    harmonic = harmonic_compatibility(current.key, candidate.key)
+    energy = _energy_bridge_score(current, candidate)
+    embedding = _embedding_score(current, candidate)
+    genre = genre_compatibility(current, candidate)
+    return _clamp(
+        0.28 * tempo
+        + 0.20 * harmonic
+        + 0.18 * energy
+        + 0.18 * embedding
+        + 0.16 * genre
+    )
+
+
+def _future_survivability_score(
+    candidate_index: int,
+    available_indices: Sequence[int],
+    analyses: Sequence[TrackAnalysis],
+) -> tuple[float, dict[str, float]]:
+    """Estimate whether a candidate leaves several plausible cheap exits.
+
+    This never replaces exact cue, rehearsal, or safety evaluation. It is only
+    a pre-graph structural guard against sparse-route dead ends.
+    """
+    onward = [index for index in available_indices if index != candidate_index]
+    if not onward:
+        return 1.0, {
+            "future_best": 1.0,
+            "future_second": 1.0,
+            "future_coverage": 1.0,
+            "future_option_count": 0.0,
+        }
+
+    scores = sorted(
+        (
+            _pair_continuity_score(analyses[candidate_index], analyses[index])
+            for index in onward
+        ),
+        reverse=True,
+    )
+    best = scores[0]
+    second = scores[1] if len(scores) > 1 else best
+    coverage = sum(1 for score in scores if score >= 0.45) / len(scores)
+    survivability = _clamp(0.46 * best + 0.34 * second + 0.20 * coverage)
+    return survivability, {
+        "future_best": best,
+        "future_second": second,
+        "future_coverage": coverage,
+        "future_option_count": float(len(scores)),
+    }
 
 
 def _cheap_score(
@@ -159,7 +232,7 @@ def retrieve_candidate_tracks(
     current = analyses[current_index]
     ranked: list[RetrievedTrack] = []
     for index in available:
-        score, components = _cheap_score(
+        deterministic_score, components = _cheap_score(
             current,
             analyses[index],
             set_state=set_state,
@@ -167,12 +240,59 @@ def retrieve_candidate_tracks(
             progress=progress,
             crowd_directive=crowd_directive,
         )
+        learned = (
+            experimental_next_track_prediction(current, analyses[index], set_state=set_state)
+            if cfg.experimental_learned_filter
+            else None
+        )
+        if learned is not None and learned.available:
+            learned_weight = cfg.learned_weight
+            score = _clamp(
+                (1.0 - learned_weight) * deterministic_score
+                + learned_weight * float(learned.score)
+            )
+            components = {
+                **components,
+                "deterministic_retrieval": deterministic_score,
+                "learned_retrieval": float(learned.score),
+                "learned_confidence": float(learned.confidence),
+                "learned_weight": learned_weight,
+            }
+            reason = "learned next-track filter + deterministic musical guard"
+        else:
+            score = deterministic_score
+            components = {
+                **components,
+                "deterministic_retrieval": deterministic_score,
+                "learned_retrieval": 0.5,
+                "learned_confidence": 0.0,
+                "learned_weight": 0.0,
+            }
+            reason = (
+                "deterministic retrieval; learned next-track filter unavailable"
+                if cfg.experimental_learned_filter
+                else "deterministic retrieval; learned next-track filter disabled"
+            )
+
+        survivability, survivability_components = _future_survivability_score(
+            index,
+            available,
+            analyses,
+        )
+        survivability_adjustment = 0.16 * (survivability - 0.5)
+        score = _clamp(score + survivability_adjustment)
+        components = {
+            **components,
+            "future_survivability": survivability,
+            "future_survivability_adjustment": survivability_adjustment,
+            **survivability_components,
+        }
         ranked.append(
             RetrievedTrack(
                 index=index,
                 score=score,
                 components=components,
-                reason="cheap musical compatibility + current set need",
+                reason=reason,
             )
         )
     ranked.sort(key=lambda item: (item.score, -item.index), reverse=True)

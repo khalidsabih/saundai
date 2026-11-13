@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import analysis
+from djai.brain.candidate_retrieval import CandidateRetrievalConfig, retrieve_candidate_tracks
 from djai.brain.dj_move import build_dj_state
 from djai.brain.move_generator import (
     COMPLETE_MOVE_VERSION,
@@ -11,7 +12,14 @@ from djai.brain.move_generator import (
     generate_complete_moves,
 )
 from djai.brain.set_state import build_set_state
-from djai.set_planner import build_complete_move_route, build_transition_graph, make_set_plan
+from djai.planning_context import PlanningSession
+from djai.set_planner import (
+    _progressive_sparse_configs,
+    _route_search_signature,
+    build_complete_move_route,
+    build_transition_graph,
+    make_set_plan,
+)
 
 
 def _tracks(tmp_path: Path, count: int = 4):
@@ -157,3 +165,148 @@ def test_authoritative_mode_uses_complete_move_route_but_keeps_audio_safety(tmp_
     assert report["generated_transition_signature_matches"] == len(plan.transitions)
     assert all(edge.plan.metadata.get("complete_move_preference", {}).get("match") == 1.0 for edge in plan.transitions)
     assert "complete_move_route" in plan.algorithm
+
+
+def test_sparse_retrieval_reports_future_survivability_before_graph_work(tmp_path: Path) -> None:
+    tracks = _tracks(tmp_path, 4)
+    set_state = build_set_state([tracks[0]])
+    result = retrieve_candidate_tracks(
+        current_index=0,
+        candidate_indices=[1, 2, 3],
+        analyses=tracks,
+        set_state=set_state,
+        journey="balanced",
+        progress=0.2,
+        width=3,
+        config=CandidateRetrievalConfig(
+            width=3,
+            expansion_width=2,
+            minimum_diverse=1,
+            learned_weight=0.0,
+            experimental_learned_filter=False,
+        ),
+    )
+
+    assert result.ranked
+    for item in result.ranked:
+        assert 0.0 <= item.components["future_survivability"] <= 1.0
+        assert item.components["future_option_count"] == 2.0
+        assert "future_survivability_adjustment" in item.components
+
+
+def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers() -> None:
+    config = CompleteMoveConfig(
+        mode="move_authoritative",
+        lookahead_moves=3,
+        search_branch_width=3,
+        lazy_candidate_width=10,
+        lazy_expansion_width=10,
+        opener_candidates=5,
+        candidates_per_track=4,
+    )
+    configs = _progressive_sparse_configs(
+        config,
+        30,
+        experimental_retrieval=True,
+    )
+
+    signatures = [
+        _route_search_signature(item, 30, experimental_retrieval=True)
+        for item in configs
+    ]
+    assert len(signatures) == len(set(signatures))
+    assert len(configs) == 1
+    assert _route_search_signature(
+        configs[0], 30, experimental_retrieval=True
+    )[2] == 12
+
+
+def test_parallel_graph_build_reuses_pair_cache_on_repeat(tmp_path: Path, monkeypatch) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_CACHE_DIR", str(tmp_path / "cache"))
+
+    first_session = PlanningSession(scoring_model=None)
+    first = build_transition_graph(
+        tracks,
+        workers=2,
+        session=first_session,
+    )
+    assert len(first) == 12
+    assert first_session.graph_cache_misses == 12
+
+    second_session = PlanningSession(scoring_model=None)
+    second = build_transition_graph(
+        tracks,
+        workers=2,
+        session=second_session,
+    )
+    assert len(second) == 12
+    assert second_session.graph_cache_hits == 12
+    assert second_session.graph_cache_misses == 0
+    assert second_session.graph_build_calls == 1
+
+
+def test_neural_beam_batches_multiple_openers_into_one_graph_frontier(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", "1")
+    graph = {}
+    batches: list[set[tuple[int, int]]] = []
+
+    def ensure_pairs(pairs) -> None:
+        batch = {tuple(map(int, pair)) for pair in pairs}
+        batches.append(batch)
+        missing = [pair for pair in batch if pair not in graph]
+        if missing:
+            graph.update(
+                build_transition_graph(
+                    tracks,
+                    workers=1,
+                    pair_indices=missing,
+                )
+            )
+
+    route = build_complete_move_route(
+        tracks,
+        graph,
+        journey="balanced",
+        config=CompleteMoveConfig(
+            mode="move_authoritative",
+            search_branch_width=3,
+            lazy_candidate_width=3,
+            opener_candidates=4,
+        ),
+        ensure_pairs=ensure_pairs,
+    )
+
+    assert route.order
+    assert batches
+    assert len({left for left, _ in batches[0]}) > 1
+
+
+def test_graph_pair_cache_survives_crate_reordering(tmp_path: Path, monkeypatch) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_CACHE_DIR", str(tmp_path / "cache-reordered"))
+
+    first_session = PlanningSession(scoring_model=None)
+    build_transition_graph(
+        tracks,
+        workers=1,
+        session=first_session,
+        pair_indices=[(0, 1)],
+    )
+    assert first_session.graph_cache_misses == 1
+
+    reordered = [tracks[2], tracks[0], tracks[1], tracks[3]]
+    second_session = PlanningSession(scoring_model=None)
+    graph = build_transition_graph(
+        reordered,
+        workers=1,
+        session=second_session,
+        pair_indices=[(1, 2)],
+    )
+    assert (1, 2) in graph
+    assert second_session.graph_cache_hits == 1
+    assert second_session.graph_cache_misses == 0

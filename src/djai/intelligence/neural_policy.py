@@ -177,8 +177,14 @@ def _checkpoint_cached(model_id: str, path_str: str, mtime_ns: int, size: int, e
         return None,f"checkpoint unreadable: {exc}"
     if str(payload.get("schema_version"))!=HEAD_SCHEMA_VERSION:
         return None,"unsupported checkpoint schema"
-    if str(payload.get("model_id",model_id))!=model_id:
-        return None,"checkpoint model id mismatch"
+    checkpoint_model_id=str(payload.get("model_id",model_id))
+    checkpoint_task=str(payload.get("task",""))
+    if checkpoint_model_id!=model_id:
+        # Pairwise next-track training emits a research checkpoint id while the
+        # runtime registry exposes the stable policy id. Allow that one
+        # task-compatible alias; all other model ids remain exact-match.
+        if not (model_id=="next_track_policy" and checkpoint_task=="next_track_policy"):
+            return None,"checkpoint model id mismatch"
     fp=checkpoint_fingerprint(p)
     if expected_sha and fp.lower()!=expected_sha.lower():
         return None,"checkpoint hash does not match registry"
@@ -208,9 +214,33 @@ def predict_head(model_id,features):
 def predict_scalar_head(model_id,features):
     p,r,reason=_load(model_id)
     if p is None:return ScalarPrediction(model_id,False,reason=reason)
-    x=_vector(p,features); w=np.asarray(p.get("weights",[]),float); w=w[0] if w.ndim==2 and w.shape[0]==1 else w
-    if w.shape!=x.shape:return ScalarPrediction(model_id,False,reason="checkpoint dimensions invalid")
-    bp=p.get("bias",0.); bias=float(bp[0] if isinstance(bp,list) and bp else bp); score=_sigmoid(float(np.dot(w,x))+bias); conf=float(np.clip(abs(score-.5)*2,0,1)); auth=float(r.authority(model_id,conf)); return ScalarPrediction(model_id,True,score,conf,auth,str(p.get("_fingerprint",""))[:16],"authoritative" if auth>0 else "shadow prediction only")
+    x=_vector(p,features)
+    kind=str(p.get("kind",""))
+    if kind=="mlp_pairwise_ranker":
+        params=p.get("parameters",{}) if isinstance(p.get("parameters"),dict) else {}
+        try:
+            w1=np.asarray(params.get("w1",[]),float); b1=np.asarray(params.get("b1",[]),float)
+            w2=np.asarray(params.get("w2",[]),float); b2=np.asarray(params.get("b2",[]),float)
+            w3=np.asarray(params.get("w3",[]),float); b3=np.asarray(params.get("b3",[]),float)
+            if w1.ndim!=2 or w1.shape[0]!=x.shape[0] or b1.shape!=(w1.shape[1],):
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP input dimensions invalid")
+            if w2.ndim!=2 or w2.shape[0]!=w1.shape[1] or b2.shape!=(w2.shape[1],):
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP hidden dimensions invalid")
+            if w3.ndim!=2 or w3.shape!=(w2.shape[1],1) or b3.size!=1:
+                return ScalarPrediction(model_id,False,reason="checkpoint MLP output dimensions invalid")
+            a1=np.maximum(x@w1+b1,0.0)
+            a2=np.maximum(a1@w2+b2,0.0)
+            raw=float((a2@w3+b3.reshape(-1))[0])
+            score=_sigmoid(raw)
+        except (TypeError,ValueError,IndexError):
+            return ScalarPrediction(model_id,False,reason="checkpoint MLP parameters invalid")
+    else:
+        w=np.asarray(p.get("weights",[]),float); w=w[0] if w.ndim==2 and w.shape[0]==1 else w
+        if w.shape!=x.shape:return ScalarPrediction(model_id,False,reason="checkpoint dimensions invalid")
+        bp=p.get("bias",0.); bias=float(bp[0] if isinstance(bp,list) and bp else bp); score=_sigmoid(float(np.dot(w,x))+bias)
+    conf=float(np.clip(abs(score-.5)*2,0,1))
+    auth=float(r.authority(model_id,conf))
+    return ScalarPrediction(model_id,True,score,conf,auth,str(p.get("_fingerprint",""))[:16],"authoritative" if auth>0 else "shadow prediction only")
 def transition_family_prediction(a,b,*,route=None,set_state=None):return predict_head("transition_family_policy",transition_feature_dict(a,b,route=route,set_state=set_state))
 def rank_duration_values(a,b,route,durations,*,set_state=None):
     scored=[]; preds=[]; ma=0.
@@ -234,3 +264,113 @@ def scalar_head_uses_feature_prefix(model_id: str, prefix: str, *, require_autho
 
 def rendered_judge_prediction(a,b,plan,*,set_state=None):return predict_scalar_head("rendered_dj_judge",transition_feature_dict(a,b,plan=plan,set_state=set_state))
 def next_track_prediction(a,b,*,set_state=None):return predict_scalar_head("next_track_policy",transition_feature_dict(a,b,set_state=set_state))
+
+def _real_retrieval_checkpoint_eligible(payload: Mapping[str,Any]) -> tuple[bool,str]:
+    """Require enough independent real evidence before preferring the real retriever."""
+    metrics=payload.get("metrics",{}) if isinstance(payload.get("metrics"),Mapping) else {}
+    train=metrics.get("train_ranking",{}) if isinstance(metrics.get("train_ranking"),Mapping) else {}
+    validation=metrics.get("validation_ranking",{}) if isinstance(metrics.get("validation_ranking"),Mapping) else {}
+    test=metrics.get("test_ranking",{}) if isinstance(metrics.get("test_ranking"),Mapping) else {}
+
+    train_groups=int(train.get("groups",0) or 0)
+    validation_groups=int(validation.get("groups",0) or 0)
+    test_groups=int(test.get("groups",0) or 0)
+    validation_pairwise=float(validation.get("pairwise_accuracy",0.0) or 0.0)
+    validation_top2=float(validation.get("top2_recall",0.0) or 0.0)
+
+    minimum_train_groups=max(20,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_TRAIN_GROUPS","20")))
+    minimum_validation_groups=max(5,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_GROUPS","5")))
+    minimum_test_groups=max(5,int(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_TEST_GROUPS","5")))
+    minimum_pairwise=float(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_PAIRWISE","0.65"))
+    minimum_top2=float(os.environ.get("DJAI_REAL_RETRIEVAL_MIN_VALIDATION_TOP2","0.75"))
+
+    if train_groups < minimum_train_groups:
+        return False,f"real checkpoint has only {train_groups} train groups; need {minimum_train_groups}"
+    if validation_groups < minimum_validation_groups:
+        return False,f"real checkpoint has only {validation_groups} validation groups; need {minimum_validation_groups}"
+    if test_groups < minimum_test_groups:
+        return False,f"real checkpoint has only {test_groups} test groups; need {minimum_test_groups}"
+    if validation_pairwise < minimum_pairwise:
+        return False,f"real checkpoint validation pairwise {validation_pairwise:.3f} below {minimum_pairwise:.3f}"
+    if validation_top2 < minimum_top2:
+        return False,f"real checkpoint validation top2 {validation_top2:.3f} below {minimum_top2:.3f}"
+    return True,"real checkpoint evidence gate passed"
+
+
+def experimental_next_track_prediction(a,b,*,set_state=None):
+    """Use the best available shadow next-track MLP for retrieval experiments.
+
+    Prefer the mixed synthetic + Phase16 real-rehearsal checkpoint when present;
+    otherwise fall back to the research-synthetic checkpoint. In both cases the
+    model has zero final authority and may only narrow/rank candidates before
+    deterministic rehearsal and safety.
+    """
+    candidates=(
+        (
+            config_path("real-retrieval-models"),
+            "NEXT_TRACK_REAL_RETRIEVAL_LATEST",
+            "next_track_real_retrieval_filter",
+        ),
+        (
+            config_path("research-synthetic-models"),
+            "NEXT_TRACK_RESEARCH_LATEST",
+            "next_track_research_filter",
+        ),
+    )
+    payload=None
+    path=None
+    model_label="next_track_research_filter"
+    for root,pointer_name,label in candidates:
+        pointer=root/pointer_name
+        try:
+            filename=pointer.read_text(encoding="utf-8").strip()
+            if not filename:
+                continue
+            candidate_path=(root/filename).resolve()
+            candidate_payload=json.loads(candidate_path.read_text(encoding="utf-8"))
+        except (OSError,json.JSONDecodeError):
+            continue
+        if label=="next_track_real_retrieval_filter":
+            eligible,_eligibility_reason=_real_retrieval_checkpoint_eligible(candidate_payload)
+            if not eligible:
+                continue
+        payload=candidate_payload
+        path=candidate_path
+        model_label=label
+        break
+    if payload is None or path is None:
+        return ScalarPrediction("next_track_research_filter",False,reason="no experimental retrieval checkpoint installed")
+    if str(payload.get("task",""))!="next_track_policy" and str(payload.get("learning_head",""))!="next_track_policy":
+        return ScalarPrediction(model_label,False,reason="experimental checkpoint task mismatch")
+    features=transition_feature_dict(a,b,set_state=set_state)
+    x=_vector(payload,features)
+    kind=str(payload.get("kind",""))
+    if kind!="mlp_pairwise_ranker":
+        return ScalarPrediction(model_label,False,reason="experimental checkpoint is not the MLP pairwise ranker")
+    params=payload.get("parameters",{}) if isinstance(payload.get("parameters"),dict) else {}
+    try:
+        w1=np.asarray(params.get("w1",[]),float); b1=np.asarray(params.get("b1",[]),float)
+        w2=np.asarray(params.get("w2",[]),float); b2=np.asarray(params.get("b2",[]),float)
+        w3=np.asarray(params.get("w3",[]),float); b3=np.asarray(params.get("b3",[]),float)
+        if w1.ndim!=2 or w1.shape[0]!=x.shape[0] or b1.shape!=(w1.shape[1],):
+            return ScalarPrediction(model_label,False,reason="experimental MLP input dimensions invalid")
+        if w2.ndim!=2 or w2.shape[0]!=w1.shape[1] or b2.shape!=(w2.shape[1],):
+            return ScalarPrediction(model_label,False,reason="experimental MLP hidden dimensions invalid")
+        if w3.ndim!=2 or w3.shape!=(w2.shape[1],1) or b3.size!=1:
+            return ScalarPrediction(model_label,False,reason="experimental MLP output dimensions invalid")
+        a1=np.maximum(x@w1+b1,0.0)
+        a2=np.maximum(a1@w2+b2,0.0)
+        raw=float((a2@w3+b3.reshape(-1))[0])
+        score=_sigmoid(raw)
+    except (TypeError,ValueError,IndexError):
+        return ScalarPrediction(model_label,False,reason="experimental MLP parameters invalid")
+    confidence=float(np.clip(abs(score-.5)*2,0,1))
+    return ScalarPrediction(
+        model_label,
+        True,
+        score,
+        confidence,
+        0.0,
+        checkpoint_fingerprint(path)[:16],
+        "shadow-only retrieval filter; final authority remains deterministic",
+    )

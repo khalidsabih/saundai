@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties, DragEvent, PointerEvent } from "react";
+import type { PointerEvent } from "react";
 import {
   cancelJob,
   createAutomaticSet,
@@ -19,36 +19,18 @@ import { FinishedSetPlayer } from "./FinishedSetPlayer";
 import { HeroSoundtrack, type HeroSoundtrackHandle } from "./HeroSoundtrack";
 import { Icon } from "./Icon";
 import { LivePlayer } from "./LivePlayer";
+import { AppShell } from "./product/AppShell";
+import { BuildProgress } from "./intelligence/BuildProgress";
+import { CrateSelector } from "./music/CrateSelector";
+import { SetIntentPanel } from "./set/SetIntentPanel";
 
 const INTRO_PROGRESS_DELAY_MS = 180;
 const INTRO_PROGRESS_DURATION_MS = 6_800;
 const INTRO_SEEN_KEY = "saund.ai.intro.seen.v1";
 
-const journeys: Array<{ value: JourneyMode; label: string; detail: string; cue: string }> = [
-  { value: "balanced", label: "Flow", detail: "Natural movement with room to breathe.", cue: "Balanced" },
-  { value: "warmup", label: "Warm", detail: "Patient opening, gradual energy and space.", cue: "Patient" },
-  { value: "peak", label: "Drive", detail: "Push toward the strongest moments in the crate.", cue: "Forward" },
-  { value: "sunset", label: "Release", detail: "Warm movement with a softer landing.", cue: "Open" },
-];
-
 function outputName(journey: JourneyMode) {
   const stamp = new Date().toISOString().replaceAll(":", "-").replace("T", "_").slice(0, 19);
   return `SAUND_${journey}_${stamp}.wav`;
-}
-
-function letterStyle(index: number) {
-  return { "--letter-index": index } as CSSProperties;
-}
-
-function trackAIState(track: TrackRecord) {
-  const readiness = track.readiness;
-  if (!readiness) return { label: "Waiting", tone: "waiting" };
-  const state = readiness.state.toLowerCase();
-  if (readiness.dj_ready || state === "ready") return { label: "Ready", tone: "ready" };
-  if (state === "failed" || state === "cancelled") return { label: "Needs attention", tone: "failed" };
-  if (state === "pending" || state === "queued") return { label: "Listening", tone: "active" };
-  const percent = Math.round(Math.max(0, Math.min(1, readiness.progress ?? 0)) * 100);
-  return { label: percent > 0 ? `Analysing ${percent}%` : "Analysing", tone: "active" };
 }
 
 function friendlyError(message: string) {
@@ -77,23 +59,8 @@ function friendlyError(message: string) {
   return { title: "SAUND could not continue.", detail: message, technical: message };
 }
 
-function jobStage(job: JobRecord | null) {
-  if (!job) return { index: 0, eyebrow: "System armed", headline: "Ready to take the room.", detail: "The Executive will prepare the performance before audio is allowed to run." };
-  const key = job.stage.toLowerCase();
-  if (key.includes("render") || key.includes("final") || key.includes("deliver") || key.includes("encode")) {
-    return { index: 3, eyebrow: "Execution preparation", headline: "Committing the performance.", detail: job.message || "Rendering the validated plan and checking the execution contract." };
-  }
-  if (key.includes("headphone") || key.includes("rehears") || key.includes("measure") || key.includes("transition")) {
-    return { index: 2, eyebrow: "Private audition", headline: "Listening before committing.", detail: job.message || "AI Headphones and the Professional Brain are judging the handoffs." };
-  }
-  if (key.includes("analy") || key.includes("stem") || key.includes("feature") || key.includes("cached")) {
-    return { index: 0, eyebrow: "Music understanding", headline: "Reading the crate.", detail: job.message || "Understanding rhythm, structure, energy and usable performance layers." };
-  }
-  return { index: 1, eyebrow: "Executive planning", headline: "Thinking ahead.", detail: job.message || "Building the route, move sequence and prepared horizon." };
-}
 
 export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const soundtrackRef = useRef<HeroSoundtrackHandle | null>(null);
   const introProgressBarRef = useRef<HTMLSpanElement | null>(null);
@@ -109,7 +76,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   } = useSaundSession();
 
   const [tracks, setTracks] = useState<TrackRecord[]>([]);
-  const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [result, setResult] = useState<AutomaticSetResult | null>(null);
@@ -128,7 +94,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   const [peakFraction, setPeakFraction] = useState(0.65);
   const [closingMinutes, setClosingMinutes] = useState(10);
   const [endingEnergy, setEndingEnergy] = useState(0.45);
-  const [showSetDetails, setShowSetDetails] = useState(false);
   const [showTechnicalError, setShowTechnicalError] = useState(false);
 
   const selectedTracks = tracks.filter((track) => selectedPaths.includes(track.path));
@@ -143,8 +108,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
     }, 0) / selectedTracks.length;
   const selectedReady = selectedPaths.length >= 2 && readySelectedCount === selectedPaths.length && failedSelectedCount === 0;
   const canStartSession = selectedPaths.length >= 2 && failedSelectedCount === 0 && !job && !uploading;
-  const currentJourney = journeys.find((item) => item.value === journey) ?? journeys[0];
-  const currentJobStage = jobStage(job);
 
   const refresh = useCallback(async () => {
     try {
@@ -263,7 +226,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -451,212 +413,63 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
       )}
 
       {entered && (
-        <section className="autonomous-launch" aria-label="Start an autonomous DJ session">
-          <header className="autonomous-topbar">
-            <a className="autonomous-brand" href="#top" aria-label="SAUND.AI">
-              <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
-              <small>Autonomous DJ</small>
-            </a>
-            <nav className="autonomous-nav" aria-label="Primary">
-              <span className="is-active">Perform</span>
-              <button type="button" onClick={() => setBrainOpen(true)}>Brain</button>
-              <a href="/readiness">Readiness</a>
-              <a href="/lab">Lab</a>
-            </nav>
-            <div className="autonomous-topbar__actions">
-              <span className="autonomous-health"><i /> Executive ready</span>
-              <button type="button" className="autonomous-account" onClick={openAccount}>
-                {account ? account.email.split("@")[0] : authReady ? "Log in" : "Account"}
-              </button>
-            </div>
-          </header>
-
-          <div className="session-launch">
+        <AppShell
+          active="create"
+          accountLabel={account ? account.email.split("@")[0] : authReady ? "Log in" : "Account"}
+          onAccount={openAccount}
+          onOpenBrain={() => setBrainOpen(true)}
+        >
+          <section className="autonomous-launch" aria-label="Create an autonomous DJ set">
+            <div className="session-launch">
             <header className="session-launch__hero">
               <div>
-                <span className="autonomous-kicker">START A SESSION</span>
-                <h1>Give SAUND the room.</h1>
+                <span className="autonomous-kicker">CREATE</span>
+                <h1>Tell SAUND how the night should feel.</h1>
               </div>
-              <p>Select the crate and the direction. The Brain handles the musical decisions; the Executive protects the performance.</p>
+              <p>Choose the music and the direction. SAUND understands the crate, explores the route, rehearses the hard moments and commits only when the performance is safe.</p>
             </header>
 
             <div className="session-launch__grid">
-              <section className="session-crate" aria-label="Session crate">
-                <header className="session-section-head">
-                  <div><span>01</span><div><small>CRATE</small><strong>Your music</strong></div></div>
-                  <p>{selectedPaths.length} selected · {readySelectedCount} ready</p>
-                </header>
+              <CrateSelector
+                tracks={tracks}
+                selectedPaths={selectedPaths}
+                uploading={uploading}
+                disabled={Boolean(job)}
+                readyCount={readySelectedCount}
+                preparingCount={preparingSelectedCount}
+                failedCount={failedSelectedCount}
+                readinessProgress={selectedReadinessProgress}
+                onFiles={(files) => void ingest(files)}
+                onToggleTrack={(path) => setSelectedPaths((current) =>
+                  current.includes(path)
+                    ? current.filter((item) => item !== path)
+                    : [...current, path]
+                )}
+              />
 
-                <button
-                  className={`session-dropzone ${dragging ? "is-dragging" : ""}`}
-                  type="button"
-                  disabled={uploading || Boolean(job)}
-                  onClick={() => inputRef.current?.click()}
-                  onDragEnter={(event: DragEvent<HTMLButtonElement>) => { event.preventDefault(); setDragging(true); }}
-                  onDragOver={(event: DragEvent<HTMLButtonElement>) => event.preventDefault()}
-                  onDragLeave={() => setDragging(false)}
-                  onDrop={(event: DragEvent<HTMLButtonElement>) => {
-                    event.preventDefault();
-                    setDragging(false);
-                    void ingest(event.dataTransfer.files);
-                  }}
-                >
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    multiple
-                    accept="audio/*,.mp3,.wav,.flac,.m4a,.aiff"
-                    hidden
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => void ingest(event.target.files)}
-                  />
-                  <span className="session-dropzone__icon"><Icon name="upload" /></span>
-                  <span><strong>{uploading ? "Adding music…" : "Add music"}</strong><small>Drop audio or choose files</small></span>
-                  <b>{tracks.length ? `${tracks.length} in crate` : "Empty crate"}</b>
-                </button>
-
-                <div className="session-tracklist scroll-area" role="list" aria-label="Available tracks">
-                  {tracks.length === 0 ? (
-                    <div className="session-tracklist__empty">
-                      <Icon name="waveform" />
-                      <strong>The crate is empty.</strong>
-                      <small>Add at least two tracks to arm a session.</small>
-                    </div>
-                  ) : tracks.map((track, index) => {
-                    const selected = selectedPaths.includes(track.path);
-                    const state = trackAIState(track);
-                    return (
-                      <button
-                        type="button"
-                        role="listitem"
-                        key={track.path}
-                        className={`session-track ${selected ? "is-selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => setSelectedPaths((current) => selected
-                          ? current.filter((path) => path !== track.path)
-                          : [...current, track.path])}
-                      >
-                        <span className="session-track__index">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="session-track__main">
-                          <strong>{track.name}</strong>
-                          <small>{(track.size / 1_048_576).toFixed(1)} MB{track.performance_layers?.complete ? " · performance layers" : ""}</small>
-                        </span>
-                        <span className={`session-track__state is-${state.tone}`}><i />{state.label}</span>
-                        <span className="session-track__select">{selected ? <Icon name="check" /> : "+"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <footer className="session-crate__footer">
-                  <span>{failedSelectedCount > 0 ? `${failedSelectedCount} selected track${failedSelectedCount === 1 ? "" : "s"} need attention` : preparingSelectedCount > 0 ? `${preparingSelectedCount} still being understood in the background` : selectedPaths.length >= 2 ? "Crate ready for the Executive" : "Select at least two tracks"}</span>
-                  {selectedPaths.length > 0 && <b>{Math.round(selectedReadinessProgress * 100)}% understood</b>}
-                </footer>
-              </section>
-
-              <aside className="session-command" aria-label="Session direction">
-                <header className="session-section-head">
-                  <div><span>02</span><div><small>DIRECTION</small><strong>Shape the room</strong></div></div>
-                </header>
-
-                <div className="session-directions" role="radiogroup" aria-label="Set direction">
-                  {journeys.map((option) => (
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={journey === option.value}
-                      key={option.value}
-                      className={journey === option.value ? "is-selected" : ""}
-                      onClick={() => setJourney(option.value)}
-                    >
-                      <span><small>{option.cue}</small><strong>{option.label}</strong></span>
-                      <p>{option.detail}</p>
-                      <i>{journey === option.value ? <Icon name="check" /> : ""}</i>
-                    </button>
-                  ))}
-                </div>
-
-                <section className="set-brief" aria-label="Set brief">
-                  <div className="set-brief__row">
-                    <span><small>DURATION</small><strong>{targetMinutes ? targetMinutes + " min" : "Use crate"}</strong></span>
-                    <div className="set-brief__choices">
-                      {[60, 90, 120].map((minutes) => (
-                        <button type="button" key={minutes} className={targetMinutes === minutes ? "is-selected" : ""} onClick={() => setTargetMinutes(minutes)}>{minutes}</button>
-                      ))}
-                      <button type="button" className={targetMinutes === null ? "is-selected" : ""} onClick={() => setTargetMinutes(null)}>Auto</button>
-                    </div>
-                  </div>
-                  <div className="set-brief__row">
-                    <span><small>ENDING</small><strong>{endingEnergy < 0.35 ? "Soft" : endingEnergy > 0.65 ? "Strong" : "Balanced"}</strong></span>
-                    <input aria-label="Ending energy" type="range" min="0" max="1" step="0.05" value={endingEnergy} onChange={(event) => setEndingEnergy(Number(event.target.value))} />
-                  </div>
-                  <button type="button" className="set-brief__details-toggle" onClick={() => setShowSetDetails((value) => !value)} aria-expanded={showSetDetails}>
-                    <span>Set details</span><strong>{showSetDetails ? "Hide" : "Show"}</strong>
-                  </button>
-                  {showSetDetails && (
-                    <div className="set-brief__details">
-                      <label><span>Peak timing <b>{Math.round(peakFraction * 100)}%</b></span><input type="range" min="0.15" max="0.95" step="0.05" value={peakFraction} onChange={(event) => setPeakFraction(Number(event.target.value))} /></label>
-                      <label><span>Closing window <b>{closingMinutes} min</b></span><input type="range" min="1" max="30" step="1" value={closingMinutes} onChange={(event) => setClosingMinutes(Number(event.target.value))} /></label>
-                    </div>
-                  )}
-                </section>
-
-                <section className={"crate-preflight " + (failedSelectedCount ? "is-blocked" : selectedReady ? "is-ready" : "")} aria-label="Crate preflight">
-                  <header><span>CRATE PREFLIGHT</span><strong>{selectedReady ? "Ready" : failedSelectedCount ? "Attention" : "Preparing"}</strong></header>
-                  <div className="crate-preflight__stats">
-                    <div><b>{selectedPaths.length}</b><small>selected</small></div>
-                    <div><b>{readySelectedCount}</b><small>ready</small></div>
-                    <div><b>{preparingSelectedCount}</b><small>preparing</small></div>
-                    <div><b>{failedSelectedCount}</b><small>blocked</small></div>
-                  </div>
-                  <p>{failedSelectedCount > 0
-                    ? "Remove or repair tracks that failed readiness before starting the session."
-                    : selectedReady
-                      ? "The selected crate is understood and ready for autonomous planning."
-                      : "SAUND can start once the selected crate is usable; background understanding may continue."}</p>
-                </section>
-
-                <div className="session-system" aria-label="Autonomous system state">
-                  <div><span><i className="is-on" />Autonomous Executive</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />AI Headphones</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />Crowd adaptation</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />Safety Governor</span><strong>ON</strong></div>
-                </div>
-
-                <div className="session-command__summary">
-                  <small>SESSION INTENT</small>
-                  <strong>{currentJourney.label}</strong>
-                  <p>{selectedPaths.length >= 2 ? `${selectedPaths.length} tracks ready for autonomous planning.` : "Choose the music that SAUND may perform."}</p>
-                </div>
-
-                <button className="session-start" type="button" disabled={!canStartSession} onClick={requestCreateSet}>
-                  <span><small>{account ? "Executive will prepare the horizon" : "Login requested only when starting"}</small><strong>Start DJ</strong></span>
-                  <Icon name="arrow" />
-                </button>
-              </aside>
+              <SetIntentPanel
+                journey={journey}
+                targetMinutes={targetMinutes}
+                peakFraction={peakFraction}
+                closingMinutes={closingMinutes}
+                endingEnergy={endingEnergy}
+                selectedCount={selectedPaths.length}
+                readyCount={readySelectedCount}
+                preparingCount={preparingSelectedCount}
+                failedCount={failedSelectedCount}
+                canBuild={canStartSession}
+                authenticated={Boolean(account)}
+                onJourney={setJourney}
+                onTargetMinutes={setTargetMinutes}
+                onPeakFraction={setPeakFraction}
+                onClosingMinutes={setClosingMinutes}
+                onEndingEnergy={setEndingEnergy}
+                onBuild={requestCreateSet}
+              />
             </div>
 
             {job && (
-              <section className="session-preparing" aria-live="polite">
-                <div className="session-preparing__copy">
-                  <span className="autonomous-kicker">{currentJobStage.eyebrow}</span>
-                  <h2>{currentJobStage.headline}</h2>
-                  <p>{currentJobStage.detail}</p>
-                </div>
-                <div className="session-preparing__progress">
-                  <div className="session-preparing__rail"><i style={{ width: `${Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%` }} /></div>
-                  <div className="session-preparing__stages">
-                    {["Understand", "Plan", "Audition", "Commit"].map((stage, index) => (
-                      <span key={stage} className={index < currentJobStage.index ? "is-complete" : index === currentJobStage.index ? "is-active" : ""}>
-                        <i />{stage}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="session-preparing__status">
-                  <strong>{Math.round(Math.max(0, Math.min(1, job.progress)) * 100)}%</strong>
-                  {job.cancellable && <button type="button" onClick={() => void cancelActiveJob()}>Cancel</button>}
-                </div>
-              </section>
+              <BuildProgress job={job} onCancel={() => void cancelActiveJob()} />
             )}
 
             {error && (() => {
@@ -676,8 +489,9 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 </div>
               );
             })()}
-          </div>
-        </section>
+            </div>
+          </section>
+        </AppShell>
       )}
 
       <AccountDialog

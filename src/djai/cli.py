@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,10 @@ from .training.research_synthetic import (
     research_synthetic_status,
     train_research_synthetic_shadow,
     validate_research_synthetic_dataset,
+)
+from .training.real_retrieval import (
+    build_mixed_retrieval_snapshot,
+    train_mixed_retrieval_shadow,
 )
 from .phase16_validation import validate_real_music_library
 from .training.expert_dataset import expert_dataset_stats
@@ -914,6 +919,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     research_train.add_argument("--dataset-id")
 
+    real_retrieval_build = sub.add_parser(
+        "real-retrieval-build",
+        help="Build a shadow retriever dataset from synthetic priors, Phase16 outcomes, and optional AotM sequences",
+    )
+    real_retrieval_build.add_argument(
+        "--synthetic-next-track",
+        required=True,
+        help="Path to imported research-synthetic next-track.jsonl",
+    )
+    real_retrieval_build.add_argument(
+        "--phase16-plan",
+        action="append",
+        required=True,
+        help="Phase16 set-plan.json to mine for accepted/rejected next-track examples; repeat for multiple plans",
+    )
+    real_retrieval_build.add_argument(
+        "--aotm-source",
+        help="Optional AotM-2011 playlist JSON(.gz) or ordered-bigram CSV(.gz); stored as human sequence supervision",
+    )
+    real_retrieval_build.add_argument("--name", default="next-track-real-v1")
+
+    real_retrieval_train = sub.add_parser(
+        "real-retrieval-train",
+        help="Train the shadow next-track MLP on the latest mixed retrieval snapshot",
+    )
+    real_retrieval_train.add_argument("--dataset-id")
+
     phase16 = sub.add_parser(
         "phase16-validate-real",
         help="Validate the real SAUND set pipeline on a local music folder without granting learned authority",
@@ -936,6 +968,16 @@ def build_parser() -> argparse.ArgumentParser:
     phase16.add_argument("--graph-workers", type=int, default=1, help="Graph workers; Phase 16 defaults to serial for reliability")
     phase16.add_argument("--no-cache", action="store_true")
     phase16.add_argument("--listener", default="local")
+    phase16.add_argument(
+        "--neural-retrieval",
+        action="store_true",
+        help="Use the latest research-synthetic MLP to filter next-track candidates; broad all-pairs fallback is disabled by default for this experiment",
+    )
+    phase16.add_argument(
+        "--allow-broad-graph-fallback",
+        action="store_true",
+        help="Permit historical all-pairs graph fallback even when --neural-retrieval is enabled",
+    )
     phase16.add_argument("-o", "--output-dir", default="output/phase16-real-music")
 
     synthetic = sub.add_parser("synthetic-failures", help="Generate labelled technical-failure audio from a rights-cleared render")
@@ -1413,7 +1455,34 @@ def main(argv: list[str] | None = None) -> None:
                 None,
             )
             raise SystemExit(0)
+
+        if args.command == "real-retrieval-build":
+            _write_json(
+                build_mixed_retrieval_snapshot(
+                    current_environment().workspace,
+                    synthetic_next_track=args.synthetic_next_track,
+                    phase16_plans=args.phase16_plan,
+                    aotm_source=args.aotm_source,
+                    name=args.name,
+                ),
+                None,
+            )
+            raise SystemExit(0)
+        if args.command == "real-retrieval-train":
+            _write_json(
+                train_mixed_retrieval_shadow(
+                    current_environment().workspace,
+                    dataset_id=args.dataset_id,
+                ),
+                None,
+            )
+            raise SystemExit(0)
         if args.command == "phase16-validate-real":
+            if args.neural_retrieval:
+                os.environ["DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL"] = "1"
+                os.environ["DJAI_ALLOW_BROAD_GRAPH_FALLBACK"] = (
+                    "1" if args.allow_broad_graph_fallback else "0"
+                )
             _write_json(
                 validate_real_music_library(
                     current_environment().workspace,

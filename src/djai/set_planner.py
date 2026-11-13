@@ -197,9 +197,10 @@ def _load_graph_pair_cache(
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("version") != GRAPH_PAIR_CACHE_VERSION:
             return None
-        if int(payload.get("from_index", -1)) != from_index or int(payload.get("to_index", -1)) != to_index:
-            return None
         matrix = _pair_evidence_from_dict(dict(payload["evidence_matrix"]))
+        # Cache identity is content/path based, not crate-position based.
+        # Re-map the cached edge to the current list indices after validating
+        # that the evidence still belongs to the same ordered track pair.
         matrix.validate_tracks(track_a, track_b)
         edge_payload = dict(payload["edge"])
         edge = TransitionEdge(
@@ -664,13 +665,15 @@ def build_transition_graph(
 ) -> dict[tuple[int, int], TransitionEdge]:
     """Build native-state directional edges, optionally for a sparse pair set.
 
-    1.7.1 uses ``pair_indices`` to materialize only the edges reached by lazy
-    candidate retrieval. Omitting it preserves the historical all-pairs graph.
+    Cached pair evidence is resolved in the parent process before worker
+    selection. Only true cache misses are submitted to graph workers, and
+    worker results are persisted back into the same pair cache.
     """
     if len(analyses) < 2:
         raise ValueError("A set needs at least two tracks.")
 
     active_session = session if session is not None else PlanningSession()
+    active_session.graph_build_calls += 1
     stem_maps = {index: find_cached_stems(track.path) for index, track in enumerate(analyses)}
     if pair_indices is None:
         pairs = [
@@ -691,57 +694,89 @@ def build_transition_graph(
     total = len(tasks)
     if total == 0:
         return {}
+
     scout_cues = _graph_scout_cue_limit(len(analyses))
-    selection = resolve_worker_selection("graph", total, requested=workers)
-    active_session.graph_workers = selection.workers
     active_session.graph_mode = "lazy" if pair_indices is not None else ("scout" if scout_cues else "full")
     active_session.graph_scout_cues = scout_cues
     started = time.perf_counter()
     results: dict[tuple[int, int], _GraphPairResult] = {}
+    cache_keys: dict[tuple[int, int], str] = {}
+    missing_tasks: list[_GraphPairTask] = []
+    model_fingerprint = scoring_model_fingerprint(active_session.scoring_model)
 
-    if not selection.parallel:
-        for completed, task in enumerate(tasks, start=1):
+    # Cache lookup is intentionally outside the serial/parallel split. Previous
+    # behavior bypassed the cache entirely when a process pool was used.
+    for task in tasks:
+        track_a = analyses[task.from_index]
+        track_b = analyses[task.to_index]
+        key = (task.from_index, task.to_index)
+        cache_key = _graph_pair_cache_key(
+            track_a,
+            track_b,
+            tempo_policy=tempo_policy,
+            preferred_style=preferred_style,
+            journey=journey,
+            scout_cues=scout_cues,
+            model_fingerprint=model_fingerprint,
+        )
+        cache_keys[key] = cache_key
+        result = _load_graph_pair_cache(
+            cache_key,
+            from_index=task.from_index,
+            to_index=task.to_index,
+            track_a=track_a,
+            track_b=track_b,
+        )
+        if result is None:
+            missing_tasks.append(task)
+            active_session.graph_cache_misses += 1
+        else:
+            results[key] = result
+            active_session.graph_cache_hits += 1
+
+    completed = len(results)
+    if progress and completed:
+        progress(
+            "graph",
+            completed,
+            total,
+            f"{completed}/{total} transition pairs restored from cache",
+        )
+
+    selection = resolve_worker_selection("graph", len(missing_tasks), requested=workers)
+    active_session.graph_workers = max(active_session.graph_workers, selection.workers)
+
+    if missing_tasks and not selection.parallel:
+        for task in missing_tasks:
             track_a = analyses[task.from_index]
             track_b = analyses[task.to_index]
             if progress:
-                progress("graph", completed - 1, total, f"{track_a.title} -> {track_b.title}")
-            cache_key = _graph_pair_cache_key(
-                track_a,
-                track_b,
+                progress("graph", completed, total, f"{track_a.title} -> {track_b.title}")
+            result = _plan_graph_pair_core(
+                task,
+                analyses=analyses,
                 tempo_policy=tempo_policy,
                 preferred_style=preferred_style,
                 journey=journey,
-                scout_cues=scout_cues,
-                model_fingerprint=scoring_model_fingerprint(active_session.scoring_model),
+                stem_maps=stem_maps,
+                scoring_model=active_session.scoring_model,
             )
-            result = _load_graph_pair_cache(
-                cache_key,
-                from_index=task.from_index,
-                to_index=task.to_index,
-                track_a=track_a,
-                track_b=track_b,
-            )
-            cache_hit = result is not None
-            if result is None:
-                result = _plan_graph_pair_core(
-                    task,
-                    analyses=analyses,
-                    tempo_policy=tempo_policy,
-                    preferred_style=preferred_style,
-                    journey=journey,
-                    stem_maps=stem_maps,
-                    scoring_model=active_session.scoring_model,
-                )
-                _store_graph_pair_cache(cache_key, result)
-            results[(result.from_index, result.to_index)] = result
+            key = (result.from_index, result.to_index)
+            results[key] = result
+            _store_graph_pair_cache(cache_keys[key], result)
+            completed += 1
             if progress:
-                detail = f"{result.label} · cached" if cache_hit else result.label
-                progress("graph", completed, total, detail)
-    else:
+                progress("graph", completed, total, result.label)
+    elif missing_tasks:
         prepare_process_environment()
         if progress:
             mode = f"scout {scout_cues}x{scout_cues}" if scout_cues else "full cue graph"
-            progress("graph", 0, total, f"{selection.workers} graph workers · {mode}")
+            progress(
+                "graph",
+                completed,
+                total,
+                f"{selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
+            )
         with ProcessPoolExecutor(
             max_workers=selection.workers,
             mp_context=process_context(),
@@ -755,12 +790,16 @@ def build_transition_graph(
                 active_session.scoring_model,
             ),
         ) as executor:
-            future_map = {executor.submit(_plan_graph_pair_worker, task): task for task in tasks}
-            completed = 0
+            future_map = {
+                executor.submit(_plan_graph_pair_worker, task): task
+                for task in missing_tasks
+            }
             try:
                 for future in as_completed(future_map):
                     result = future.result()
-                    results[(result.from_index, result.to_index)] = result
+                    key = (result.from_index, result.to_index)
+                    results[key] = result
+                    _store_graph_pair_cache(cache_keys[key], result)
                     completed += 1
                     if progress:
                         progress("graph", completed, total, result.label)
@@ -1145,6 +1184,18 @@ def optimize_order(
         blocked_pairs=blocked,
         max_passes=local_passes,
     )
+
+
+class SparseRouteExhaustedError(RuntimeError):
+    """Sparse retrieval could not construct a complete route.
+
+    Diagnostics are deliberately attached to the failure so Phase16 and other
+    research harnesses retain useful evidence even when no SetPlan is emitted.
+    """
+
+    def __init__(self, message: str, *, diagnostics: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 @dataclass(frozen=True, slots=True)
@@ -1586,13 +1637,311 @@ def _complete_move_route_from_opener(
     )
 
 
+
+@dataclass(frozen=True, slots=True)
+class _BeamRouteState:
+    order: tuple[int, ...]
+    plans: tuple[TransitionPlan, ...]
+    decisions: tuple[CompleteMoveDecision, ...]
+    dj_state: DJState
+    score_total: float
+
+
+def _build_filtered_beam_route(
+    opener: int | Sequence[int],
+    analyses: list[TrackAnalysis],
+    graph: dict[tuple[int, int], TransitionEdge],
+    *,
+    end_index: int | None,
+    journey: JourneyMode,
+    blocked_pairs: set[tuple[int, int]],
+    config: CompleteMoveConfig,
+    ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None,
+    timing_intent: SetTimingIntent | None = None,
+) -> _CompleteMoveRoute:
+    """Search several model-filtered partial routes instead of greedily committing.
+
+    This is used only by the explicit neural-retrieval experiment. Retrieval
+    stays cheap and broad, while expensive graph materialization is batched once
+    per beam depth across all surviving partial routes.
+    """
+    opener_values = (
+        [int(opener)]
+        if isinstance(opener, int)
+        else [int(value) for value in opener]
+    )
+    if not opener_values:
+        return _CompleteMoveRoute(
+            order=(),
+            decisions=(),
+            score=0.0,
+            completed=False,
+            reason="no opener candidates",
+        )
+
+    beam_width = max(
+        2,
+        min(
+            8,
+            int(os.environ.get("DJAI_NEURAL_ROUTE_BEAM_WIDTH", "4")),
+        ),
+    )
+    branch_width = max(2, min(6, int(config.search_branch_width)))
+    beam: list[_BeamRouteState] = []
+    for opener_index in opener_values:
+        initial_state = build_set_state([analyses[opener_index]])
+        initial_dj = build_dj_state(
+            analyses[opener_index],
+            source_cursor=0.0,
+            effective_bpm=analyses[opener_index].bpm,
+            render_rate=1.0,
+            set_state=initial_state,
+        )
+        beam.append(
+            _BeamRouteState(
+                order=(opener_index,),
+                plans=(),
+                decisions=(),
+                dj_state=initial_dj,
+                score_total=0.0,
+            )
+        )
+
+    for _step in range(1, len(analyses)):
+        expanded: list[_BeamRouteState] = []
+        prepared_states: list[tuple[Any, ...]] = []
+        pair_batch: set[tuple[int, int]] = set()
+
+        # First pass: do only cheap route-state/retrieval work. Collect every
+        # shortlisted pair needed by the whole beam before materializing graph
+        # edges. This avoids repeated graph setup for each beam state.
+        for state in beam:
+            current = state.order[-1]
+            remaining = set(range(len(analyses))) - set(state.order)
+            if not remaining:
+                expanded.append(state)
+                continue
+            available = sorted(remaining)
+            if end_index is not None and end_index in available and len(available) > 1:
+                available = [index for index in available if index != end_index]
+            if not available:
+                continue
+
+            fallback_progress = len(state.order) / max(1, len(analyses) - 1)
+            timing_state = build_timing_state(
+                [analyses[index] for index in state.order],
+                list(state.plans),
+                intent=timing_intent,
+                fallback_progress=fallback_progress,
+            )
+            set_state = build_set_state(
+                [analyses[index] for index in state.order],
+                list(state.plans),
+            )
+            set_state.elapsed_seconds = timing_state.elapsed_seconds
+            retrieval = retrieve_candidate_tracks(
+                current_index=current,
+                candidate_indices=available,
+                analyses=analyses,
+                set_state=set_state,
+                journey=journey,
+                progress=timing_state.progress,
+                width=min(len(available), config.lazy_candidate_width),
+            )
+            shortlisted = list(retrieval.selected)
+            prepared_states.append(
+                (state, current, timing_state, set_state, retrieval, shortlisted)
+            )
+            pair_batch.update((current, index) for index in shortlisted)
+
+        if ensure_pairs is not None and pair_batch:
+            ensure_pairs(pair_batch)
+
+        # Second pass: score complete moves only after all graph edges for this
+        # beam depth are available. Safety/executability gates are unchanged.
+        for state, current, timing_state, set_state, retrieval, shortlisted in prepared_states:
+            generated = generate_complete_moves(
+                current_index=current,
+                candidate_indices=shortlisted,
+                analyses=analyses,
+                graph=graph,
+                dj_state=state.dj_state,
+                set_state=set_state,
+                journey=journey,
+                progress=timing_state.progress,
+                blocked_pairs=blocked_pairs,
+                config=config,
+            )
+            if not generated:
+                continue
+
+            retrieval_by_index = {item.index: item for item in retrieval.ranked}
+            target_best: dict[int, tuple[float, Any]] = {}
+            for candidate in generated:
+                retrieved = retrieval_by_index.get(candidate.next_index)
+                survivability = (
+                    float(retrieved.components.get("future_survivability", 0.5))
+                    if retrieved is not None
+                    else 0.5
+                )
+                route_score = float(candidate.selection_score) + 0.12 * (survivability - 0.5)
+                previous = target_best.get(candidate.next_index)
+                if previous is None or route_score > previous[0]:
+                    target_best[candidate.next_index] = (route_score, candidate)
+
+            branch = sorted(
+                target_best.values(),
+                key=lambda item: (
+                    item[0],
+                    float(item[1].move.future_optionality),
+                    -int(item[1].next_index),
+                ),
+                reverse=True,
+            )[:branch_width]
+
+            for route_score, candidate in branch:
+                retrieved = retrieval_by_index.get(candidate.next_index)
+                survivability = (
+                    float(retrieved.components.get("future_survivability", 0.5))
+                    if retrieved is not None
+                    else 0.5
+                )
+                timing_adjustment, timing_evidence = timing_candidate_adjustment(
+                    timing_state,
+                    analyses[candidate.next_index],
+                )
+                step_score = route_score + timing_adjustment
+                candidate.plan.metadata = {
+                    **candidate.plan.metadata,
+                    "set_timing": {
+                        **timing_state.to_dict(),
+                        "candidate_adjustment": round(timing_adjustment, 6),
+                        "candidate_evidence": timing_evidence,
+                    },
+                    "route_survivability": round(survivability, 6),
+                    "neural_route_beam": True,
+                }
+                candidate.components["future_survivability"] = round(survivability, 6)
+                candidate.components["route_survivability_adjustment"] = round(
+                    0.12 * (survivability - 0.5),
+                    6,
+                )
+                projected = candidate.move.projected_state
+                next_order = state.order + (candidate.next_index,)
+                next_plans = state.plans + (candidate.plan,)
+                next_set_state = build_set_state(
+                    [analyses[index] for index in next_order],
+                    list(next_plans),
+                )
+                next_dj_state = build_dj_state(
+                    analyses[candidate.next_index],
+                    source_cursor=projected.source_cursor_seconds,
+                    effective_bpm=projected.effective_bpm,
+                    render_rate=projected.render_rate,
+                    set_state=next_set_state,
+                    tempo_owner=projected.tempo_owner,
+                )
+                decision = CompleteMoveDecision(
+                    current_index=current,
+                    winner=candidate,
+                    candidates=tuple(generated),
+                    search_score=round(step_score, 6),
+                    lookahead_depth=1,
+                    projected_path=(candidate.next_index,),
+                    retrieval=retrieval,
+                    commit_score=round(step_score, 6),
+                )
+                expanded.append(
+                    _BeamRouteState(
+                        order=next_order,
+                        plans=next_plans,
+                        decisions=state.decisions + (decision,),
+                        dj_state=next_dj_state,
+                        score_total=state.score_total + step_score,
+                    )
+                )
+
+        if not expanded:
+            break
+        expanded.sort(
+            key=lambda item: (
+                len(item.order),
+                item.score_total / max(1, len(item.decisions)),
+                sum(decision.winner.move.future_optionality for decision in item.decisions),
+                tuple(-index for index in item.order),
+            ),
+            reverse=True,
+        )
+        beam = expanded[:beam_width]
+
+    completed = [
+        state for state in beam
+        if len(state.order) == len(analyses)
+        and (end_index is None or state.order[-1] == end_index)
+    ]
+    if not completed:
+        best_partial = max(
+            beam,
+            key=lambda item: (
+                len(item.order),
+                item.score_total / max(1, len(item.decisions)),
+            ),
+        )
+        return _CompleteMoveRoute(
+            order=best_partial.order,
+            decisions=best_partial.decisions,
+            score=best_partial.score_total / max(1, len(best_partial.decisions)),
+            completed=False,
+            reason=(
+                f"filtered beam search exhausted after {len(best_partial.order)}/"
+                f"{len(analyses)} tracks"
+            ),
+        )
+    best = max(
+        completed,
+        key=lambda item: (
+            item.score_total / max(1, len(item.decisions)),
+            sum(decision.winner.move.future_optionality for decision in item.decisions),
+            tuple(-index for index in item.order),
+        ),
+    )
+    return _CompleteMoveRoute(
+        order=best.order,
+        decisions=best.decisions,
+        score=best.score_total / max(1, len(best.decisions)),
+        completed=True,
+        reason="",
+    )
+
+
 def _large_crate_complete_move_config(
     config: CompleteMoveConfig,
     track_count: int,
+    *,
+    experimental_retrieval: bool | None = None,
 ) -> CompleteMoveConfig:
-    """Bound structural search cost for large crates without touching safety gates."""
+    """Bound structural search cost for large crates without touching safety gates.
+
+    During the explicit neural-retrieval experiment, caller-provided widening
+    tiers are intentional and must survive this helper. Normal production
+    planning keeps the historical conservative caps.
+    """
     if track_count < _large_set_threshold():
         return config
+    if experimental_retrieval is None:
+        experimental_retrieval = os.environ.get(
+            "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+    if experimental_retrieval:
+        return replace(
+            config,
+            lookahead_moves=min(config.lookahead_moves, 2),
+            search_branch_width=min(config.search_branch_width, 4),
+            lazy_candidate_width=min(config.lazy_candidate_width, max(6, track_count - 1)),
+            lazy_expansion_width=min(config.lazy_expansion_width, max(4, track_count - 1)),
+            opener_candidates=min(config.opener_candidates, 4),
+            candidates_per_track=min(config.candidates_per_track, 4),
+        )
     return replace(
         config,
         lookahead_moves=min(config.lookahead_moves, 2),
@@ -1602,6 +1951,84 @@ def _large_crate_complete_move_config(
         opener_candidates=min(config.opener_candidates, 2),
         candidates_per_track=min(config.candidates_per_track, 3),
     )
+
+
+def _route_search_signature(
+    config: CompleteMoveConfig,
+    track_count: int,
+    *,
+    experimental_retrieval: bool | None = None,
+) -> tuple[int, ...]:
+    effective = _large_crate_complete_move_config(
+        config,
+        track_count,
+        experimental_retrieval=experimental_retrieval,
+    )
+    return (
+        int(effective.lookahead_moves),
+        int(effective.search_branch_width),
+        int(effective.lazy_candidate_width),
+        int(effective.lazy_expansion_width),
+        int(effective.opener_candidates),
+        int(effective.candidates_per_track),
+    )
+
+
+def _progressive_sparse_configs(
+    config: CompleteMoveConfig,
+    track_count: int,
+    *,
+    experimental_retrieval: bool,
+) -> tuple[CompleteMoveConfig, ...]:
+    """Return only widening configs that materially change effective search.
+
+    Large-crate caps can make nominal tiers equivalent. Re-running an
+    equivalent tier repeats expensive sparse graph work without increasing
+    route coverage.
+    """
+    requested_tiers = (
+        ((8, 3, 3), (10, 4, 3), (12, 4, 4))
+        if experimental_retrieval
+        else ((8, 4, 3),)
+    )
+    seen_signatures = {
+        _route_search_signature(
+            config,
+            track_count,
+            experimental_retrieval=experimental_retrieval,
+        )
+    }
+    result: list[CompleteMoveConfig] = []
+    for candidate_width, opener_count, branch_width in requested_tiers:
+        candidate_cfg = replace(
+            config,
+            opener_candidates=min(
+                track_count,
+                max(config.opener_candidates, opener_count),
+            ),
+            search_branch_width=min(
+                candidate_width,
+                max(config.search_branch_width, branch_width),
+            ),
+            lazy_candidate_width=min(
+                max(1, track_count - 1),
+                max(config.lazy_candidate_width, candidate_width),
+            ),
+            lazy_expansion_width=min(
+                max(2, candidate_width),
+                max(config.lazy_expansion_width, 4),
+            ),
+        )
+        signature = _route_search_signature(
+            candidate_cfg,
+            track_count,
+            experimental_retrieval=experimental_retrieval,
+        )
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        result.append(candidate_cfg)
+    return tuple(result)
 
 
 def build_complete_move_route(
@@ -1660,26 +2087,61 @@ def build_complete_move_route(
         if cfg.mode == "move_authoritative" and headphones_cfg.enabled and len(openers) > 1
         else headphones_cfg
     )
-    routes = [
-        _complete_move_route_from_opener(
-            opener,
-            analyses,
-            graph,
-            end_index=end_index,
-            journey=journey,
-            blocked_pairs=blocked,
-            config=cfg,
-            headphones_config=scouting_headphones,
-            listener=listener,
-            ensure_pairs=ensure_pairs,
-            timing_intent=timing_intent,
-        )
-        for opener in openers
-    ]
+    experimental_retrieval = os.environ.get(
+        "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if experimental_retrieval and cfg.mode == "move_authoritative":
+        # Compare opener candidates inside one shared beam. Running a complete
+        # beam independently for each opener multiplies sparse graph work while
+        # preventing candidate-pair batching across opener hypotheses.
+        routes = [
+            _build_filtered_beam_route(
+                tuple(openers),
+                analyses,
+                graph,
+                end_index=end_index,
+                journey=journey,
+                blocked_pairs=blocked,
+                config=cfg,
+                ensure_pairs=ensure_pairs,
+                timing_intent=timing_intent,
+            )
+        ]
+    else:
+        routes = [
+            _complete_move_route_from_opener(
+                opener,
+                analyses,
+                graph,
+                end_index=end_index,
+                journey=journey,
+                blocked_pairs=blocked,
+                config=cfg,
+                headphones_config=scouting_headphones,
+                listener=listener,
+                ensure_pairs=ensure_pairs,
+                timing_intent=timing_intent,
+            )
+            for opener in openers
+        ]
     complete = [route for route in routes if route.completed]
     if not complete:
         reason = "; ".join(route.reason for route in routes if route.reason) or "no complete route"
-        return _CompleteMoveRoute(order=(), decisions=(), score=0.0, completed=False, reason=reason)
+        partial = max(
+            routes,
+            key=lambda route: (
+                len(route.order),
+                route.score,
+                sum(decision.winner.move.future_optionality for decision in route.decisions),
+            ),
+        )
+        return _CompleteMoveRoute(
+            order=partial.order,
+            decisions=partial.decisions,
+            score=partial.score,
+            completed=False,
+            reason=reason,
+        )
     best_scout = max(
         complete,
         key=lambda route: (
@@ -1688,6 +2150,11 @@ def build_complete_move_route(
             tuple(-index for index in route.order),
         ),
     )
+    if experimental_retrieval:
+        # Beam decisions are structural preferences only. Final compilation,
+        # professional rehearsal, rendered judging, and safety still decide
+        # whether each edge may commit.
+        return best_scout
     if scouting_headphones.enabled == headphones_cfg.enabled:
         return best_scout
     committed = _complete_move_route_from_opener(
@@ -3299,8 +3766,12 @@ def make_set_plan(
     default_replans = max(3, min(8, (len(analyses) + 1) // 2))
     max_replans = max(1, min(48, int(os.environ.get("DJAI_MAX_SET_REPLANS", str(default_replans)))))
     complete_move_runs: list[_CompleteMoveRoute] = []
+    route_search_seconds = 0.0
+    route_search_calls = 0
+    compile_seconds = 0.0
+    compile_calls = 0
 
-    def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
+    def _choose_automatic_order_impl(active_blocked: set[tuple[int, int]]) -> list[int]:
         route: _CompleteMoveRoute | None = None
         if broad_graph_materialized:
             return optimize_order(
@@ -3331,59 +3802,115 @@ def make_set_plan(
                 return list(route.order)
 
             if lazy_graph_authority and len(analyses) >= _large_set_threshold():
-                # A bounded large-crate scout may dead-end after committing an
-                # unfortunate opener even though a complete sparse route exists.
-                # Escalate the *structural* search first and reuse every graph
-                # pair already materialized. This is much cheaper than jumping
-                # immediately to the historical broad graph; rendered rehearsal
-                # and all hard safety gates remain unchanged.
-                expanded_cfg = replace(
+                # Learned retrieval should widen locally before the planner is
+                # allowed to consider the historical O(N^2) graph. Each tier
+                # reuses already materialized/cached pair evidence.
+                experimental_retrieval = os.environ.get(
+                    "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+                ).strip().lower() in {"1", "true", "yes", "on"}
+                expansion_tiers = _progressive_sparse_configs(
                     complete_move_cfg,
-                    opener_candidates=min(4, max(complete_move_cfg.opener_candidates + 2, 3)),
-                    search_branch_width=min(3, max(complete_move_cfg.search_branch_width + 1, 2)),
-                    lazy_candidate_width=min(8, max(complete_move_cfg.lazy_candidate_width + 2, 5)),
-                    lazy_expansion_width=min(8, max(complete_move_cfg.lazy_expansion_width + 2, 4)),
+                    len(analyses),
+                    experimental_retrieval=experimental_retrieval,
                 )
-                if progress:
-                    progress(
-                        "route-search",
-                        1,
-                        2,
-                        "Sparse large-crate scout incomplete; expanding opener/branch search before broad graph fallback",
-                    )
-                expanded_route = build_complete_move_route(
-                    analyses,
-                    graph,
-                    start_index=start_index,
-                    end_index=end_index,
-                    journey=journey,
-                    blocked_pairs=active_blocked,
-                    config=expanded_cfg,
-                    headphones_config=headphones_cfg,
-                    listener=listener,
-                    ensure_pairs=_ensure_graph_pairs,
-                    timing_intent=timing_intent,
-                )
-                complete_move_runs.append(expanded_route)
-                if expanded_route.completed:
+                total_tiers = len(expansion_tiers)
+                for tier_index, expanded_cfg in enumerate(expansion_tiers, start=1):
                     if progress:
                         progress(
                             "route-search",
-                            2,
-                            2,
-                            "Expanded sparse route completed; broad graph fallback avoided",
+                            tier_index,
+                            total_tiers + 1,
+                            (
+                                f"Sparse route incomplete; widening learned retrieval "
+                                f"to top {expanded_cfg.lazy_candidate_width}"
+                            ),
                         )
-                    return list(expanded_route.order)
+                    expanded_route = build_complete_move_route(
+                        analyses,
+                        graph,
+                        start_index=start_index,
+                        end_index=end_index,
+                        journey=journey,
+                        blocked_pairs=active_blocked,
+                        config=expanded_cfg,
+                        headphones_config=headphones_cfg,
+                        listener=listener,
+                        ensure_pairs=_ensure_graph_pairs,
+                        timing_intent=timing_intent,
+                    )
+                    complete_move_runs.append(expanded_route)
+                    if expanded_route.completed:
+                        if progress:
+                            progress(
+                                "route-search",
+                                total_tiers + 1,
+                                total_tiers + 1,
+                                "Progressive sparse retrieval completed; broad graph avoided",
+                            )
+                        return list(expanded_route.order)
         if lazy_graph_authority:
-            # Safe fallback only: if both bounded sparse complete-move searches
-            # cannot finish, materialize the historical graph before invoking
-            # legacy order.
+            # Neural retrieval experiments deliberately test whether bounded
+            # candidate filtering can complete the route without falling back
+            # to O(N^2) graph construction. Historical broad-graph recovery
+            # remains available outside the experiment, or when explicitly
+            # re-enabled for diagnosis.
+            experimental_retrieval = os.environ.get(
+                "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            allow_broad = os.environ.get(
+                "DJAI_ALLOW_BROAD_GRAPH_FALLBACK",
+                "0" if experimental_retrieval else "1",
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            if not allow_broad:
+                if progress:
+                    effective_attempts = max(1, len(complete_move_runs))
+                    best_partial_depth = max(
+                        (len(item.order) for item in complete_move_runs),
+                        default=0,
+                    )
+                    progress(
+                        "route-search",
+                        effective_attempts,
+                        effective_attempts,
+                        (
+                            "Progressive learned retrieval exhausted after "
+                            f"{effective_attempts} effective sparse attempt(s); "
+                            f"best partial route reached {best_partial_depth}/{len(analyses)} tracks; "
+                            "broad graph disabled for this experiment"
+                        ),
+                    )
+                raise SparseRouteExhaustedError(
+                    "Progressive learned retrieval could not complete a safe route without broad-graph fallback.",
+                    diagnostics={
+                        "effective_sparse_attempts": len(complete_move_runs),
+                        "best_sparse_partial_tracks": max(
+                            (len(item.order) for item in complete_move_runs),
+                            default=0,
+                        ),
+                        "materialized_graph_pairs": len(graph),
+                        "possible_graph_pairs": len(analyses) * max(0, len(analyses) - 1),
+                        "graph": session.to_dict(),
+                        "attempts": [
+                            {
+                                "completed": bool(item.completed),
+                                "tracks": len(item.order),
+                                "score": round(float(item.score), 6),
+                                "reason": str(item.reason or ""),
+                            }
+                            for item in complete_move_runs
+                        ],
+                    },
+                )
             if progress:
+                effective_attempts = max(1, len(complete_move_runs))
                 progress(
                     "route-search",
-                    2,
-                    2,
-                    "Sparse route still incomplete; materializing broad graph fallback",
+                    effective_attempts,
+                    effective_attempts + 1,
+                    (
+                        f"Sparse route incomplete after {effective_attempts} effective attempt(s); "
+                        "materializing broad graph fallback"
+                    ),
                 )
             _ensure_full_graph()
         return optimize_order(
@@ -3395,6 +3922,24 @@ def make_set_plan(
             listener_profile=listener_profile,
             blocked_pairs=active_blocked,
         )
+
+    def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
+        nonlocal route_search_seconds
+        nonlocal route_search_calls
+        started = time.perf_counter()
+        route_search_calls += 1
+        sparse_failure = False
+        try:
+            return _choose_automatic_order_impl(active_blocked)
+        except SparseRouteExhaustedError as exc:
+            sparse_failure = True
+            route_search_seconds += time.perf_counter() - started
+            exc.diagnostics["route_search_seconds"] = round(route_search_seconds, 6)
+            exc.diagnostics["route_search_calls"] = route_search_calls
+            raise
+        finally:
+            if not sparse_failure:
+                route_search_seconds += time.perf_counter() - started
 
     def _complete_move_preferences(selected_order: list[int]) -> dict[tuple[int, int], CompleteMoveDecision] | None:
         if complete_move_cfg.mode != "move_authoritative" or not complete_move_runs:
@@ -3427,7 +3972,7 @@ def make_set_plan(
             key = tuple(order_value[: count + 1])
             prepared_prefix_cache[key] = list(edges[:count])
 
-    def _compile_for_executive(
+    def _compile_for_executive_impl(
         selected_order: list[int],
         replan_on_review: bool,
         allow_emergency_escape: bool,
@@ -3500,6 +4045,24 @@ def make_set_plan(
                 resolution=exc.resolution,
             ) from exc
 
+    def _compile_for_executive(
+        selected_order: list[int],
+        replan_on_review: bool,
+        allow_emergency_escape: bool,
+    ) -> list[TransitionEdge]:
+        nonlocal compile_seconds
+        nonlocal compile_calls
+        started = time.perf_counter()
+        compile_calls += 1
+        try:
+            return _compile_for_executive_impl(
+                selected_order,
+                replan_on_review,
+                allow_emergency_escape,
+            )
+        finally:
+            compile_seconds += time.perf_counter() - started
+
     def _latest_complete_move_decisions() -> tuple[CompleteMoveDecision, ...]:
         if not complete_move_runs:
             return ()
@@ -3514,6 +4077,7 @@ def make_set_plan(
         max_replans=max_replans,
         progress=progress,
     )
+    executive_started = time.perf_counter()
     executive_result = executive_orchestrator.run_prepared_set(
         manual_order=(list(manual_order) if manual_order is not None else None),
         choose_order=_choose_automatic_order,
@@ -3521,6 +4085,7 @@ def make_set_plan(
         decisions=_latest_complete_move_decisions,
         top_alternatives=complete_move_cfg.report_top_k,
     )
+    executive_seconds = time.perf_counter() - executive_started
     order = list(executive_result.order)
     transitions = list(executive_result.transitions)
     blocked_pairs = set(executive_result.blocked_pairs)
@@ -3578,6 +4143,96 @@ def make_set_plan(
     signature_matches = sum(
         1 for generated, compiled in zip(generated_signatures, compiled_signatures) if generated and generated == compiled
     )
+    final_adjacent_pairs = set(zip(order, order[1:]))
+    training_route_attempts: list[dict[str, Any]] = []
+    for run_index, run in enumerate(complete_move_runs):
+        decision_rows: list[dict[str, Any]] = []
+        for decision_index, decision in enumerate(run.decisions):
+            state = decision.winner.state
+            candidate_by_target: dict[int, Any] = {}
+            for candidate in decision.candidates:
+                previous = candidate_by_target.get(int(candidate.next_index))
+                if previous is None or float(candidate.selection_score) > float(previous.selection_score):
+                    candidate_by_target[int(candidate.next_index)] = candidate
+            decision_rows.append(
+                {
+                    "decision_index": decision_index,
+                    "current_index": int(decision.current_index),
+                    "winner_index": int(decision.winner.next_index),
+                    "search_score": round(float(decision.search_score), 6),
+                    "commit_score": round(float(decision.commit_score), 6),
+                    "lookahead_depth": int(decision.lookahead_depth),
+                    "projected_path": [int(value) for value in decision.projected_path],
+                    "state": (
+                        {
+                            "energy": round(float(state.set_energy), 6),
+                            "tension": round(float(state.set_tension), 6),
+                            "groove": round(float(state.set_groove), 6),
+                            "vocal_density": round(float(state.set_vocal_density), 6),
+                            "source_cursor_seconds": round(float(state.source_cursor_seconds), 6),
+                            "source_bar": int(state.source_bar),
+                            "effective_bpm": round(float(state.effective_bpm), 6),
+                        }
+                        if state is not None
+                        else None
+                    ),
+                    "candidates": [
+                        {
+                            "next_index": int(candidate.next_index),
+                            "selection_score": round(float(candidate.selection_score), 6),
+                            "move_score": round(float(candidate.move.score), 6),
+                            "future_optionality": round(float(candidate.move.future_optionality), 6),
+                            "components": {
+                                key: round(float(value), 6)
+                                for key, value in candidate.components.items()
+                            },
+                            "won_attempt": int(candidate.next_index) == int(decision.winner.next_index),
+                            "blocked_by_executive": (
+                                int(decision.current_index),
+                                int(candidate.next_index),
+                            ) in blocked_pairs,
+                            "survived_final_adjacency": (
+                                int(decision.current_index),
+                                int(candidate.next_index),
+                            ) in final_adjacent_pairs,
+                        }
+                        for candidate in sorted(
+                            candidate_by_target.values(),
+                            key=lambda item: (
+                                float(item.selection_score),
+                                float(item.move.future_optionality),
+                                -int(item.next_index),
+                            ),
+                            reverse=True,
+                        )
+                    ],
+                }
+            )
+        training_route_attempts.append(
+            {
+                "attempt_index": run_index,
+                "completed": bool(run.completed),
+                "reason": str(run.reason or ""),
+                "score": round(float(run.score), 6),
+                "order": [int(value) for value in run.order],
+                "decision_count": len(run.decisions),
+                "decisions": decision_rows,
+            }
+        )
+
+    crate_track_fingerprints: list[str] = []
+    for track in analyses:
+        identity_payload = track.to_dict(include_beats=False)
+        identity_payload.pop("path", None)
+        crate_track_fingerprints.append(
+            hashlib.sha256(
+                json.dumps(identity_payload, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        )
+    crate_fingerprint = hashlib.sha256(
+        json.dumps(sorted(crate_track_fingerprints)).encode("utf-8")
+    ).hexdigest()[:16]
+
     complete_move_report = {
         "version": COMPLETE_MOVE_VERSION,
         "mode": complete_move_cfg.mode,
@@ -3653,6 +4308,28 @@ def make_set_plan(
         "materialized_graph_pairs": len(graph),
         "possible_graph_pairs": len(analyses) * max(0, len(analyses) - 1),
         "run_count": len(complete_move_runs),
+        "training_evidence": {
+            "version": "1.0",
+            "crate_fingerprint": crate_fingerprint,
+            "attempt_count": len(training_route_attempts),
+            "candidate_decision_count": sum(
+                len(attempt["decisions"]) for attempt in training_route_attempts
+            ),
+            "candidate_target_count": sum(
+                len(decision["candidates"])
+                for attempt in training_route_attempts
+                for decision in attempt["decisions"]
+            ),
+            "attempts": training_route_attempts,
+            "final_adjacent_pairs": [
+                [int(left), int(right)] for left, right in sorted(final_adjacent_pairs)
+            ],
+            "blocked_pairs": [
+                [int(left), int(right)] for left, right in sorted(blocked_pairs)
+            ],
+            "training_only": True,
+            "execution_authority": False,
+        },
         "proposed_order": complete_route_order,
         "final_order": list(order),
         "order_matches": bool(complete_route_order and complete_route_order == list(order)),
@@ -3719,7 +4396,16 @@ def make_set_plan(
             "minimum_body_seconds": minimum_body_seconds,
             "minimum_body_fraction": minimum_body_fraction,
             "directed_edge_count": len(graph),
-            "performance": {"planning": session.to_dict()},
+            "performance": {
+                "planning": {
+                    **session.to_dict(),
+                    "route_search_seconds": round(route_search_seconds, 6),
+                    "route_search_calls": route_search_calls,
+                    "compile_rehearsal_seconds": round(compile_seconds, 6),
+                    "compile_rehearsal_calls": compile_calls,
+                    "executive_seconds": round(executive_seconds, 6),
+                }
+            },
             "large_crate_planning": {
                 "enabled": len(analyses) >= _large_set_threshold(),
                 "track_count": len(analyses),
@@ -3727,6 +4413,23 @@ def make_set_plan(
                 "graph_mode": session.graph_mode,
                 "graph_pair_count": session.graph_pair_count,
                 "graph_scout_cues": session.graph_scout_cues,
+                "graph_build_calls": session.graph_build_calls,
+                "graph_cache_hits": session.graph_cache_hits,
+                "graph_cache_misses": session.graph_cache_misses,
+                "graph_cache_hit_rate": round(
+                    session.graph_cache_hits
+                    / max(1, session.graph_cache_hits + session.graph_cache_misses),
+                    6,
+                ),
+                "effective_sparse_attempts": len(complete_move_runs),
+                "best_sparse_partial_tracks": max(
+                    (len(item.order) for item in complete_move_runs),
+                    default=0,
+                ),
+                "completed_sparse_attempts": sum(
+                    1 for item in complete_move_runs if item.completed
+                ),
+                "broad_graph_materialized": broad_graph_materialized,
                 "policy_start_limit": (
                     _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8)
                     if len(analyses) >= _large_set_threshold()
