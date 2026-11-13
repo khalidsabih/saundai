@@ -125,6 +125,9 @@ from .planner_sequence_candidates import (
 from .planner_sequence_ranking import (
     prepare_sequence_candidates as _prepare_sequence_candidates,
 )
+from .planner_sequence_policy import (
+    apply_sequence_transition_policy as _apply_sequence_transition_policy,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1500,20 +1503,18 @@ def _compile_sequence_edges(
             state_context_id=state_context_id,
         )
 
-        policy_context = TransitionPolicyContext(
+        policy_context = _apply_sequence_transition_policy(
+            all_plans,
             journey=journey,
             journey_progress=journey_progress,
             tempo_policy=tempo_policy,
-            effective_bpm_a=current_effective_bpm,
-            render_rate_a=current_rate,
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
             stems_available=stems_available,
+            authority=transition_policy_authority,
+            crowd_directive=crowd_directive,
+            apply_bounded_policy=apply_bounded_transition_policy,
         )
-        if transition_policy_authority == "bounded_advisory":
-            apply_bounded_transition_policy(
-                all_plans,
-                context=policy_context,
-                crowd_directive=crowd_directive,
-            )
 
         measurement_summary: dict[str, object] | None = None
         if quality_loop is not None and quality_loop.enabled:
