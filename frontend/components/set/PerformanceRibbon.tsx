@@ -40,7 +40,7 @@ export function PerformanceRibbon({
     0,
   );
   const rehearsedCount = plan.transitions.filter(
-    (edge) => edge.plan.quality_checked || edge.plan.measurement !== null,
+    (edge) => edge.plan.quality_checked === true || edge.plan.measurement != null,
   ).length;
   const preferredCount = Math.max(0, plan.transitions.length - fallbackCount);
 
@@ -82,6 +82,7 @@ export function PerformanceRibbon({
         {plan.ordered_tracks.map((track, index) => {
           const edge = index < plan.transitions.length ? plan.transitions[index] : null;
           const fallback = Boolean(edge && Number(edge.plan.fallback_level ?? 0) > 0);
+          const hasMeasurement = Boolean(edge && (edge.plan.quality_checked === true || edge.plan.measurement != null));
           const measured = edge?.plan.measured_score ?? edge?.plan.measurement?.overall ?? null;
           const neural = edge?.plan.metadata?.neural_next_track as Record<string, unknown> | undefined;
           const neuralAvailable = Boolean(neural?.available);
@@ -100,7 +101,7 @@ export function PerformanceRibbon({
 
               {edge && (
                 <div className="performance-ribbon__transition">
-                  <span>{fallback ? "RECOVERY" : edge.plan.quality_checked ? "REHEARSED" : "PLANNED"}</span>
+                  <span>{fallback ? "RECOVERY" : hasMeasurement ? "REHEARSED" : "PLANNED"}</span>
                   <strong>{edge.plan.technique.replaceAll("_", " ")}</strong>
                   <small>
                     {measured !== null
