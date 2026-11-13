@@ -1128,10 +1128,11 @@ def _progressive_sparse_configs(
         )
     }
     result: list[CompleteMoveConfig] = []
+    adaptive_tiers = crate_aware_topk_enabled() and config.mode == "move_authoritative"
     for candidate_width, opener_count, branch_width in requested_tiers:
         candidate_cfg = replace(
             config,
-            adaptive_expansion=crate_aware_topk_enabled() and config.mode == "move_authoritative",
+            adaptive_expansion=adaptive_tiers,
             opener_candidates=min(
                 track_count,
                 max(config.opener_candidates, opener_count),
@@ -1142,11 +1143,11 @@ def _progressive_sparse_configs(
             ),
             lazy_candidate_width=min(
                 max(1, track_count - 1),
-                max(config.lazy_candidate_width, candidate_width),
+                candidate_width if adaptive_tiers else max(config.lazy_candidate_width, candidate_width),
             ),
             lazy_expansion_width=min(
-                max(2, track_count - 1),
-                max(config.lazy_expansion_width, candidate_width),
+                max(1, track_count - 1),
+                candidate_width if adaptive_tiers else max(config.lazy_expansion_width, candidate_width),
             ),
         )
         signature = _route_search_signature(
