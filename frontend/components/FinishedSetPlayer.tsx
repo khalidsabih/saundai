@@ -57,7 +57,7 @@ export function FinishedSetPlayer({
           <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
           <small>Autonomous DJ</small>
         </a>
-        <div className="session-ready__state"><i /> SESSION PREPARED</div>
+        <div className="session-ready__state"><i /> SET READY</div>
       </header>
 
       <section className="session-ready">
@@ -69,7 +69,7 @@ export function FinishedSetPlayer({
 
         <div className="session-ready__core">
           <section className="session-ready__opening">
-            <span>OPENING HORIZON</span>
+            <span>PERFORMANCE RIBBON</span>
             <div className="session-ready__trackflow">
               {result.plan.ordered_tracks.slice(0, 3).map((track, index) => (
                 <div key={track.path} className={index === 0 ? "is-now" : index === 1 ? "is-next" : "is-future"}>
@@ -85,7 +85,7 @@ export function FinishedSetPlayer({
             <div><span>Direction</span><strong>{directionLabel(journey)}</strong></div>
             <div><span>Tracks</span><strong>{result.plan.order.length}</strong></div>
             <div><span>Duration</span><strong>{formatDuration(result.plan.estimated_duration_seconds)}</strong></div>
-            <div><span>Handoffs</span><strong>{beatmatchedCount}/{result.plan.transitions.length} prepared</strong></div>
+            <div><span>Transitions</span><strong>{beatmatchedCount}/{result.plan.transitions.length} rehearsed</strong></div>
             <div><span>Recovery</span><strong>{backupCount > 0 ? `${backupCount} backups ready` : "Primary path ready"}</strong></div>
             <div><span>Safety</span><strong className={reviewCount === 0 ? "is-clear" : ""}>{reviewCount === 0 ? "Clear" : `${reviewCount} review`}</strong></div>
           </aside>
@@ -93,7 +93,7 @@ export function FinishedSetPlayer({
 
         <section className="set-review" aria-label="Prepared set review">
           <header className="set-review__header">
-            <div><span>SET REVIEW</span><strong>{result.plan.order.length} tracks · {result.plan.transitions.length} handoffs</strong></div>
+            <div><span>PERFORMANCE ROUTE</span><strong>{result.plan.order.length} tracks · {result.plan.transitions.length} transitions</strong></div>
             <div className="set-review__summary">
               <span><b>{preferredCount}</b> preferred</span>
               <span><b>{fallbackCount}</b> recovered</span>
@@ -179,12 +179,12 @@ export function FinishedSetPlayer({
 
         <div className="session-ready__actions">
           <button type="button" className="session-ready__go-live" onClick={onStartLive}>
-            <span><small>Enter autonomous performance</small><strong>Go live</strong></span>
+            <span><small>Enter autonomous performance</small><strong>Perform Live</strong></span>
             <Icon name="arrow" />
           </button>
           <button type="button" className="session-ready__brain" onClick={onOpenBrain}>
             <Icon name="spark" />
-            <span><small>Inspect the decisions</small><strong>Open Brain</strong></span>
+            <span><small>Understand the whole night</small><strong>Review decisions</strong></span>
           </button>
         </div>
 
