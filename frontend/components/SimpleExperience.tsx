@@ -19,6 +19,7 @@ import { FinishedSetPlayer } from "./FinishedSetPlayer";
 import { HeroSoundtrack, type HeroSoundtrackHandle } from "./HeroSoundtrack";
 import { Icon } from "./Icon";
 import { LivePlayer } from "./LivePlayer";
+import { AppShell } from "./product/AppShell";
 
 const INTRO_PROGRESS_DELAY_MS = 180;
 const INTRO_PROGRESS_DURATION_MS = 6_800;
@@ -451,31 +452,18 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
       )}
 
       {entered && (
-        <section className="autonomous-launch" aria-label="Start an autonomous DJ session">
-          <header className="autonomous-topbar">
-            <a className="autonomous-brand" href="#top" aria-label="SAUND.AI">
-              <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
-              <small>Autonomous DJ</small>
-            </a>
-            <nav className="autonomous-nav" aria-label="Primary">
-              <span className="is-active">Create</span>
-              <button type="button" onClick={() => setBrainOpen(true)}>Brain</button>
-              
-              <a href="/lab">Lab</a>
-            </nav>
-            <div className="autonomous-topbar__actions">
-              <span className="autonomous-health"><i /> Executive ready</span>
-              <button type="button" className="autonomous-account" onClick={openAccount}>
-                {account ? account.email.split("@")[0] : authReady ? "Log in" : "Account"}
-              </button>
-            </div>
-          </header>
-
-          <div className="session-launch">
+        <AppShell
+          active="create"
+          accountLabel={account ? account.email.split("@")[0] : authReady ? "Log in" : "Account"}
+          onAccount={openAccount}
+          onOpenBrain={() => setBrainOpen(true)}
+        >
+          <section className="autonomous-launch" aria-label="Create an autonomous DJ set">
+            <div className="session-launch">
             <header className="session-launch__hero">
               <div>
-                <span className="autonomous-kicker">START A SESSION</span>
-                <h1>Give SAUND the room.</h1>
+                <span className="autonomous-kicker">CREATE</span>
+                <h1>Tell SAUND how the night should feel.</h1>
               </div>
               <p>Choose the music and the direction. SAUND understands the crate, explores the route, rehearses the hard moments and commits only when the performance is safe.</p>
             </header>
@@ -676,8 +664,9 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 </div>
               );
             })()}
-          </div>
-        </section>
+            </div>
+          </section>
+        </AppShell>
       )}
 
       <AccountDialog
