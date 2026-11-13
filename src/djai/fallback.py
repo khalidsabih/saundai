@@ -540,6 +540,9 @@ def build_last_resort_plan(
                     "technique": candidate.technique,
                     "transition_mode": candidate.transition_mode,
                     "fallback_level": candidate.fallback_level,
+                    "exit_time_a_seconds": candidate.exit_time_a,
+                    "entry_time_b_seconds": candidate.entry_time_b,
+                    "transition_seconds": candidate.transition_seconds,
                     "measurement": (
                         asdict(candidate.measurement)
                         if candidate.measurement is not None
