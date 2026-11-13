@@ -174,3 +174,81 @@ def test_track_embedding_uses_bounded_distributed_windows(monkeypatch) -> None:
     assert len(calls) == 3
     assert all(size <= 24 * sr + 1 for size in calls)
     assert sum(calls) <= 72 * sr + 3
+
+
+def test_crate_aware_topk_budget_scales_and_retains_recovery(monkeypatch) -> None:
+    from djai.brain.crate_topk import crate_topk
+    from djai.brain.move_generator import CompleteMoveConfig
+
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "1")
+    small = crate_topk(4)
+    medium = crate_topk(13)
+    large = crate_topk(75)
+    assert small.transition_pilot == 5
+    assert medium.route_initial == 4
+    assert medium.transition_pilot == 3
+    assert medium.transition_max == 10
+    assert medium.route_expansions == (6, 10)
+    assert large.route_initial == 3
+    assert large.transition_pilot == 2
+
+    base = CompleteMoveConfig(mode="move_authoritative")
+    initial = set_planner._large_crate_complete_move_config(base, 13)
+    tiers = set_planner._progressive_sparse_configs(
+        base, 13, experimental_retrieval=False
+    )
+    assert initial.lazy_candidate_width == 4
+    assert [set_planner._large_crate_complete_move_config(tier, 13).lazy_candidate_width for tier in tiers] == [6, 10]
+    assert len(set(set_planner._route_search_signature(tier, 13) for tier in tiers)) == len(tiers)
+
+
+def test_crate_topk_opt_out_keeps_historical_large_crate_caps(monkeypatch) -> None:
+    from djai.brain.move_generator import CompleteMoveConfig
+
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "0")
+    config = set_planner._large_crate_complete_move_config(
+        CompleteMoveConfig(mode="move_authoritative"), 13
+    )
+    assert config.lazy_candidate_width == 6
+    assert config.search_branch_width == 2
+    assert config.opener_candidates == 2
+
+
+def test_unauthorized_model_does_not_change_retrieval_ranking(tmp_path: Path, monkeypatch) -> None:
+    from djai.brain import candidate_retrieval
+    from djai.brain.set_state import SetState
+
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "1")
+    tracks = []
+    for i in range(4):
+        p = tmp_path / f"rank-{i}.wav"
+        p.write_bytes(b"x")
+        tracks.append(analysis(p, bpm=122.0 + i, energy=0.5))
+
+    class Prediction:
+        available = True
+        score = 1.0
+        authority = 0.0
+        confidence = 1.0
+
+    calls = []
+
+    def fake_predict(a, b, *, set_state=None):
+        calls.append(b)
+        return Prediction()
+
+    monkeypatch.setattr(candidate_retrieval, "next_track_prediction", fake_predict)
+    state = SetState()
+    learned = candidate_retrieval.retrieve_candidate_tracks(
+        current_index=0, candidate_indices=[1, 2, 3],
+        analyses=tracks, set_state=state, journey="balanced", progress=0.5,
+    )
+    monkeypatch.setenv("DJAI_CRATE_AWARE_TOPK", "0")
+    deterministic = candidate_retrieval.retrieve_candidate_tracks(
+        current_index=0, candidate_indices=[1, 2, 3],
+        analyses=tracks, set_state=state, journey="balanced", progress=0.5,
+    )
+    assert len(calls) == 3
+    assert learned.selected == deterministic.selected
+    assert all(row.components["learned_weight"] == 0.0 for row in learned.ranked)
+
