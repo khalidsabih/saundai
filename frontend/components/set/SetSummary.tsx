@@ -25,7 +25,7 @@ export function SetSummary({
   journey: JourneyMode;
 }) {
   const measuredCount = plan.transitions.filter(
-    (edge) => edge.plan.quality_checked || edge.plan.measurement !== null,
+    (edge) => edge.plan.quality_checked === true || edge.plan.measurement != null,
   ).length;
   const fallbackCount = plan.transitions.filter(
     (edge) => Number(edge.plan.fallback_level ?? 0) > 0,
