@@ -18,6 +18,8 @@ def candidate_snapshot(plan: Any) -> dict[str, Any]:
         "exit_time_a": getattr(plan, "exit_time_a", None),
         "entry_time_b": getattr(plan, "entry_time_b", None),
         "transition_bars": getattr(plan, "transition_bars", None),
+        "transition_seconds": getattr(plan, "transition_seconds", None),
+        "phase_nudge_seconds_b": getattr(plan, "phase_nudge_seconds_b", None),
         "target_bpm": getattr(plan, "target_bpm", None),
         "render_rate_a": getattr(plan, "render_rate_a", None),
         "render_rate_b": getattr(plan, "render_rate_b", None),
