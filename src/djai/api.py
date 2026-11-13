@@ -21,6 +21,7 @@ from . import __version__
 from .api_training_routers import register_training_routers
 from .api_status_intelligence_routers import register_status_and_intelligence_routers
 from .api_production_routers import register_account_and_production_routers
+from .api_live_job_routers import register_live_job_media_routers
 from .accounts import AccountExistsError, AccountStore
 from .hosting import HostingConfig, SlidingWindowRateLimiter, invite_code_allowed
 from .object_store import ObjectStore, remove_materialized_tree
@@ -2461,7 +2462,6 @@ register_account_and_production_routers(
 )
 
 
-@app.get("/api/live/manifest")
 def get_live_manifest(
     response: Response,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2472,7 +2472,6 @@ def get_live_manifest(
     return live_manifest(plan)
 
 
-@app.get("/api/live/events")
 def live_events(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     plan_path: str = Query(...),
@@ -2509,7 +2508,6 @@ def live_events(
     )
 
 
-@app.get("/api/live/stream")
 def stream_live_set(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     plan_path: str = Query(...),
@@ -2540,7 +2538,6 @@ def _manager_for_job(job_id: str) -> JobManager:
     raise KeyError(job_id)
 
 
-@app.get("/api/jobs/{job_id}")
 def get_job(
     job_id: str,
     response: Response,
@@ -2552,7 +2549,6 @@ def get_job(
     return record.to_dict()
 
 
-@app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(
     job_id: str,
     response: Response,
@@ -2563,7 +2559,6 @@ def cancel_job(
     return job_manager.cancel(job_id).to_dict()
 
 
-@app.get("/api/jobs/{job_id}/events")
 def job_events(
     job_id: str,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2594,7 +2589,6 @@ def job_events(
     )
 
 
-@app.get("/api/media/{relative_path:path}")
 def media(relative_path: str, http_request: Request) -> Response:
     path = _workspace_path(relative_path)
     if not path.is_file():
@@ -2627,6 +2621,20 @@ def media(relative_path: str, http_request: Request) -> Response:
         filename=path.name,
         headers={"Cache-Control": "private, no-store, max-age=0"},
     )
+
+
+register_live_job_media_routers(
+    app,
+    {
+        "get_live_manifest": get_live_manifest,
+        "live_events": live_events,
+        "stream_live_set": stream_live_set,
+        "get_job": get_job,
+        "cancel_job": cancel_job,
+        "job_events": job_events,
+        "media": media,
+    },
+)
 
 
 @app.exception_handler(ValueError)
