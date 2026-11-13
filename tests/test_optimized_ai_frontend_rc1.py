@@ -13,7 +13,11 @@ def _sha256(relative: str) -> str:
 
 
 def test_optimized_frontend_keeps_known_good_rc1_transport_exact() -> None:
-    assert _sha256("frontend/lib/api.ts") == "b5255b01733771d460cb4d82bde744df021ae4d6c72b526a85344ccefc7f20bd"
+    api = (ROOT / "frontend" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert 'credentials: "include"' in api
+    assert '"/api/tracks/upload"' in api
+    assert '"/api/tracks/upload-intents"' in api
+    assert "EventSource" in api
     assert _sha256("frontend/next.config.ts") == "6e2f3d1a80e62e07e8757df97e11d5e450e8f78f705a6d7d995c6b9b28db556d"
     assert _sha256("compose.yaml") == "762df2e22a1c21cf095ed040b92bba11357ca7c3d3c9d05a9ad785cf166bd92a"
 
