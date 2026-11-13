@@ -743,10 +743,18 @@ def build_transition_graph(
             f"{completed}/{total} transition pairs restored from cache",
         )
 
-    selection = resolve_worker_selection("graph", len(missing_tasks), requested=workers)
-    active_session.graph_workers = max(active_session.graph_workers, selection.workers)
+    requested_selection = resolve_worker_selection("graph", total, requested=workers)
+    active_session.graph_workers = max(
+        active_session.graph_workers,
+        requested_execution_selection.workers,
+    )
+    execution_selection = resolve_worker_selection(
+        "graph",
+        len(missing_tasks),
+        requested=workers,
+    )
 
-    if missing_tasks and not selection.parallel:
+    if missing_tasks and not execution_selection.parallel:
         for task in missing_tasks:
             track_a = analyses[task.from_index]
             track_b = analyses[task.to_index]
@@ -775,10 +783,10 @@ def build_transition_graph(
                 "graph",
                 completed,
                 total,
-                f"{selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
+                f"{execution_selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
             )
         with ProcessPoolExecutor(
-            max_workers=selection.workers,
+            max_workers=execution_selection.workers,
             mp_context=process_context(),
             initializer=_graph_worker_initializer,
             initargs=(
@@ -2601,10 +2609,12 @@ def _compile_sequence_edges(
         )
         all_plans: list[TransitionPlan] = []
         matrix: PairEvidenceMatrix | None = None
+        sequence_evidence_reused = False
         stems_available = bool(stem_maps[from_index] and stem_maps[to_index])
         if selected_exits:
             matrix = active_session.get((from_index, to_index))
             if matrix is not None:
+                sequence_evidence_reused = True
                 matrix = matrix.subset(
                     exit_candidates=selected_exits,
                     entry_candidates=selected_entries or None,
@@ -2617,7 +2627,9 @@ def _compile_sequence_edges(
                     or (selected_entries and len(matrix.entry_candidates) < len(selected_entries))
                 ):
                     matrix = None
+                    sequence_evidence_reused = False
             if matrix is None or not matrix.pairs:
+                sequence_evidence_reused = False
                 matrix = build_pair_evidence_matrix(
                     track_a,
                     track_b,
@@ -2657,7 +2669,7 @@ def _compile_sequence_edges(
                     "preferred_exit_time": round(target_exit, 6),
                     "soft_latest_exit_time": round(soft_latest_exit, 6),
                     "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                    "sequence_evidence_reused": True,
+                    "sequence_evidence_reused": sequence_evidence_reused,
                     "sequence_matrix_size": matrix.compatibility_evaluations,
                     "stem_rendering": bool(
                         stems_available
@@ -3055,7 +3067,7 @@ def _compile_sequence_edges(
                 "preferred_exit_time": round(target_exit, 6),
                 "soft_latest_exit_time": round(soft_latest_exit, 6),
                 "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                "sequence_evidence_reused": bool(matrix is not None and matrix.pairs),
+                "sequence_evidence_reused": sequence_evidence_reused,
                 "sequence_matrix_size": (matrix.compatibility_evaluations if matrix is not None else 0),
                 "quality_loop_summary": measurement_summary,
             }
@@ -3149,6 +3161,19 @@ def _compile_sequence_edges(
             chosen.requires_confirmation = False
             chosen.auto_approved = True
             chosen.metadata = {**chosen.metadata, "automatic_delivery": True}
+
+        # A deterministic rescue may replace the candidate after graph evidence
+        # informed sequence compilation. Preserve that provenance on the final
+        # executable plan instead of making the replacement look evidence-free.
+        chosen.metadata = {
+            **chosen.metadata,
+            "sequence_evidence_reused": sequence_evidence_reused,
+            "sequence_matrix_size": (
+                matrix.compatibility_evaluations
+                if matrix is not None
+                else int(chosen.metadata.get("sequence_matrix_size", 0) or 0)
+            ),
+        }
 
         # V6 connects the formal transition-policy boundary without changing
         # candidate ranking in this behavior-preserving migration. The
