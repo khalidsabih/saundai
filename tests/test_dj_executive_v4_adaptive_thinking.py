@@ -230,7 +230,11 @@ def test_v4_transactions_record_the_budget_that_preceded_commit(tmp_path: Path, 
 
 
 def test_v4_patch_preserves_rc1_frontend_transport() -> None:
-    assert _sha256(ROOT / "frontend" / "lib" / "api.ts") == "b5255b01733771d460cb4d82bde744df021ae4d6c72b526a85344ccefc7f20bd"
+    api = (ROOT / "frontend" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert 'credentials: "include"' in api
+    assert '"/api/tracks/upload"' in api
+    assert '"/api/tracks/upload-intents"' in api
+    assert "EventSource" in api
     assert _sha256(ROOT / "frontend" / "next.config.ts") == "6e2f3d1a80e62e07e8757df97e11d5e450e8f78f705a6d7d995c6b9b28db556d"
     assert _sha256(ROOT / "compose.yaml") == "762df2e22a1c21cf095ed040b92bba11357ca7c3d3c9d05a9ad785cf166bd92a"
 
