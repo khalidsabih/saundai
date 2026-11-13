@@ -133,6 +133,7 @@ from .planner_sequence_quality import (
     select_nonautomatic_sequence_transition as _select_nonautomatic_sequence_transition,
 )
 from .planner_sequence_professional import (
+    resolve_professional_emergency_escape as _resolve_professional_emergency_escape,
     resolve_professional_sequence_transition as _resolve_professional_sequence_transition,
 )
 from .planner import (
@@ -1624,31 +1625,32 @@ def _compile_sequence_edges(
                         chosen = professional_outcome.selected
                         measurement_summary = professional_outcome.measurement_summary
                     else:
-                        emergency = resolve_emergency_escape(
-                            track_a,
-                            track_b,
-                            evidence_matrix=matrix,
+                        emergency_outcome = _resolve_professional_emergency_escape(
+                            track_a=track_a,
+                            track_b=track_b,
+                            matrix=matrix,
                             professional_config=brain_cfg,
-                            effective_bpm_a=current_effective_bpm,
-                            render_rate_a=current_rate,
+                            current_effective_bpm=current_effective_bpm,
+                            current_rate=current_rate,
                             stems_available=stems_available,
                             set_state=state,
                             journey=journey,
                             journey_progress=journey_progress,
-                            listener=listener_profile.listener if listener_profile is not None else None,
-                            measurement_log_path=quality_loop.log_path,
-                            context={
-                                "mode": "set_sequence_final_escape",
-                                "sequence_position": global_position,
-                                "from_index": from_index,
-                                "to_index": to_index,
-                            },
+                            listener=(
+                                listener_profile.listener
+                                if listener_profile is not None
+                                else None
+                            ),
+                            quality_loop=quality_loop,
+                            global_position=global_position,
+                            from_index=from_index,
+                            to_index=to_index,
                             render_context=edge_render_context,
+                            resolve_emergency_escape=resolve_emergency_escape,
                         )
-                        if emergency.accepted:
-                            assert emergency.selected is not None
-                            chosen = emergency.selected
-                            measurement_summary = emergency.to_dict()
+                        if emergency_outcome.selected is not None:
+                            chosen = emergency_outcome.selected
+                            measurement_summary = emergency_outcome.measurement_summary
                         else:
                             chosen = build_last_resort_plan(
                                 track_a,
@@ -1667,10 +1669,10 @@ def _compile_sequence_edges(
                             chosen.metadata = {
                                 **chosen.metadata,
                                 "unified_transition_final_escape": True,
-                                "emergency_resolution": emergency.to_dict(),
+                                "emergency_resolution": emergency_outcome.emergency_resolution,
                             }
                             measurement_summary = {
-                                **emergency.to_dict(),
+                                **emergency_outcome.emergency_resolution,
                                 "deterministic_final_escape": True,
                             }
             else:
