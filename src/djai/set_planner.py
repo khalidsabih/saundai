@@ -73,6 +73,12 @@ from .rehearsal.headphones import AIHeadphonesConfig, ai_headphones_status, list
 from .personalization import ListenerProfile, get_listener_profile, plan_personalization_adjustment
 from .parallel import resolve_worker_selection, worker_initializer
 from .planner_graph_workers import iter_graph_worker_results
+from .planner_graph_pairs import (
+    GraphPairTask as _GraphPairTask,
+    graph_worker_initializer as _graph_worker_initializer,
+    plan_graph_pair_core as _plan_graph_pair_core,
+    plan_graph_pair_worker as _plan_graph_pair_worker,
+)
 from .planner_candidates import (
     candidate_diverse_by_bar as _candidate_diverse_by_bar,
     graph_scout_candidates as _graph_scout_candidates,
@@ -105,12 +111,6 @@ from .layers import enrich_analyses_with_performance_layers
 from .version import MEASUREMENT_VERSION, PLAN_SCHEMA_VERSION, SET_PLAN_VERSION
 
 ProgressCallback = Callable[[str, int, int, str], None]
-
-
-@dataclass(frozen=True, slots=True)
-class _GraphPairTask:
-    from_index: int
-    to_index: int
 
 
 from .planner_graph_cache import (
@@ -271,6 +271,24 @@ def _transition_warnings(plan: TransitionPlan) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def _graph_select_alternative(
+    alternatives: list[TransitionPlan],
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+) -> tuple[TransitionPlan, float]:
+    return _select_alternative(
+        alternatives,
+        track_a,
+        track_b,
+        preferred_style=_GRAPH_PAIR_PREFERRED_STYLE,
+        journey=_GRAPH_PAIR_JOURNEY,
+    )
+
+
+_GRAPH_PAIR_PREFERRED_STYLE = "auto"
+_GRAPH_PAIR_JOURNEY: JourneyMode = "balanced"
+
+
 def _edge_from_plan(
     from_index: int,
     to_index: int,
@@ -317,147 +335,6 @@ def _edge_from_plan(
     )
 
 
-_GRAPH_WORKER_ANALYSES: tuple[TrackAnalysis, ...] | None = None
-_GRAPH_WORKER_TEMPO_POLICY = "safe"
-_GRAPH_WORKER_PREFERRED_STYLE = "auto"
-_GRAPH_WORKER_JOURNEY: JourneyMode = "balanced"
-_GRAPH_WORKER_STEM_MAPS: dict[int, dict[str, str]] = {}
-_GRAPH_WORKER_SCORING_MODEL: dict[str, Any] | None = None
-
-
-def _graph_worker_initializer(
-    analyses: tuple[TrackAnalysis, ...],
-    tempo_policy: str,
-    preferred_style: str,
-    journey: JourneyMode,
-    stem_maps: dict[int, dict[str, str]],
-    scoring_model: dict[str, Any] | None,
-) -> None:
-    """Load immutable graph-planning inputs once per worker process."""
-    worker_initializer()
-    global _GRAPH_WORKER_ANALYSES
-    global _GRAPH_WORKER_TEMPO_POLICY
-    global _GRAPH_WORKER_PREFERRED_STYLE
-    global _GRAPH_WORKER_JOURNEY
-    global _GRAPH_WORKER_STEM_MAPS
-    global _GRAPH_WORKER_SCORING_MODEL
-    _GRAPH_WORKER_ANALYSES = analyses
-    _GRAPH_WORKER_TEMPO_POLICY = tempo_policy
-    _GRAPH_WORKER_PREFERRED_STYLE = preferred_style
-    _GRAPH_WORKER_JOURNEY = journey
-    _GRAPH_WORKER_STEM_MAPS = stem_maps
-    _GRAPH_WORKER_SCORING_MODEL = scoring_model
-
-
-def _plan_graph_pair_core(
-    task: _GraphPairTask,
-    *,
-    analyses: tuple[TrackAnalysis, ...] | list[TrackAnalysis],
-    tempo_policy: str,
-    preferred_style: str,
-    journey: JourneyMode,
-    stem_maps: dict[int, dict[str, str]],
-    scoring_model: dict[str, Any] | None,
-) -> _GraphPairResult:
-    track_a = analyses[task.from_index]
-    track_b = analyses[task.to_index]
-    stems_a = stem_maps[task.from_index]
-    stems_b = stem_maps[task.to_index]
-    scout_cues = _graph_scout_cue_limit(len(analyses))
-    scout_exits = _graph_scout_candidates(
-        track_a.exit_candidates, kind="exit", limit=scout_cues
-    ) if scout_cues else list(track_a.exit_candidates)
-    scout_entries = _graph_scout_candidates(
-        track_b.entry_candidates, kind="entry", limit=scout_cues
-    ) if scout_cues else list(track_b.entry_candidates)
-    matrix = build_pair_evidence_matrix(
-        track_a,
-        track_b,
-        exit_candidates=scout_exits,
-        entry_candidates=scout_entries,
-        scoring_model=scoring_model,
-    )
-    try:
-        if scout_cues:
-            # Ordering only needs a faithful local feasibility estimate. The
-            # final path-dependent compiler restores the full cue pool and
-            # performs rendered judging on the transitions that survive.
-            alternatives = plan_transition_styles(
-                track_a,
-                track_b,
-                styles=("safe", "creative"),
-                force=True,
-                tempo_policy=tempo_policy,
-                stems_available=bool(stems_a and stems_b),
-                evidence_matrix=matrix,
-                diversify_cues=True,
-            )
-        else:
-            alternatives = plan_transition_alternatives(
-                track_a,
-                track_b,
-                force=True,
-                tempo_policy=tempo_policy,
-                stems_available=bool(stems_a and stems_b),
-                evidence_matrix=matrix,
-            )
-    except (DifficultTransitionError, RuntimeError, ValueError) as exc:
-        fallback = build_last_resort_plan(
-            track_a,
-            track_b,
-            preferred_exit_time=(
-                track_a.exit_candidates[0].time_seconds
-                if track_a.exit_candidates
-                else track_a.duration_seconds * 0.65
-            ),
-            reason=f"Graph edge used an automatic safe fallback: {exc}",
-        )
-        alternatives = [fallback]
-    for alternative in alternatives:
-        alternative.stem_paths_a = dict(stems_a)
-        alternative.stem_paths_b = dict(stems_b)
-    selected, objective = _select_alternative(
-        alternatives,
-        track_a,
-        track_b,
-        preferred_style=preferred_style,
-        journey=journey,
-    )
-    edge = TransitionEdge(
-        from_index=task.from_index,
-        to_index=task.to_index,
-        selected_style=selected.style,
-        objective_score=round(objective, 6),
-        quality=classify_quality(selected),
-        plan=selected,
-        alternatives=alternatives,
-        warnings=_transition_warnings(selected),
-        reasons=list(selected.rationale),
-    )
-    return _GraphPairResult(
-        from_index=task.from_index,
-        to_index=task.to_index,
-        label=f"{track_a.title} -> {track_b.title}",
-        edge=edge,
-        evidence_matrix=matrix,
-    )
-
-
-def _plan_graph_pair_worker(task: _GraphPairTask) -> _GraphPairResult:
-    analyses = _GRAPH_WORKER_ANALYSES
-    if analyses is None:
-        raise RuntimeError("Graph worker was not initialized.")
-    return _plan_graph_pair_core(
-        task,
-        analyses=analyses,
-        tempo_policy=_GRAPH_WORKER_TEMPO_POLICY,
-        preferred_style=_GRAPH_WORKER_PREFERRED_STYLE,
-        journey=_GRAPH_WORKER_JOURNEY,
-        stem_maps=_GRAPH_WORKER_STEM_MAPS,
-        scoring_model=_GRAPH_WORKER_SCORING_MODEL,
-    )
-
-
 def build_transition_graph(
     analyses: list[TrackAnalysis],
     *,
@@ -475,6 +352,11 @@ def build_transition_graph(
     selection. Only true cache misses are submitted to graph workers, and
     worker results are persisted back into the same pair cache.
     """
+    global _GRAPH_PAIR_PREFERRED_STYLE
+    global _GRAPH_PAIR_JOURNEY
+    _GRAPH_PAIR_PREFERRED_STYLE = preferred_style
+    _GRAPH_PAIR_JOURNEY = journey
+
     if len(analyses) < 2:
         raise ValueError("A set needs at least two tracks.")
 
@@ -574,6 +456,15 @@ def build_transition_graph(
                 journey=journey,
                 stem_maps=stem_maps,
                 scoring_model=active_session.scoring_model,
+                select_alternative=lambda alternatives, track_a, track_b: _select_alternative(
+                    alternatives,
+                    track_a,
+                    track_b,
+                    preferred_style=preferred_style,
+                    journey=journey,
+                ),
+                classify_quality=classify_quality,
+                transition_warnings=_transition_warnings,
             )
             key = (result.from_index, result.to_index)
             results[key] = result
@@ -601,6 +492,9 @@ def build_transition_graph(
                 journey,
                 stem_maps,
                 active_session.scoring_model,
+                _graph_select_alternative,
+                classify_quality,
+                _transition_warnings,
             ),
             worker=_plan_graph_pair_worker,
         ):
