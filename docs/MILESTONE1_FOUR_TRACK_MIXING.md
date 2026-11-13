@@ -237,3 +237,31 @@ the bounded warp correction nor provide an audible-quality judgement.
 
 There are no safety-threshold changes, policy changes, or automatic
 reanalysis.
+
+## Independent audio tempo validation before changing BPM models
+
+The cached beat-grid decomposition reproduces phase differences, but cannot
+establish audible tempo. This separate diagnostic estimates onset periodicity
+from the **original audio** near each rejected overlap, without relying on
+saved beat timestamps or the existing `librosa.beat.beat_track` output.
+
+```bash
+python scripts/validate_overlap_audio_tempo.py \
+  --set-plan output/milestone1-four-track/balanced/set-plan.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-four-track/independent-audio-tempo.json
+```
+
+If source paths from the saved plan are no longer available, supply
+`--source-dir audio/uploads` (matching filenames required).
+
+The resulting `independent-audio-tempo.json` contains per-overlap
+audio-onset periodicity (wide and overlap-only windows), original cached
+grid tempo, and saved global BPM. The audio estimator searches 105–140 BPM
+and uses 128-sample hops to improve frequency resolution, but even its
+result is only a periodicity estimate, not human-annotated ground truth.
+Do not overwrite the production BPM based on one spectral-flux ACF peak.
+Look for agreement between multiple independent windows, then validate
+the true musical beat positions against audio before modifying the
+production analysis contract. Nothing in this script modifies caches,
+training authority, renderer, or phase safety.
