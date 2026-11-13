@@ -197,9 +197,10 @@ def _load_graph_pair_cache(
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("version") != GRAPH_PAIR_CACHE_VERSION:
             return None
-        if int(payload.get("from_index", -1)) != from_index or int(payload.get("to_index", -1)) != to_index:
-            return None
         matrix = _pair_evidence_from_dict(dict(payload["evidence_matrix"]))
+        # Cache identity is content/path based, not crate-position based.
+        # Re-map the cached edge to the current list indices after validating
+        # that the evidence still belongs to the same ordered track pair.
         matrix.validate_tracks(track_a, track_b)
         edge_payload = dict(payload["edge"])
         edge = TransitionEdge(
