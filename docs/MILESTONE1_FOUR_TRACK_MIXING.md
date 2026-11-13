@@ -135,3 +135,41 @@ The source code establishes how signals are wired, whereas the report
 establishes their observed values. To prove causality, a separate
 instrumented candidate-decision trace and a controlled feature ablation
 are required. Do that only after validating source features and timing.
+
+## Opt-in transition decision trace (diagnostics, no mix changes)
+
+The previous audit maps *final* cues to cached phrase context. To inspect
+the selection evidence preceding fallback, opt in when running a **new**
+four-track planning run:
+
+```bash
+export DJAI_DECISION_TRACE=1
+# Re-run the same milestone1 four-track command you used for the baseline.
+# Afterwards, inspect the newly produced set-plan.json:
+python - <<'PY'
+import json
+from pathlib import Path
+p = json.loads(Path("output/milestone1-four-track/balanced/set-plan.json").read_text())
+for i, edge in enumerate(p.get("transitions", []), 1):
+    meta = edge.get("plan", {}).get("metadata", {})
+    pool = meta.get("decision_trace_sequence_candidates", {})
+    rejected = meta.get("decision_trace_rejected_phase", {})
+    print(f"Transition {i}: pool={pool.get('total_candidates', 'not captured')} "
+          f"phase_rejection={'captured' if rejected else 'not captured'}")
+    if rejected:
+        print("  rejected:", rejected.get("candidate"))
+        print("  phase profile:", rejected.get("phase_integrity"))
+PY
+```
+
+The opt-in `decision_trace_sequence_candidates` is a bounded snapshot
+of the candidates prepared by the sequence planner **before** professional
+rehearsal. It does **not** represent all candidates constructed internally
+by the professional brain. If the finalization gate rejects a selected
+beatmatched plan, `decision_trace_rejected_phase` retains that selected
+plan's times, rates and exact available phase-integrity profile.
+
+Only emitted diagnostic metadata changes; no scoring, fallback conditions,
+phase thresholds, or audio rendering algorithms are modified.
+The saved plan must be **generated again** with the opt-in enabled;
+existing JSON cannot retroactively recover discarded candidate details.
