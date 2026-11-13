@@ -284,14 +284,24 @@ def capture(args: argparse.Namespace) -> int:
 
     rendered = None
     render_seconds = None
+    render_status = "not_requested"
+    render_failure = None
     if args.render:
         started = time.perf_counter()
-        render_path, _report_path = render_set(
-            plan,
-            Path(args.output).with_suffix(".wav"),
-        )
-        render_seconds = time.perf_counter() - started
-        rendered = _pcm_digest(render_path)
+        try:
+            render_path, _report_path = render_set(
+                plan,
+                Path(args.output).with_suffix(".wav"),
+            )
+            rendered = _pcm_digest(render_path)
+            render_status = "passed"
+        except RuntimeError as exc:
+            # A rejected render is evidence, never a valid PCM-equivalence pass.
+            # Preserve the verifier's exact message without bypassing it.
+            render_status = "rejected"
+            render_failure = str(exc)
+        finally:
+            render_seconds = time.perf_counter() - started
 
     report = {
         "schema": "phase4-equivalence-v1",
@@ -302,6 +312,8 @@ def capture(args: argparse.Namespace) -> int:
         "transitions": transitions,
         **({"selection_trace": selection_trace} if args.trace_selection else {}),
         "rendered_pcm": rendered,
+        "render_status": render_status,
+        "render_failure": render_failure,
         "timing_seconds": {
             "analysis": round(analysis_seconds, 4),
             "planning": round(planning_seconds, 4),
@@ -330,6 +342,9 @@ def capture(args: argparse.Namespace) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Captured {len(transitions)} edges: {output}")
+    if render_status == "rejected":
+        print(f"RENDER REJECTED (report retained): {render_failure}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -341,6 +356,8 @@ def compare(args: argparse.Namespace) -> int:
         "scoring_model_fingerprint", "order", "transitions", "rendered_pcm",
     )
     mismatches = [key for key in keys if baseline.get(key) != current.get(key)]
+    baseline_render_status = baseline.get("render_status", "unknown")
+    current_render_status = current.get("render_status", "unknown")
     baseline_times = baseline.get("timing_seconds", {})
     current_times = current.get("timing_seconds", {})
     print("Phase 4 comparison:")
@@ -412,6 +429,18 @@ def compare(args: argparse.Namespace) -> int:
         )
     if mismatches:
         print("FAILED equivalence fields: " + ", ".join(mismatches), file=sys.stderr)
+        return 1
+    print(f"  render_status: baseline={baseline_render_status} current={current_render_status}")
+    if baseline_render_status == "rejected" or current_render_status == "rejected":
+        print(
+            "RENDER SAFETY GATE NOT PASSED. Matching rejection does not prove PCM equivalence.",
+            file=sys.stderr,
+        )
+        print(f"  baseline failure: {baseline.get('render_failure')!r}")
+        print(f"  current failure:  {current.get('render_failure')!r}")
+        return 2
+    if baseline_render_status != current_render_status:
+        print("FAILED: differing render statuses.", file=sys.stderr)
         return 1
     if baseline.get("rendered_pcm") is None:
         print("WARNING: rendering was not captured; exact-render equivalence is unverified.")
