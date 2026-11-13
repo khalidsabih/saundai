@@ -1,4 +1,4 @@
-# Phase 1 baseline and regression triage
+# Modernization regression triage
 
 Reference: full-suite terminal log shared on 2026-11-13, prior to the
 complete-move generator fix; this is **not** a current post-fix suite run.
@@ -13,6 +13,29 @@ Canonical branch at start of modernization: `phase-13-15-time-live-venue-hardeni
 
 ## Latest operator verification (2026-11-13)
 
+### Phase 2 full-suite baseline
+
+The supported Python test suite is now **green on macOS/Python 3.12**.
+The operator ran `python -m pytest -q --tb=short` after the Phase 2
+contract/runtime fixes and reported **no failures**. The run contains only
+known non-failing warnings plus skipped tests.
+
+The fixes that closed the old failure inventory include:
+
+- frontend/version/hash assertions aligned to authoritative runtime contracts;
+- Executive lifecycle expectations aligned with prepared recovery;
+- Live tempo-release iteration aligned with audible prefetch runway;
+- graph worker accounting and sequence-evidence provenance repaired;
+- AI Headphones successful rehearsals no longer lose authority because of
+  optional selector-result telemetry;
+- automatic rescue expectations aligned with the bounded overlap-safety policy;
+- transition duration assertions compare rendered time against source time using
+  the committed render rate.
+
+No hard-audio-safety threshold was relaxed to obtain the green suite.
+
+### Phase 1 targeted baseline
+
 The following **26 targeted tests passed** on macOS/Python 3.12 after
 Phase 1 fixture repairs:
 
@@ -21,8 +44,9 @@ Phase 1 fixture repairs:
 - `tests/test_dj_executive_v5_prepared_recovery.py`
 - `tests/test_full_set_benchmark_1_0.py`
 
-The full suite was not rerun in this evidence. Warnings in these tests are
-non-failing librosa/audioread and Python 3.13 deprecations.
+Warnings in these tests are non-failing librosa/audioread and Python 3.13
+deprecations. The later Phase 2 full-suite run above supersedes the earlier
+"not rerun" limitation.
 
 ### Phase 16: actual 13-track real-music evidence
 
@@ -84,15 +108,15 @@ without validation or relax hard safety thresholds.
 | Complete-move search | Generator signatures and duplicate widening tiers | Fixed and operator-verified (11 tests pass) |
 | V5 recovery | `test_v5_transactions_carry_recovery_receipts_without_changing_primary` failed because nested `tmp_path / "observed"` did not exist | Fixture fixed; targeted suite now passes |
 | Full-set benchmarking | Two tests construct `SimpleNamespace` without `metadata`, while production expects `TransitionPlan.metadata` | Fixture fixed; targeted suite now passes |
-| Frontend migration | Multiple literal UI-string assertions no longer match Create/Studio/Account components | Inspect intent, replace brittle string checks with behavioral/API tests |
-| RC1 transport | Multiple tests pin old `frontend/lib/api.ts` SHA-256 despite intentional API evolution | Verify upload/auth transport compatibility, then replace hash pins |
-| Transition naturalness | Rescues return `echo_out_drop_in` or `structural_reset` instead of old `filter_build`/`compact`; one duration constraint fails | Audio-quality and feasibility regression investigation required; do not update expectations blindly |
-| Headphones | Two tests report `assert False is True` | Inspect rendered-candidate evidence and critic authority |
-| Live tempo release | Live stream duration and finished render duration diverged | High priority: compare source/rate/handoff clocks and rendered output |
-| API timeline schema | Runtime `1.1.1` vs test `1.0.0` | Establish migration/version authority; update only after confirming API compatibility |
-| Phase 16 | Planning ready but rehearsal not ready with `render=False` | Real crate is production unsafe (50% emergency rate); synthetic test fixture updated to express production-safe contract |
-| Executive lifecycle | V1 and V2 phase histories differ from historical expected sequences | Compare intentional V5 lifecycle additions against audit requirements |
-| Autonomous performance version | Expected `4.0`, got `4.2` | Check canonical wire schema/version contracts |
+| Frontend migration | Multiple literal UI-string assertions no longer matched Create/Studio/Account components | Fixed; frontend contract suite green |
+| RC1 transport | Multiple tests pinned old frontend transport SHA-256 values | Fixed; behavioral transport/config assertions replace hash pins |
+| Transition naturalness | Historical tests expected filtered overlap even when bounded rescue safety selects structural reset | Resolved; unsafe overlap remains prohibited and tests express current safety contract |
+| Headphones | Successful mocked rehearsals lost authority because optional selector telemetry was assumed present | Fixed; acceptance/safety thresholds unchanged |
+| Live tempo release | Live iteration manufactured hold audio before the real audible prefetch deadline | Fixed; live/render parity test green |
+| API timeline schema | Runtime `1.1.1` vs historical `1.0.0` assertion | Fixed; test binds to canonical schema version |
+| Phase 16 | Planning ready but rehearsal not ready with `render=False` | Contract clarified; real crate remains production unsafe and requires later quality work |
+| Executive lifecycle | V1/V2 histories omitted prepared recovery states | Fixed; tests now express current lifecycle |
+| Autonomous performance version | Historical `4.0` assertion vs runtime `4.2` | Fixed; test binds to canonical program version |
 
 ## Next verification commands
 
@@ -108,5 +132,5 @@ python -m pytest -q \
 python -m pytest -q --tb=short
 ```
 
-Do not substitute a passing focused suite for an all-green release gate.
-Capture the post-fix full-suite failure list before Phase 2 changes.
+Phase 2 now has an operator-verified green full-suite baseline. Preserve this
+as the regression gate while Phase 3 documentation and Phase 4 refactors proceed.
