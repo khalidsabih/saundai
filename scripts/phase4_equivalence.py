@@ -54,13 +54,30 @@ def capture(args: argparse.Namespace) -> int:
         for path in paths
     }
     started = time.perf_counter()
-    analyses = analyze_tracks(paths, workers=1, use_cache=False)
+    analyses = analyze_tracks(
+        paths,
+        workers=1,
+        use_cache=bool(args.analysis_cache_dir),
+        cache_dir=args.analysis_cache_dir or ".djai-cache/tracks",
+    )
     analysis_seconds = time.perf_counter() - started
+
+    if args.manual_order:
+        forced = [int(value) for value in args.manual_order.split(",")]
+        if sorted(forced) != list(range(len(paths))):
+            raise SystemExit(
+                f"--manual-order must be a permutation of 0..{len(paths) - 1}"
+            )
 
     started = time.perf_counter()
     plan = make_set_plan(
         analyses,
         source="phase4-equivalence",
+        manual_order=(
+            [int(value) for value in args.manual_order.split(",")]
+            if args.manual_order
+            else None
+        ),
         tempo_policy="safe",
         preferred_style="auto",
         journey="balanced",
@@ -121,6 +138,8 @@ def capture(args: argparse.Namespace) -> int:
             "graph_workers": 1,
             "quality_loop": False,
             "automatic_delivery": False,
+            "manual_order": args.manual_order,
+            "analysis_cache_dir": args.analysis_cache_dir,
             "environment": {
                 key: os.getenv(key)
                 for key in (
@@ -192,6 +211,14 @@ def main() -> int:
     capture_parser.add_argument("--audio-dir", required=True)
     capture_parser.add_argument("--output", required=True)
     capture_parser.add_argument("--render", action="store_true")
+    capture_parser.add_argument(
+        "--manual-order",
+        help="Comma-separated track indices, e.g. 1,0,2; isolate compiler from route search",
+    )
+    capture_parser.add_argument(
+        "--analysis-cache-dir",
+        help="Shared absolute cache path; use the same analyzed evidence on both branches",
+    )
     compare_parser = commands.add_parser("compare")
     compare_parser.add_argument("baseline")
     compare_parser.add_argument("current")
