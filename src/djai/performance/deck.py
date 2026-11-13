@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..models import TrackAnalysis, TransitionCandidate, TransitionPlan
 from ..music.timeline import build_musical_timeline
@@ -167,6 +169,58 @@ def _phase_integrity_profile(
     }
 
 
+
+def _trace_rejected_phase_lock(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    plan: TransitionPlan,
+    profile: dict[str, object],
+) -> None:
+    """Opt-in JSONL evidence for unsafe phase lock; never influences decisions."""
+    destination = os.environ.get("DJAI_PHASE_LOCK_TRACE_PATH", "").strip()
+    if not destination or not plan.beatmatched or bool(profile.get("safe", True)):
+        return
+    points = list(profile.get("points", []) or [])
+    residual_limit = float(profile.get("residual_limit_ms", 0.0) or 0.0)
+    max_residual = float(profile.get("max_residual_ms", 0.0) or 0.0)
+    sample_count = max(5, min(17, int(os.environ.get("DJAI_DECK_PHASE_WARP_SAMPLES", "9"))))
+    evidence = {
+        "track_a": Path(track_a.path).name,
+        "track_b": Path(track_b.path).name,
+        "exit_time_a_seconds": round(float(plan.exit_time_a), 6),
+        "entry_time_b_seconds": round(float(plan.entry_time_b), 6),
+        "transition_seconds": round(float(plan.transition_seconds), 6),
+        "render_rate_a": round(float(plan.render_rate_a), 6),
+        "render_rate_b": round(float(plan.render_rate_b), 6),
+        "phase_nudge_seconds_b": round(float(plan.phase_nudge_seconds_b), 6),
+        "beat_grid_confidence_a": round(float(track_a.beat_grid_confidence), 4),
+        "beat_grid_confidence_b": round(float(track_b.beat_grid_confidence), 4),
+        "beat_interval_cv_a": round(float(track_a.beat_interval_cv), 6),
+        "beat_interval_cv_b": round(float(track_b.beat_interval_cv), 6),
+        "variable_tempo_a": bool(track_a.variable_tempo),
+        "variable_tempo_b": bool(track_b.variable_tempo),
+        "reason": str(profile.get("reason", "")),
+        "max_phase_error_ms": profile.get("max_phase_error_ms"),
+        "max_residual_ms": profile.get("max_residual_ms"),
+        "residual_limit_ms": profile.get("residual_limit_ms"),
+        "phase_warp_max_correction_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0), 3),
+        "phase_warp_max_step_ms": round(_clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_STEP_MAX_MS", "18")), 5.0, 35.0), 3),
+        "sample_count": sample_count,
+        "matched_points": len(points),
+        "unmatched_points": sample_count - len(points),
+        "exceeds_residual_limit": residual_limit > 0.0 and max_residual > residual_limit,
+        "points": points,
+    }
+    try:
+        path = Path(destination).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(evidence, sort_keys=True) + "\n")
+    except OSError:
+        # Diagnostic output must never alter transition selection or delivery.
+        return
+
+
 def _release_bars(rate_delta: float, vocal_probability: float, section: str) -> int:
     # More exposed incoming vocals get a slower tempo ride; instrumental and
     # breakdown sections can absorb a shorter release cleanly.
@@ -303,6 +357,7 @@ def apply_deck_performance(
         track_a, track_b, plan, phase_nudge_seconds_b=decision.phase_nudge_seconds_b
     )
     phase_source_delta = float(phase_integrity.get("source_delta_seconds_b", 0.0) or 0.0)
+    _trace_rejected_phase_lock(track_a, track_b, plan, phase_integrity)
     if bool(phase_integrity.get("safe", True)) and abs(phase_source_delta) > 1e-9:
         plan.source_duration_b = round(max(0.0, plan.source_duration_b + phase_source_delta), 6)
     plan.tempo_release_seconds_b = decision.tempo_release_seconds_b
