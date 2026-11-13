@@ -136,6 +136,10 @@ from .planner_sequence_professional import (
     resolve_professional_emergency_escape as _resolve_professional_emergency_escape,
     resolve_professional_sequence_transition as _resolve_professional_sequence_transition,
 )
+from .planner_sequence_commit import (
+    deterministic_final_escape as _deterministic_final_escape,
+    finalize_sequence_edge as _finalize_sequence_edge,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1652,29 +1656,17 @@ def _compile_sequence_edges(
                             chosen = emergency_outcome.selected
                             measurement_summary = emergency_outcome.measurement_summary
                         else:
-                            chosen = build_last_resort_plan(
-                                track_a,
-                                track_b,
-                                effective_bpm_a=current_effective_bpm,
-                                render_rate_a=current_rate,
+                            chosen, measurement_summary = _deterministic_final_escape(
+                                track_a=track_a,
+                                track_b=track_b,
+                                current_effective_bpm=current_effective_bpm,
+                                current_rate=current_rate,
                                 source_cursor=source_cursor,
-                                preferred_exit_time=required_exit,
-                                reason=(
-                                    "All alternate track routes and separately rehearsed emergency escapes were exhausted; "
-                                    "deterministic phrase-aligned final escape used to preserve delivery."
-                                ),
+                                required_exit=required_exit,
                                 render_context=edge_render_context,
-                                verify_audio=True,
+                                emergency_resolution=emergency_outcome.emergency_resolution,
+                                build_last_resort=build_last_resort_plan,
                             )
-                            chosen.metadata = {
-                                **chosen.metadata,
-                                "unified_transition_final_escape": True,
-                                "emergency_resolution": emergency_outcome.emergency_resolution,
-                            }
-                            measurement_summary = {
-                                **emergency_outcome.emergency_resolution,
-                                "deterministic_final_escape": True,
-                            }
             else:
                 chosen, measurement_summary = _select_automatic_without_professional_brain(
                     track_a=track_a,
@@ -1739,126 +1731,36 @@ def _compile_sequence_edges(
                 select_alternative=_select_alternative,
             )
 
-        if "dj_move" not in chosen.metadata:
-            chosen = rank_transition_plans_as_moves(
-                track_a, track_b, [chosen], state=dj_state
-            )[0]
-        chosen.metadata = {
-            **chosen.metadata,
-            "dj_state_before_move": dj_state.to_dict(),
-        }
-
-        if automatic_delivery:
-            allow_hard_cuts = os.environ.get("DJAI_ALLOW_HARD_CUTS", "0").strip().lower() in {"1", "true", "yes", "on"}
-            deck_performance = dict(chosen.metadata.get("deck_performance", {}) or {})
-            phase_integrity = dict(deck_performance.get("phase_integrity", {}) or {})
-            if chosen.beatmatched and phase_integrity and not bool(phase_integrity.get("safe", True)):
-                rejected_signature = chosen.execution_signature
-                previous_move = chosen.metadata.get("dj_move")
-                previous_state = chosen.metadata.get("dj_state_before_move")
-                chosen = build_last_resort_plan(
-                    track_a,
-                    track_b,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    source_cursor=source_cursor,
-                    preferred_exit_time=required_exit,
-                    reason=(
-                        "Beat Integrity rejected the selected rhythmic overlap because "
-                        "bounded continuous phase correction could not hold lock."
-                    ),
-                    render_context=edge_render_context,
-                    verify_audio=bool(quality_loop is not None and quality_loop.enabled),
-                )
-                chosen.metadata = {
-                    **chosen.metadata,
-                    "beat_integrity_replanned": True,
-                    "rejected_phase_integrity_signature": rejected_signature,
-                    **({"dj_move": previous_move} if previous_move is not None else {}),
-                    **({"dj_state_before_move": previous_state} if previous_state is not None else {}),
-                }
-            if not allow_hard_cuts and chosen.technique in {"quick_cut", "backspin"}:
-                rejected_technique = chosen.technique
-                chosen = build_last_resort_plan(
-                    track_a,
-                    track_b,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    source_cursor=source_cursor,
-                    preferred_exit_time=required_exit,
-                    reason=(
-                        f"Automatic policy re-evaluated {rejected_technique} through the compatibility-aware rescue hierarchy."
-                    ),
-                    render_context=edge_render_context,
-                    verify_audio=bool(quality_loop is not None and quality_loop.enabled),
-                )
-                rescue_kind = str(chosen.metadata.get("rescue_transition_kind", "unknown"))
-                chosen.metadata = {
-                    **chosen.metadata,
-                    "replaced_automatic_cut": rejected_technique,
-                    "continuous_mix_policy": rescue_kind == "filtered_overlap",
-                    "automatic_rescue_policy": "compatibility_aware",
-                }
-            chosen.requires_confirmation = False
-            chosen.auto_approved = True
-            chosen.metadata = {**chosen.metadata, "automatic_delivery": True}
-
-        # A deterministic rescue may replace the candidate after graph evidence
-        # informed sequence compilation. Preserve that provenance on the final
-        # executable plan instead of making the replacement look evidence-free.
-        chosen.metadata = {
-            **chosen.metadata,
-            "sequence_evidence_reused": sequence_evidence_reused,
-            "sequence_matrix_size": (
-                matrix.compatibility_evaluations
-                if matrix is not None
-                else int(chosen.metadata.get("sequence_matrix_size", 0) or 0)
-            ),
-        }
-
-        # V6 connects the formal transition-policy boundary without changing
-        # candidate ranking in this behavior-preserving migration. The
-        # Executive owns when this policy is consulted; the selected program
-        # remains the exact program already chosen by the current brain.
-        annotate_transition_policy(
-            [chosen],
-            context=policy_context,
-            authority=transition_policy_authority,
-        )
-
-        alternatives: list[TransitionPlan] = []
-        for style in ("safe", "creative", "emergency"):
-            candidates = [plan for plan in all_plans if plan.style == style]
-            if candidates:
-                alternatives.append(
-                    max(
-                        candidates,
-                        key=lambda value: _edge_objective(
-                            value,
-                            track_a,
-                            track_b,
-                            journey=journey,
-                            listener_profile=listener_profile,
-                        ),
-                    )
-                )
-        edge = _edge_from_plan(
-            from_index,
-            to_index,
-            chosen,
-            alternatives,
-            analyses,
+        edge, source_cursor, current_rate, current_effective_bpm = _finalize_sequence_edge(
+            chosen=chosen,
+            plans=all_plans,
+            track_a=track_a,
+            track_b=track_b,
+            analyses=analyses,
+            from_index=from_index,
+            to_index=to_index,
+            dj_state=dj_state,
+            automatic_delivery=automatic_delivery,
+            quality_loop_enabled=bool(quality_loop is not None and quality_loop.enabled),
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
+            source_cursor=source_cursor,
+            required_exit=required_exit,
+            render_context=edge_render_context,
+            sequence_evidence_reused=sequence_evidence_reused,
+            matrix=matrix,
+            policy_context=policy_context,
+            transition_policy_authority=transition_policy_authority,
             journey=journey,
             listener_profile=listener_profile,
-            extra_reason=(
-                "The transition was compiled from the track's actual rendered tempo and consumed source position."
-            ),
+            rank_as_moves=rank_transition_plans_as_moves,
+            build_last_resort=build_last_resort_plan,
+            annotate_policy=annotate_transition_policy,
+            edge_objective=_edge_objective,
+            edge_from_plan=_edge_from_plan,
+            validate_plan=validate_execution_plan,
         )
-        validate_execution_plan(edge.plan)
         compiled.append(edge)
-        source_cursor = edge.plan.post_transition_source_end_b
-        current_rate = edge.plan.post_transition_rate_b
-        current_effective_bpm = edge.plan.post_transition_bpm_b or (track_b.bpm * current_rate)
     return compiled
 
 
