@@ -212,6 +212,11 @@ def validate_real_music_library(
                 "warnings": [],
                 "error_type": type(exc).__name__,
                 "error": str(exc),
+                "planner_diagnostics": (
+                    dict(getattr(exc, "diagnostics"))
+                    if isinstance(getattr(exc, "diagnostics", None), dict)
+                    else None
+                ),
             }
             (run_dir / "failure.json").write_text(
                 json.dumps(failure, indent=2, sort_keys=True) + "\n",
