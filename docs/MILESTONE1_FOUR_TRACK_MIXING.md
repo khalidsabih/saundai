@@ -173,3 +173,32 @@ Only emitted diagnostic metadata changes; no scoring, fallback conditions,
 phase thresholds, or audio rendering algorithms are modified.
 The saved plan must be **generated again** with the opt-in enabled;
 existing JSON cannot retroactively recover discarded candidate details.
+
+## Read-only rejected beat-grid diagnosis (no rerun required)
+
+After a four-track run with `DJAI_DECISION_TRACE=1`, inspect the exact
+cached beat timestamps spanning each rejected rhythmic overlap. The
+script requires the monolithic analysis caches with **full beat arrays**
+under `.djai-cache/tracks`, matched by exact source path.
+
+```bash
+python scripts/diagnose_rejected_beat_grids.py \
+  --set-plan output/milestone1-four-track/balanced/set-plan.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-four-track/beat-grid-diagnostics.json
+```
+
+Upload `output/milestone1-four-track/beat-grid-diagnostics.json`
+for review. Per deck, the report includes local expected/observed beat
+intervals, out-of-window beat gaps, local accumulated interval error,
+the nominal playback BPM, and cache-match status.
+
+If status is `missing_or_ambiguous_full_beat_cache`, do not infer
+anything about the detector; this tool deliberately refuses to use
+the 16-beat previews in `set-plan.json` as full grids.
+
+Previously saved decision traces might omit the precise overlap duration
+and initial phase nudge. In that case duration is inferred from bars and
+target BPM, and nudge is reported as unknown; a new traced planning run
+with the latest version includes both. The diagnostic does not recreate
+`_phase_integrity_profile` or prove audio-level beat correctness.
