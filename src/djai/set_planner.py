@@ -129,6 +129,7 @@ from .planner_sequence_policy import (
     apply_sequence_transition_policy as _apply_sequence_transition_policy,
 )
 from .planner_sequence_quality import (
+    select_automatic_without_professional_brain as _select_automatic_without_professional_brain,
     select_nonautomatic_sequence_transition as _select_nonautomatic_sequence_transition,
 )
 from .planner import (
@@ -1691,21 +1692,23 @@ def _compile_sequence_edges(
                                 "deterministic_final_escape": True,
                             }
             else:
-                scores = {
-                    plan.execution_signature: float(plan.metadata.get("selection_utility", plan.score))
-                    for plan in all_plans
-                }
-                chosen = select_automatic_transition(
-                    track_a, track_b, all_plans, analytical_scores=scores, quality_config=quality_loop,
-                    context={"sequence_position": global_position, "from_index": from_index, "to_index": to_index, "journey": journey, "preferred_style": preferred_style},
+                chosen, measurement_summary = _select_automatic_without_professional_brain(
+                    track_a=track_a,
+                    track_b=track_b,
+                    plans=all_plans,
+                    quality_loop=quality_loop,
+                    global_position=global_position,
+                    from_index=from_index,
+                    to_index=to_index,
+                    journey=journey,
+                    preferred_style=preferred_style,
                     render_context=edge_render_context,
-                    source_cursor=source_cursor, preferred_exit_time=required_exit, effective_bpm_a=current_effective_bpm, render_rate_a=current_rate,
+                    source_cursor=source_cursor,
+                    required_exit=required_exit,
+                    current_effective_bpm=current_effective_bpm,
+                    current_rate=current_rate,
+                    select_automatic=select_automatic_transition,
                 )
-                measurement_summary = {
-                    "automatic_delivery": True, "fallback_level": chosen.fallback_level,
-                    "selected_measured_score": chosen.measured_score, "selected_final_score": chosen.score,
-                    "gate_passed": chosen.measurement_passed,
-                }
             chosen.metadata = {
                 **chosen.metadata,
                 "sequence_position": global_position,
