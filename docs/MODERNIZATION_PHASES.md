@@ -1,6 +1,6 @@
 # SAUND.AI modernization phases
 
-Status: **Phases 1–3 complete; Phase 4 extraction and controlled three-track execution/PCM equivalence verified; benchmark exit evidence pending**. This plan governs engineering consolidation on top of
+Status: **Phases 1–4 fixture-scoped gates verified; Phase 5 frontend consolidation audit in progress; Phase 6 release-quality gate pending**. This plan governs engineering consolidation on top of
 the existing Phase 13–15 implementation; it does not replace the product feature
 roadmap in [ROADMAP.md](ROADMAP.md).
 
@@ -113,6 +113,15 @@ engine-state projections. Avoid using literal visual copy as a behavioral test.
 
 **Exit gate:** typecheck, build, critical Playwright flows, keyboard/mobile
 checks, upload, planning, review, audition and Live smoke tests pass.
+
+**Phase 5 audit checkpoint (2026-11-13):** the single Next.js entry page
+switches between Create (`SimpleExperience`) and Studio (`ProWorkspace`);
+both use the shared session and transport modules. The existing cascade
+imports five global stylesheets; preserve ordering and behavior until
+desktop/mobile visual and Playwright checks support scoped extraction.
+The initial ownership and test plan is recorded in
+[PHASE5_FRONTEND_AUDIT.md](PHASE5_FRONTEND_AUDIT.md). No Phase 5 component
+deletions or stylesheet migrations have been made or certified.
 
 ## Phase 6 — Release evidence and real-music quality gate
 
