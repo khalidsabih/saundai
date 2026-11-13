@@ -1,5 +1,7 @@
 # Performance and quality-loop architecture
 
+Current execution and authority boundaries are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
+
 ## Phase 0 foundation
 
 DJAI reuses one `PairEvidenceMatrix` for every directional track pair. Safe, creative, and emergency searches do not repeat style-independent compatibility calculations. Track analysis and directed graph construction can use deterministic process pools.
@@ -57,7 +59,7 @@ Set plans contain Phase 0 analysis/graph statistics and Phase 1 quality-loop met
     "sample_rate": 22050,
     "checked_transitions": 11,
     "passed_transitions": 11,
-    "measurement_version": "1.0.0"
+    "measurement_version": "3.0.0"
   }
 }
 ```
