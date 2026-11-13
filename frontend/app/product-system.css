@@ -119,6 +119,16 @@ body {
   background: var(--color-decision-subtle);
 }
 
+.product-shell__nav .is-disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.product-shell__nav .is-disabled:hover {
+  color: #8f9294;
+  background: transparent;
+}
+
 .product-shell__nav .is-active::before {
   content: "";
   width: 6px;
@@ -957,40 +967,11 @@ input[type="range"] {
   }
 
   .product-shell__brand {
-    align-items: center;
-    padding-inline: 0;
-  }
-
-  .product-shell__brand small,
-  .product-shell__nav > * {
-    font-size: 0;
+    padding-inline: 8px;
   }
 
   .product-shell__nav > * {
-    justify-content: center;
-    padding: 0;
-  }
-
-  .product-shell__nav .is-active::before {
-    width: 8px;
-    height: 8px;
-    margin: 0;
-  }
-
-  .product-shell__health {
-    font-size: 0;
-    justify-content: center;
-  }
-
-  .product-shell__account {
-    font-size: 0;
-    text-align: center;
-  }
-
-  .product-shell__account::after {
-    content: "●";
-    font-size: 16px;
-    color: var(--color-text-secondary);
+    padding-inline: 10px;
   }
 }
 
