@@ -1,5 +1,8 @@
 # DJAI 2.2.0 release notes
 
+> **Historical status:** This document records an earlier implementation/release milestone. It is retained for provenance and must not be used as the current runtime/version contract. See [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md) for current architecture, authority and schema sources of truth.
+
+
 DJAI 2.2.0 implements Phase 1 of the automatic-quality roadmap: the final transition is no longer selected only from formulas. DJAI renders a small analytical candidate set, measures the audio that was actually produced, rejects objective failures, and saves the best passing plan.
 
 ## New modules

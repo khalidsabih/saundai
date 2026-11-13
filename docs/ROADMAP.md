@@ -1,5 +1,8 @@
 # SAUND.AI production roadmap
 
+> **Historical roadmap status:** This file records the earlier SAUND.AI 1.0/RC milestone program and later Phase 13–15 additions. It is retained for roadmap history. Current runtime architecture and authoritative version/schema contracts live in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md); modernization status lives in [MODERNIZATION_PHASES.md](MODERNIZATION_PHASES.md).
+
+
 This is the production spine for SAUND.AI 1.0. The 1.0 codebase closes each architecture milestone while preserving a strict distinction between **implemented capability** and **earned model authority**. A learned model with insufficient rights, held-out, Arena, or governance evidence remains shadow/advisory even when the surrounding production path is complete.
 
 ```text

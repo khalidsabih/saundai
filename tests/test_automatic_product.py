@@ -302,7 +302,7 @@ def test_automatic_api_wait_stems_still_synchronizes_before_analysis(tmp_path: P
     assert metadata["background_nonblocking"] is False
 
 
-def test_automatic_fallback_defaults_to_audible_filtered_overlap(tmp_path: Path, monkeypatch) -> None:
+def test_automatic_fallback_uses_structural_reset_when_overlap_is_unsafe(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
     a_path = tmp_path / "a-rescue.wav"
     b_path = tmp_path / "b-rescue.wav"
@@ -312,12 +312,12 @@ def test_automatic_fallback_defaults_to_audible_filtered_overlap(tmp_path: Path,
     b = analysis(b_path, bpm=142.0, energy=0.79)
     plan = build_last_resort_plan(a, b, preferred_exit_time=160.0)
     validate_execution_plan(plan)
-    assert plan.technique == "filter_build"
-    assert plan.transition_bars >= 2
-    assert plan.transition_seconds >= 4.0
-    assert plan.source_duration_b >= plan.transition_seconds - 1e-6
-    assert plan.metadata["rescue_transition_kind"] == "filtered_overlap"
-    assert plan.metadata["continuous_mix_required"] is True
+    assert plan.technique == "echo_out_drop_in"
+    assert plan.transition_bars == 1
+    assert plan.transition_seconds >= 0.75
+    assert plan.metadata["rescue_transition_kind"] == "structural_reset"
+    assert plan.metadata["continuous_mix_required"] is False
+    assert plan.metadata["rescue_overlap_safe"] is False
 
 
 def test_automatic_fallback_allows_hard_cut_only_when_explicitly_enabled(tmp_path: Path, monkeypatch) -> None:

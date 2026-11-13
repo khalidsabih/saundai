@@ -14,6 +14,7 @@ from djai.set_planner import make_set_plan
 
 def _tracks(tmp_path, count: int = 5):
     keys = ("8A", "9A", "10A", "7A", "8A")
+    tmp_path.mkdir(parents=True, exist_ok=True)
     tracks = []
     for index in range(count):
         path = tmp_path / f"executive-v5-{index}.wav"

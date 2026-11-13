@@ -1,5 +1,8 @@
 # DJAI 3.0.0 release notes
 
+> **Historical status:** This document records an earlier implementation/release milestone. It is retained for provenance and must not be used as the current runtime/version contract. See [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md) for current architecture, authority and schema sources of truth.
+
+
 DJAI 3.0.0 integrates the remaining automatic-product phases on top of the 2.2 render-and-measure engine.
 
 ## Product

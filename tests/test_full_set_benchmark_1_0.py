@@ -12,6 +12,7 @@ def _edge(score=0.8, *, hard=False, emergency=False, fallback=0, technique="blen
         measurement_passed=not hard,
         measurement=measurement,
         fallback_level=fallback,
+        metadata={},
         transition_mode="emergency_cut" if emergency else "beatmatched_blend",
         technique=technique,
     )

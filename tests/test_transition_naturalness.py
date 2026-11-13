@@ -24,19 +24,18 @@ def _pair(tmp_path: Path, *, bpm_a: float, bpm_b: float):
     )
 
 
-def test_difficult_rescue_is_compact_but_still_continuous(tmp_path: Path, monkeypatch) -> None:
+def test_difficult_rescue_uses_structural_reset_when_overlap_is_unsafe(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("DJAI_AUTO_RESCUE_BARS", raising=False)
     monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
     track_a, track_b = _pair(tmp_path, bpm_a=92.0, bpm_b=148.0)
     plan = build_last_resort_plan(track_a, track_b, reason="natural rescue test")
 
-    assert plan.technique == "filter_build"
-    assert plan.transition_bars == 2
-    assert plan.transition_seconds >= 4.0
-    assert plan.source_duration_b >= plan.transition_seconds - 1e-6
-    assert plan.metadata["transition_naturalness_profile"] == "compact"
-    assert plan.performance_program["annotations"]["transition_naturalness_profile"] == "compact"
-    assert plan.performance_program["annotations"]["incoming_alignment"] == "full"
+    assert plan.technique == "echo_out_drop_in"
+    assert plan.transition_bars == 1
+    assert plan.metadata["transition_naturalness_profile"] == "structural_reset"
+    assert plan.metadata["rescue_transition_kind"] == "structural_reset"
+    assert plan.metadata["continuous_mix_required"] is False
+    assert plan.metadata["rescue_overlap_safe"] is False
 
 
 def test_compatible_rescue_keeps_balanced_phrase_handoff(tmp_path: Path, monkeypatch) -> None:
@@ -47,7 +46,7 @@ def test_compatible_rescue_keeps_balanced_phrase_handoff(tmp_path: Path, monkeyp
 
     assert plan.transition_bars == 4
     assert plan.metadata["transition_naturalness_profile"] == "balanced"
-    assert plan.source_duration_b >= plan.transition_seconds - 1e-6
+    assert plan.source_duration_b / max(plan.render_rate_b, 1e-9) >= plan.transition_seconds - 1e-6
 
 
 def test_naturalness_rewards_phrase_structure_and_clean_sources(tmp_path: Path) -> None:
@@ -91,7 +90,7 @@ def test_professional_judge_exposes_naturalness_as_bounded_quality_signal(tmp_pa
     assert any("Transition naturalness" in reason for reason in judgement.reasons)
 
 
-def test_compact_rescue_renders_true_two_deck_overlap(tmp_path: Path, monkeypatch) -> None:
+def test_distant_rescue_renders_structural_reset_without_hard_cut(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("DJAI_AUTO_RESCUE_BARS", raising=False)
     monkeypatch.delenv("DJAI_ALLOW_HARD_CUTS", raising=False)
     sample_rate = 22_050
@@ -117,19 +116,13 @@ def test_compact_rescue_renders_true_two_deck_overlap(tmp_path: Path, monkeypatc
         candidate("entry", 10.0, 10, "drop", bpm=148.0, local_key=track_b.key, energy=0.78),
     ]
 
-    plan = build_last_resort_plan(track_a, track_b, reason="rendered compact rescue")
+    plan = build_last_resort_plan(track_a, track_b, reason="rendered structural rescue")
     rendered = render_transition_audio(
         plan, sample_rate=sample_rate, pre_roll_seconds=0.5, post_roll_seconds=0.5
     )
-    midpoint = rendered.transition.shape[-1] // 2
-    radius = min(sample_rate // 3, midpoint)
-    window = rendered.transition[:, midpoint - radius : midpoint + radius].mean(axis=0)
-    t = np.arange(window.size, dtype=np.float64) / sample_rate
 
-    def tone_amplitude(frequency: float) -> float:
-        basis = np.exp(-2j * np.pi * frequency * t)
-        return float(2.0 * abs(np.dot(window.astype(np.float64), basis)) / max(1, window.size))
-
-    assert tone_amplitude(220.0) > 0.015
-    assert tone_amplitude(660.0) > 0.015
-    assert plan.metadata["transition_naturalness_profile"] == "compact"
+    assert rendered.transition.shape[-1] > 0
+    assert np.isfinite(rendered.transition).all()
+    assert plan.technique == "echo_out_drop_in"
+    assert plan.metadata["transition_naturalness_profile"] == "structural_reset"
+    assert plan.metadata["continuous_mix_required"] is False

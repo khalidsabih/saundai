@@ -1,5 +1,8 @@
 # DJAI 5.1.0 architecture
 
+> **Historical status:** This is the DJAI 5.1 architecture snapshot. It is retained as implementation history, not as the current SAUND.AI runtime contract. See [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md) for the current architecture, authority hierarchy and version/schema source of truth.
+
+
 ## Core invariant
 
 `perception -> evidence -> policy -> private rehearsal -> professional judge -> content-bound execution plan -> deterministic renderer -> final verification`

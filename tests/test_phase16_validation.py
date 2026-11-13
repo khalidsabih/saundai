@@ -7,7 +7,12 @@ from types import SimpleNamespace
 from djai import phase16_validation
 
 
-def _fake_plan(*, hard_failures: list[str] | None = None, fallback_level: int = 0):
+def _fake_plan(
+    *,
+    hard_failures: list[str] | None = None,
+    fallback_level: int = 0,
+    production_safe: bool = True,
+):
     measurement = SimpleNamespace(
         hard_failures=list(hard_failures or []),
         to_dict=lambda: {"hard_failures": list(hard_failures or [])},
@@ -39,7 +44,10 @@ def _fake_plan(*, hard_failures: list[str] | None = None, fallback_level: int = 
                 "ending_energy_target": 0.45,
             }
         },
-        "full_set_benchmark": {"score": 0.9},
+        "full_set_benchmark": {
+            "score": 0.9,
+            "production_safe": production_safe and not hard_failures,
+        },
     }
     return SimpleNamespace(
         plan_id="phase16-test",
@@ -72,6 +80,17 @@ def test_summarize_real_set_plan_blocks_hard_failure() -> None:
     assert summary["hard_failure_count"] == 1
     assert summary["fallback_transition_count"] == 1
     assert summary["quality_pass_rate"] == 0.0
+
+
+def test_phase16_plan_can_pass_quality_but_fail_set_safety() -> None:
+    summary = phase16_validation.summarize_real_set_plan(
+        _fake_plan(production_safe=False)
+    )
+
+    assert summary["planning_ready"] is True
+    assert summary["quality_pass_rate"] == 1.0
+    assert summary["hard_failure_count"] == 0
+    assert summary["production_safe"] is False
 
 
 def test_validate_real_music_library_writes_phase_report(

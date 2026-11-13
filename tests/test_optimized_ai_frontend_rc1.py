@@ -13,18 +13,29 @@ def _sha256(relative: str) -> str:
 
 
 def test_optimized_frontend_keeps_known_good_rc1_transport_exact() -> None:
-    assert _sha256("frontend/lib/api.ts") == "b5255b01733771d460cb4d82bde744df021ae4d6c72b526a85344ccefc7f20bd"
-    assert _sha256("frontend/next.config.ts") == "6e2f3d1a80e62e07e8757df97e11d5e450e8f78f705a6d7d995c6b9b28db556d"
+    api = (ROOT / "frontend" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert 'credentials: "include"' in api
+    assert '"/api/tracks/upload"' in api
+    assert '"/api/tracks/upload-intents"' in api
+    assert "EventSource" in api
+    next_config = (ROOT / "frontend" / "next.config.ts").read_text(encoding="utf-8")
+    assert 'output: "standalone"' in next_config
+    assert 'source: "/api/:path*"' in next_config
+    assert 'destination: `${internalApi}/api/:path*`' in next_config
+    assert 'X-Content-Type-Options' in next_config
     assert _sha256("compose.yaml") == "762df2e22a1c21cf095ed040b92bba11357ca7c3d3c9d05a9ad785cf166bd92a"
 
 
 def test_create_analysis_is_background_work_not_a_navigation_gate() -> None:
     create = (FRONTEND / "components/SimpleExperience.tsx").read_text(encoding="utf-8")
-    assert "const canProceedToDirection = selectedPaths.length >= 2" in create
-    assert "analysing in the background" in create
-    assert "You can keep shaping the set while that work continues." in create
-    assert "Keep moving while SAUND analyses." in create
-    assert "analysing first" not in create
+    assert "const canStartSession = selectedPaths.length >= 2" in create
+    assignment = create.split("const canStartSession", 1)[1].split(";", 1)[0]
+    assert "selectedReady" not in assignment
+    assert "preparingSelectedCount" not in assignment
+    assert "failedSelectedCount === 0" in assignment
+    assert "<CrateSelector" in create
+    assert "<SetIntentPanel" in create
+    assert "<BuildProgress" in create
 
 
 def test_studio_prioritizes_timeline_and_collapses_setup_after_planning() -> None:

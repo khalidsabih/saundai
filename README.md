@@ -747,7 +747,9 @@ Detailed technical documentation is available under [`docs/`](docs/).
 Useful starting points include:
 
 * [`docs/README.md`](docs/README.md)
-* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+* [`docs/CANONICAL_ARCHITECTURE.md`](docs/CANONICAL_ARCHITECTURE.md)
+* [`docs/MODERNIZATION_PHASES.md`](docs/MODERNIZATION_PHASES.md)
+* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — historical 5.1 architecture snapshot
 * [`docs/API.md`](docs/API.md)
 * [`docs/AUTOMATIC.md`](docs/AUTOMATIC.md)
 * [`docs/LIVE.md`](docs/LIVE.md)

@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any
 
 import numpy as np
@@ -511,6 +511,7 @@ def iter_live_chunks(
                 edge = runtime.transitions[position]
                 edge_state = prepare_render_edge_state(plan, edge, current_render_state)
                 next_index = edge.to_index
+                prefetch_started = time.monotonic()
                 next_future = prefetch_pool.submit(
                     load_audio,
                     plan.tracks[next_index].path,
@@ -541,7 +542,32 @@ def iter_live_chunks(
                     frames=body.shape[-1],
                 )
 
-                safety_decision = runtime.update_telemetry(prefetch_ready=next_future.done())
+                # Rendering/iteration may run much faster than audible
+                # playback. NEXT has the duration of the just-emitted body as
+                # real-time prefetch runway. If Python reaches this boundary
+                # early, wait only for the unused runway before declaring a
+                # live preparation miss. This preserves deterministic offline
+                # parity without weakening the actual venue deadline.
+                audible_runway_seconds = body.shape[-1] / sample_rate
+                prefetch_elapsed_seconds = max(0.0, time.monotonic() - prefetch_started)
+                remaining_runway_seconds = max(
+                    0.0,
+                    audible_runway_seconds - prefetch_elapsed_seconds,
+                )
+                if not next_future.done() and remaining_runway_seconds > 0.0:
+                    try:
+                        next_future.result(timeout=remaining_runway_seconds)
+                    except FutureTimeoutError:
+                        pass
+
+                safety_decision = runtime.update_telemetry(
+                    prefetch_ready=next_future.done(),
+                    prefetch_latency_seconds=max(
+                        0.0,
+                        time.monotonic() - prefetch_started,
+                    ),
+                    deadline_seconds=remaining_runway_seconds,
+                )
                 publish_safety_change(safety_decision)
 
                 # HOLD/USE_BACKUP are real audible barriers. Preparation may

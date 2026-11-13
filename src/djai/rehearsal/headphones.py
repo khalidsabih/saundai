@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""SAUND.AI 1.8.0 AI Headphones.
+"""AI Headphones rendered-rehearsal stage (component version 1.8.0).
 
 The complete-move planner stays cheap while exploring the future. Immediately
 before committing the current action, AI Headphones privately renders a small,
@@ -419,7 +419,7 @@ def listen_to_complete_moves(
                 **plan.metadata,
                 "pair_adaptive_rehearsal": {
                     "variant_count": len(adaptive_plans),
-                    "rendered_variant_count": len(measured.evaluated),
+                    "rendered_variant_count": len(getattr(measured, "evaluated", adaptive_plans)),
                     "selected_variant": str(
                         dict(plan.metadata.get("pair_adaptive_mix", {}) or {}).get(
                             "variant",

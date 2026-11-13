@@ -6,6 +6,7 @@ import librosa
 import numpy as np
 
 from djai.analysis import (
+    ANALYSIS_VERSION,
     HOP_LENGTH,
     _build_source_frame_features,
     _source_window_scores,
@@ -105,7 +106,7 @@ def test_analysis_populates_candidate_local_context(tmp_path: Path) -> None:
     analysis = analyze_track(path)
     candidates = [*analysis.entry_candidates, *analysis.exit_candidates]
 
-    assert analysis.analysis_version == "5.0.0"
+    assert analysis.analysis_version == ANALYSIS_VERSION
     assert candidates
     assert all(candidate.local_key is not None for candidate in candidates)
     assert all(len(candidate.local_chroma) == 12 for candidate in candidates)

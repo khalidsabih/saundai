@@ -1,6 +1,6 @@
 # Rendered-audio measurement
 
-The canonical Phase 1 design and configuration are documented in [QUALITY.md](QUALITY.md).
+The current rendered-measurement design and configuration are documented in [QUALITY.md](QUALITY.md).
 
 The short contract is:
 

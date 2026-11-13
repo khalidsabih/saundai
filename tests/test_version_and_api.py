@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from djai import __version__
+from djai.version import MUSICAL_TIMELINE_SCHEMA_VERSION
 from djai.confirmation import create_confirmation_token, verify_confirmation_token
 
 
@@ -135,7 +136,7 @@ def test_api_health_and_no_cache_job_headers(tmp_path: Path, monkeypatch) -> Non
     assert brain.json()["dj_move_brain"]["enabled"] is True
     assert brain.json()["dj_move_brain"]["planning_unit"] == "DJState -> DJMove -> DJState"
     assert brain.json()["dj_move_brain"]["explicit_wait_actions"] is True
-    assert brain.json()["musical_timeline"]["schema_version"] == "1.0.0"
+    assert brain.json()["musical_timeline"]["schema_version"] == MUSICAL_TIMELINE_SCHEMA_VERSION
     assert brain.json()["musical_timeline"]["canonical_phrase_authority"] is True
     assert brain.json()["dj_move_brain"]["hard_audio_safety_authoritative"] is True
     executive = brain.json()["dj_executive"]

@@ -1,4 +1,6 @@
-# Automatic delivery — DJAI 5.0
+# Automatic delivery — current architecture
+
+Current authority boundaries are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
 
 ## Goal
 
@@ -8,7 +10,7 @@ For valid decodable masters, the default listener still does no DJ engineering:
 upload full masters
   -> prepare/cache stems
   -> deterministic + neural perception
-  -> Set Brain proposes futures
+  -> Executive-owned route search proposes futures
   -> solve each directed relationship
   -> family/cue/duration/stem composition search
   -> privately render finalists
@@ -52,7 +54,7 @@ The configured finalist count is one total per-edge render budget shared across 
 
 ## Review-needed and set replanning
 
-A candidate that does not pass the Professional DJ Judge cannot enter the automatic final plan. After bounded family search fails, the directed pair is blocked and the complete track order is optimized again. A learned next-track model may contribute a bounded value residual, but rehearsal has final say.
+A candidate that does not pass rendered rehearsal and professional judgement cannot enter the automatic final plan. After bounded family search fails, the directed pair is blocked and the Executive owns the route repair/replan loop. A learned next-track model may contribute a bounded value residual, but hard feasibility and rendered evidence remain downstream gates.
 
 ## Emergency boundary
 

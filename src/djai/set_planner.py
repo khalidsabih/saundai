@@ -6,7 +6,6 @@ import math
 import os
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
@@ -72,7 +71,31 @@ from .journey import JourneyMode, curve_fit_score, journey_metadata, normalize_j
 from .performance.program import attach_performance_program
 from .rehearsal.headphones import AIHeadphonesConfig, ai_headphones_status, listen_to_complete_moves
 from .personalization import ListenerProfile, get_listener_profile, plan_personalization_adjustment
-from .parallel import prepare_process_environment, process_context, resolve_worker_selection, worker_initializer
+from .parallel import resolve_worker_selection, worker_initializer
+from .planner_graph_workers import iter_graph_worker_results
+from .planner_graph_pairs import (
+    GraphPairTask as _GraphPairTask,
+    graph_worker_initializer as _graph_worker_initializer,
+    plan_graph_pair_core as _plan_graph_pair_core,
+    plan_graph_pair_worker as _plan_graph_pair_worker,
+)
+from .planner_candidates import (
+    candidate_diverse_by_bar as _candidate_diverse_by_bar,
+    graph_scout_candidates as _graph_scout_candidates,
+)
+from .planner_large_crate import (
+    env_int as _env_int,
+    graph_scout_cue_limit as _graph_scout_cue_limit,
+    large_crate_runtime_status,
+    large_set_threshold as _large_set_threshold,
+)
+from .planner_route_search import (
+    greedy_orders as _greedy_orders,
+    local_improve as _route_local_improve,
+    valid_order as _valid_order,
+)
+
+from .planner_order_optimizer import optimize_order_candidates
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -92,160 +115,14 @@ from .version import MEASUREMENT_VERSION, PLAN_SCHEMA_VERSION, SET_PLAN_VERSION
 ProgressCallback = Callable[[str, int, int, str], None]
 
 
-@dataclass(frozen=True, slots=True)
-class _GraphPairTask:
-    from_index: int
-    to_index: int
+from .planner_graph_cache import (
+    GRAPH_PAIR_CACHE_VERSION,
+    GraphPairResult as _GraphPairResult,
+    graph_pair_cache_key as _graph_pair_cache_key,
+    load_graph_pair_cache as _load_graph_pair_cache,
+    store_graph_pair_cache as _store_graph_pair_cache,
+)
 
-
-@dataclass(slots=True)
-class _GraphPairResult:
-    from_index: int
-    to_index: int
-    label: str
-    edge: TransitionEdge
-    evidence_matrix: PairEvidenceMatrix
-
-
-GRAPH_PAIR_CACHE_VERSION = "1.0"
-
-def _analysis_graph_fingerprint(track: TrackAnalysis) -> str:
-    payload = track.to_dict(include_beats=False)
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-def _graph_pair_cache_key(
-    track_a: TrackAnalysis,
-    track_b: TrackAnalysis,
-    *,
-    tempo_policy: str,
-    preferred_style: str,
-    journey: JourneyMode,
-    scout_cues: int,
-    model_fingerprint: str | None,
-) -> str:
-    payload = {
-        "version": GRAPH_PAIR_CACHE_VERSION,
-        "track_a": _analysis_graph_fingerprint(track_a),
-        "track_b": _analysis_graph_fingerprint(track_b),
-        "tempo_policy": tempo_policy,
-        "preferred_style": preferred_style,
-        "journey": journey,
-        "scout_cues": int(scout_cues),
-        "scoring_model_fingerprint": model_fingerprint,
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-def _graph_pair_cache_path(key: str) -> Path:
-    return current_environment().cache_dir / "graph-pairs" / f"{key}.json"
-
-def _pair_evidence_to_dict(matrix: PairEvidenceMatrix) -> dict[str, Any]:
-    return {
-        "track_a_path": matrix.track_a_path,
-        "track_b_path": matrix.track_b_path,
-        "exit_candidates": [asdict(item) for item in matrix.exit_candidates],
-        "entry_candidates": [asdict(item) for item in matrix.entry_candidates],
-        "pairs": [
-            {
-                "exit_index": item.exit_index,
-                "entry_index": item.entry_index,
-                "exit_candidate": asdict(item.exit_candidate),
-                "entry_candidate": asdict(item.entry_candidate),
-                "breakdown": asdict(item.breakdown),
-            }
-            for item in matrix.pairs
-        ],
-        "scoring_model_fingerprint": matrix.scoring_model_fingerprint,
-    }
-
-def _pair_evidence_from_dict(payload: dict[str, Any]) -> PairEvidenceMatrix:
-    return PairEvidenceMatrix(
-        track_a_path=str(payload["track_a_path"]),
-        track_b_path=str(payload["track_b_path"]),
-        exit_candidates=tuple(
-            transition_candidate_from_dict(dict(item))
-            for item in payload.get("exit_candidates", [])
-        ),
-        entry_candidates=tuple(
-            transition_candidate_from_dict(dict(item))
-            for item in payload.get("entry_candidates", [])
-        ),
-        pairs=tuple(
-            CandidatePairEvidence(
-                exit_index=int(item["exit_index"]),
-                entry_index=int(item["entry_index"]),
-                exit_candidate=transition_candidate_from_dict(dict(item["exit_candidate"])),
-                entry_candidate=transition_candidate_from_dict(dict(item["entry_candidate"])),
-                breakdown=CompatibilityBreakdown(**dict(item["breakdown"])),
-            )
-            for item in payload.get("pairs", [])
-        ),
-        scoring_model_fingerprint=payload.get("scoring_model_fingerprint"),
-    )
-
-def _load_graph_pair_cache(
-    key: str,
-    *,
-    from_index: int,
-    to_index: int,
-    track_a: TrackAnalysis,
-    track_b: TrackAnalysis,
-) -> _GraphPairResult | None:
-    path = _graph_pair_cache_path(key)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("version") != GRAPH_PAIR_CACHE_VERSION:
-            return None
-        matrix = _pair_evidence_from_dict(dict(payload["evidence_matrix"]))
-        # Cache identity is content/path based, not crate-position based.
-        # Re-map the cached edge to the current list indices after validating
-        # that the evidence still belongs to the same ordered track pair.
-        matrix.validate_tracks(track_a, track_b)
-        edge_payload = dict(payload["edge"])
-        edge = TransitionEdge(
-            from_index=from_index,
-            to_index=to_index,
-            selected_style=str(edge_payload["selected_style"]),
-            objective_score=float(edge_payload["objective_score"]),
-            quality=str(edge_payload["quality"]),
-            plan=transition_plan_from_dict(dict(edge_payload["plan"])),
-            alternatives=[
-                transition_plan_from_dict(dict(item))
-                for item in edge_payload.get("alternatives", [])
-            ],
-            warnings=[str(item) for item in edge_payload.get("warnings", [])],
-            reasons=[str(item) for item in edge_payload.get("reasons", [])],
-        )
-        return _GraphPairResult(
-            from_index=from_index,
-            to_index=to_index,
-            label=f"{track_a.title} -> {track_b.title}",
-            edge=edge,
-            evidence_matrix=matrix,
-        )
-    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-        return None
-
-def _store_graph_pair_cache(key: str, result: _GraphPairResult) -> None:
-    path = _graph_pair_cache_path(key)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "version": GRAPH_PAIR_CACHE_VERSION,
-            "from_index": result.from_index,
-            "to_index": result.to_index,
-            "edge": result.edge.to_dict(),
-            "evidence_matrix": _pair_evidence_to_dict(result.evidence_matrix),
-        }
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str),
-            encoding="utf-8",
-        )
-        temporary.replace(path)
-    except OSError:
-        return
 
 class TransitionReplanRequired(RuntimeError):
     """A rehearsed edge is not good enough to enter an automatic final set."""
@@ -396,6 +273,22 @@ def _transition_warnings(plan: TransitionPlan) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def _graph_select_alternative(
+    alternatives: list[TransitionPlan],
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    preferred_style: str,
+    journey: JourneyMode,
+) -> tuple[TransitionPlan, float]:
+    return _select_alternative(
+        alternatives,
+        track_a,
+        track_b,
+        preferred_style=preferred_style,
+        journey=journey,
+    )
+
+
 def _edge_from_plan(
     from_index: int,
     to_index: int,
@@ -439,216 +332,6 @@ def _edge_from_plan(
         alternatives=alternatives,
         warnings=_transition_warnings(plan),
         reasons=list(dict.fromkeys(reasons)),
-    )
-
-
-_GRAPH_WORKER_ANALYSES: tuple[TrackAnalysis, ...] | None = None
-_GRAPH_WORKER_TEMPO_POLICY = "safe"
-_GRAPH_WORKER_PREFERRED_STYLE = "auto"
-_GRAPH_WORKER_JOURNEY: JourneyMode = "balanced"
-_GRAPH_WORKER_STEM_MAPS: dict[int, dict[str, str]] = {}
-_GRAPH_WORKER_SCORING_MODEL: dict[str, Any] | None = None
-
-
-def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.environ.get(name, str(default)))
-    except ValueError:
-        value = default
-    return max(minimum, min(maximum, value))
-
-
-def _large_set_threshold() -> int:
-    return _env_int("DJAI_LARGE_SET_THRESHOLD", 8, minimum=4, maximum=64)
-
-
-def _graph_scout_cue_limit(track_count: int) -> int:
-    if track_count < _large_set_threshold():
-        return 0
-    return _env_int("DJAI_GRAPH_SCOUT_CUES", 5, minimum=3, maximum=8)
-
-
-def large_crate_runtime_status() -> dict[str, Any]:
-    try:
-        embed_window = max(8.0, min(45.0, float(os.environ.get("DJAI_TRACK_EMBED_WINDOW_SECONDS", "24"))))
-    except ValueError:
-        embed_window = 24.0
-    embed_windows = _env_int("DJAI_TRACK_EMBED_WINDOWS", 3, minimum=1, maximum=6)
-    return {
-        "schema_version": "1.5.1",
-        "threshold_tracks": _large_set_threshold(),
-        "graph_strategy": "bounded_scout_then_full_final_edges",
-        "graph_scout_cues_per_side": _env_int("DJAI_GRAPH_SCOUT_CUES", 5, minimum=3, maximum=8),
-        "receding_horizon_opener_limit": _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8),
-        "local_improve_passes": _env_int("DJAI_LARGE_SET_LOCAL_PASSES", 2, minimum=1, maximum=4),
-        "track_embedding_windows": embed_windows,
-        "track_embedding_window_seconds": round(embed_window, 3),
-        "full_cue_pool_restored_for_final_edges": True,
-        "rendered_quality_gate_unchanged": True,
-        "hard_audio_safety_authoritative": True,
-    }
-
-
-def _graph_scout_candidates(
-    candidates: list[TransitionCandidate] | tuple[TransitionCandidate, ...],
-    *,
-    kind: str,
-    limit: int,
-) -> list[TransitionCandidate]:
-    if limit <= 0 or len(candidates) <= limit:
-        return list(candidates)
-    scored: list[tuple[float, TransitionCandidate]] = []
-    for candidate in candidates:
-        low_vocal = 1.0 - max(0.0, min(1.0, float(candidate.vocal_probability)))
-        value = (
-            0.44 * float(candidate.score)
-            + 0.20 * float(candidate.boundary_strength)
-            + 0.18 * float(candidate.phrase_strength)
-            + 0.10 * float(candidate.beat_grid_confidence)
-            + 0.08 * low_vocal
-        )
-        scored.append((value, candidate))
-    selected = _candidate_diverse_by_bar(scored, limit=limit, minimum_bar_distance=4)
-    if kind == "entry":
-        earliest = min(candidates, key=lambda item: (float(item.time_seconds), -float(item.score)))
-        if earliest.section_label == "intro" and earliest not in selected:
-            if len(selected) >= limit:
-                selected[-1] = earliest
-            else:
-                selected.append(earliest)
-    return selected[:limit]
-
-
-def _graph_worker_initializer(
-    analyses: tuple[TrackAnalysis, ...],
-    tempo_policy: str,
-    preferred_style: str,
-    journey: JourneyMode,
-    stem_maps: dict[int, dict[str, str]],
-    scoring_model: dict[str, Any] | None,
-) -> None:
-    """Load immutable graph-planning inputs once per worker process."""
-    worker_initializer()
-    global _GRAPH_WORKER_ANALYSES
-    global _GRAPH_WORKER_TEMPO_POLICY
-    global _GRAPH_WORKER_PREFERRED_STYLE
-    global _GRAPH_WORKER_JOURNEY
-    global _GRAPH_WORKER_STEM_MAPS
-    global _GRAPH_WORKER_SCORING_MODEL
-    _GRAPH_WORKER_ANALYSES = analyses
-    _GRAPH_WORKER_TEMPO_POLICY = tempo_policy
-    _GRAPH_WORKER_PREFERRED_STYLE = preferred_style
-    _GRAPH_WORKER_JOURNEY = journey
-    _GRAPH_WORKER_STEM_MAPS = stem_maps
-    _GRAPH_WORKER_SCORING_MODEL = scoring_model
-
-
-def _plan_graph_pair_core(
-    task: _GraphPairTask,
-    *,
-    analyses: tuple[TrackAnalysis, ...] | list[TrackAnalysis],
-    tempo_policy: str,
-    preferred_style: str,
-    journey: JourneyMode,
-    stem_maps: dict[int, dict[str, str]],
-    scoring_model: dict[str, Any] | None,
-) -> _GraphPairResult:
-    track_a = analyses[task.from_index]
-    track_b = analyses[task.to_index]
-    stems_a = stem_maps[task.from_index]
-    stems_b = stem_maps[task.to_index]
-    scout_cues = _graph_scout_cue_limit(len(analyses))
-    scout_exits = _graph_scout_candidates(
-        track_a.exit_candidates, kind="exit", limit=scout_cues
-    ) if scout_cues else list(track_a.exit_candidates)
-    scout_entries = _graph_scout_candidates(
-        track_b.entry_candidates, kind="entry", limit=scout_cues
-    ) if scout_cues else list(track_b.entry_candidates)
-    matrix = build_pair_evidence_matrix(
-        track_a,
-        track_b,
-        exit_candidates=scout_exits,
-        entry_candidates=scout_entries,
-        scoring_model=scoring_model,
-    )
-    try:
-        if scout_cues:
-            # Ordering only needs a faithful local feasibility estimate. The
-            # final path-dependent compiler restores the full cue pool and
-            # performs rendered judging on the transitions that survive.
-            alternatives = plan_transition_styles(
-                track_a,
-                track_b,
-                styles=("safe", "creative"),
-                force=True,
-                tempo_policy=tempo_policy,
-                stems_available=bool(stems_a and stems_b),
-                evidence_matrix=matrix,
-                diversify_cues=True,
-            )
-        else:
-            alternatives = plan_transition_alternatives(
-                track_a,
-                track_b,
-                force=True,
-                tempo_policy=tempo_policy,
-                stems_available=bool(stems_a and stems_b),
-                evidence_matrix=matrix,
-            )
-    except (DifficultTransitionError, RuntimeError, ValueError) as exc:
-        fallback = build_last_resort_plan(
-            track_a,
-            track_b,
-            preferred_exit_time=(
-                track_a.exit_candidates[0].time_seconds
-                if track_a.exit_candidates
-                else track_a.duration_seconds * 0.65
-            ),
-            reason=f"Graph edge used an automatic safe fallback: {exc}",
-        )
-        alternatives = [fallback]
-    for alternative in alternatives:
-        alternative.stem_paths_a = dict(stems_a)
-        alternative.stem_paths_b = dict(stems_b)
-    selected, objective = _select_alternative(
-        alternatives,
-        track_a,
-        track_b,
-        preferred_style=preferred_style,
-        journey=journey,
-    )
-    edge = TransitionEdge(
-        from_index=task.from_index,
-        to_index=task.to_index,
-        selected_style=selected.style,
-        objective_score=round(objective, 6),
-        quality=classify_quality(selected),
-        plan=selected,
-        alternatives=alternatives,
-        warnings=_transition_warnings(selected),
-        reasons=list(selected.rationale),
-    )
-    return _GraphPairResult(
-        from_index=task.from_index,
-        to_index=task.to_index,
-        label=f"{track_a.title} -> {track_b.title}",
-        edge=edge,
-        evidence_matrix=matrix,
-    )
-
-
-def _plan_graph_pair_worker(task: _GraphPairTask) -> _GraphPairResult:
-    analyses = _GRAPH_WORKER_ANALYSES
-    if analyses is None:
-        raise RuntimeError("Graph worker was not initialized.")
-    return _plan_graph_pair_core(
-        task,
-        analyses=analyses,
-        tempo_policy=_GRAPH_WORKER_TEMPO_POLICY,
-        preferred_style=_GRAPH_WORKER_PREFERRED_STYLE,
-        journey=_GRAPH_WORKER_JOURNEY,
-        stem_maps=_GRAPH_WORKER_STEM_MAPS,
-        scoring_model=_GRAPH_WORKER_SCORING_MODEL,
     )
 
 
@@ -743,10 +426,18 @@ def build_transition_graph(
             f"{completed}/{total} transition pairs restored from cache",
         )
 
-    selection = resolve_worker_selection("graph", len(missing_tasks), requested=workers)
-    active_session.graph_workers = max(active_session.graph_workers, selection.workers)
+    requested_selection = resolve_worker_selection("graph", total, requested=workers)
+    active_session.graph_workers = max(
+        active_session.graph_workers,
+        requested_selection.workers,
+    )
+    execution_selection = resolve_worker_selection(
+        "graph",
+        len(missing_tasks),
+        requested=workers,
+    )
 
-    if missing_tasks and not selection.parallel:
+    if missing_tasks and not execution_selection.parallel:
         for task in missing_tasks:
             track_a = analyses[task.from_index]
             track_b = analyses[task.to_index]
@@ -760,6 +451,9 @@ def build_transition_graph(
                 journey=journey,
                 stem_maps=stem_maps,
                 scoring_model=active_session.scoring_model,
+                select_alternative=_graph_select_alternative,
+                classify_quality=classify_quality,
+                transition_warnings=_transition_warnings,
             )
             key = (result.from_index, result.to_index)
             results[key] = result
@@ -768,18 +462,17 @@ def build_transition_graph(
             if progress:
                 progress("graph", completed, total, result.label)
     elif missing_tasks:
-        prepare_process_environment()
         if progress:
             mode = f"scout {scout_cues}x{scout_cues}" if scout_cues else "full cue graph"
             progress(
                 "graph",
                 completed,
                 total,
-                f"{selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
+                f"{execution_selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
             )
-        with ProcessPoolExecutor(
-            max_workers=selection.workers,
-            mp_context=process_context(),
+        for result in iter_graph_worker_results(
+            missing_tasks,
+            workers=execution_selection.workers,
             initializer=_graph_worker_initializer,
             initargs=(
                 tuple(analyses),
@@ -788,25 +481,18 @@ def build_transition_graph(
                 journey,
                 stem_maps,
                 active_session.scoring_model,
+                _graph_select_alternative,
+                classify_quality,
+                _transition_warnings,
             ),
-        ) as executor:
-            future_map = {
-                executor.submit(_plan_graph_pair_worker, task): task
-                for task in missing_tasks
-            }
-            try:
-                for future in as_completed(future_map):
-                    result = future.result()
-                    key = (result.from_index, result.to_index)
-                    results[key] = result
-                    _store_graph_pair_cache(cache_keys[key], result)
-                    completed += 1
-                    if progress:
-                        progress("graph", completed, total, result.label)
-            except BaseException:
-                for future in future_map:
-                    future.cancel()
-                raise
+            worker=_plan_graph_pair_worker,
+        ):
+            key = (result.from_index, result.to_index)
+            results[key] = result
+            _store_graph_pair_cache(cache_keys[key], result)
+            completed += 1
+            if progress:
+                progress("graph", completed, total, result.label)
 
     graph: dict[tuple[int, int], TransitionEdge] = {}
     move_cfg = MoveBrainConfig.from_environment()
@@ -892,8 +578,8 @@ def _order_score(
         total -= 0.015 * sum(max(0.0, abs(b - a) - 8.0) / 8.0 for a, b in zip(bpms, bpms[1:]))
     total += 0.55 * curve_fit_score(order, analyses, journey=journey)
 
-    # Professional Set Brain: evaluate each candidate in the context of the
-    # musical history, not only as an isolated A->B edge.  This adds a bounded
+    # Set-state contextual scoring: evaluate each candidate in the context of
+    # musical history, not only as an isolated A->B edge. This adds a bounded
     # multi-dimensional story score (energy/tension/groove/vocals/brightness/
     # novelty) while the directed edge graph remains the hard local backbone.
     prefix: list[TrackAnalysis] = []
@@ -924,53 +610,6 @@ def _order_score(
     return float(total)
 
 
-def _valid_order(order: list[int], count: int, start: int | None, end: int | None) -> bool:
-    return (
-        len(order) == count
-        and len(set(order)) == count
-        and set(order) == set(range(count))
-        and (start is None or order[0] == start)
-        and (end is None or order[-1] == end)
-    )
-
-
-def _greedy_orders(
-    graph: dict[tuple[int, int], TransitionEdge],
-    count: int,
-    *,
-    start: int | None,
-    end: int | None,
-    blocked_pairs: set[tuple[int, int]] | None = None,
-) -> Iterable[list[int]]:
-    starts = [start] if start is not None else [index for index in range(count) if index != end]
-    for first in starts:
-        if first is None:
-            continue
-        order = [first]
-        unused = set(range(count)) - {first}
-        if end is not None:
-            unused.discard(end)
-        blocked = blocked_pairs or set()
-        while unused:
-            current = order[-1]
-            allowed = [candidate for candidate in sorted(unused) if (current, candidate) not in blocked]
-            if not allowed:
-                order = []
-                break
-            next_index = max(
-                allowed,
-                key=lambda candidate: graph[(current, candidate)].objective_score,
-            )
-            order.append(next_index)
-            unused.remove(next_index)
-        if not order:
-            continue
-        if end is not None and end not in order:
-            order.append(end)
-        if _valid_order(order, count, start, end):
-            yield order
-
-
 def _local_improve(
     order: list[int],
     graph: dict[tuple[int, int], TransitionEdge],
@@ -983,66 +622,21 @@ def _local_improve(
     blocked_pairs: set[tuple[int, int]] | None = None,
     max_passes: int = 8,
 ) -> list[int]:
-    best = list(order)
-    best_score = _order_score(
-        best, graph, analyses, journey=journey, listener_profile=listener_profile, blocked_pairs=blocked_pairs
+    blocked = blocked_pairs or set()
+    return _route_local_improve(
+        order,
+        score_order=lambda candidate: _order_score(
+            candidate,
+            graph,
+            analyses,
+            journey=journey,
+            listener_profile=listener_profile,
+            blocked_pairs=blocked,
+        ),
+        start=start,
+        end=end,
+        max_passes=max_passes,
     )
-    count = len(best)
-    first_mutable = 1 if start is not None else 0
-    last_exclusive = count - 1 if end is not None else count
-    for _ in range(max_passes):
-        improved = False
-        for left in range(first_mutable, last_exclusive):
-            for right in range(left + 1, last_exclusive):
-                candidate = list(best)
-                candidate[left], candidate[right] = candidate[right], candidate[left]
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        for source in range(first_mutable, last_exclusive):
-            for target in range(first_mutable, last_exclusive):
-                if source == target:
-                    continue
-                candidate = list(best)
-                node = candidate.pop(source)
-                candidate.insert(target, node)
-                if not _valid_order(candidate, count, start, end):
-                    continue
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        for left in range(first_mutable, last_exclusive - 1):
-            for right in range(left + 2, last_exclusive + 1):
-                candidate = best[:left] + list(reversed(best[left:right])) + best[right:]
-                if not _valid_order(candidate, count, start, end):
-                    continue
-                score = _order_score(
-                    candidate,
-                    graph,
-                    analyses,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                    blocked_pairs=blocked_pairs,
-                )
-                if score > best_score + 1e-8:
-                    best, best_score, improved = candidate, score, True
-        if not improved:
-            break
-    return best
 
 
 def optimize_order(
@@ -1055,134 +649,22 @@ def optimize_order(
     listener_profile: ListenerProfile | None = None,
     blocked_pairs: set[tuple[int, int]] | None = None,
 ) -> list[int]:
-    count = len(analyses)
-    if start_index is not None and not 0 <= start_index < count:
-        raise ValueError("start_index is outside the track list")
-    if end_index is not None and not 0 <= end_index < count:
-        raise ValueError("end_index is outside the track list")
-    if start_index is not None and start_index == end_index and count > 1:
-        raise ValueError("The same track cannot be fixed as both opener and closer.")
     blocked = blocked_pairs or set()
-
-    # A two-track set has only two possible orders. Running receding-horizon,
-    # unified beam search and local-improvement machinery cannot discover a
-    # third option, so score the complete search space directly. This removes
-    # avoidable model/context work from the most common quick-create case.
-    if count == 2:
-        exact = [
-            order
-            for order in ([0, 1], [1, 0])
-            if _valid_order(order, count, start_index, end_index)
-            and not any((a, b) in blocked for a, b in zip(order, order[1:]))
-        ]
-        if not exact:
-            raise RuntimeError("The optimizer could not construct a valid two-track order.")
-        return max(
-            exact,
-            key=lambda value: _order_score(
-                value,
-                graph,
-                analyses,
-                journey=journey,
-                listener_profile=listener_profile,
-                blocked_pairs=blocked,
-            ),
-        )
-
-    candidates = list(
-        _greedy_orders(
-            graph,
-            count,
-            start=start_index,
-            end=end_index,
-            blocked_pairs=blocked,
-        )
-    )
-    policy_config = SetPolicyConfig.from_environment()
-    policy_starts = [start_index] if start_index is not None else [index for index in range(count) if index != end_index]
-    large_set = count >= _large_set_threshold()
-    if large_set and start_index is None and candidates:
-        # The unified beam already explores opener diversity. Running a full
-        # receding-horizon search from every possible opener is redundant and
-        # became the dominant cost at 10-20 tracks. Keep the strongest greedy
-        # opener seeds, then let beam search + local refinement challenge them.
-        start_limit = _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8)
-        ranked_seeds = sorted(
-            candidates,
-            key=lambda order: sum(
-                float(graph[(left, right)].objective_score)
-                for left, right in zip(order, order[1:])
-            ),
-            reverse=True,
-        )
-        reduced: list[int] = []
-        for order in ranked_seeds:
-            if not order:
-                continue
-            opener = int(order[0])
-            if opener not in reduced:
-                reduced.append(opener)
-            if len(reduced) >= start_limit:
-                break
-        if reduced:
-            policy_starts = reduced
-    for policy_start in policy_starts:
-        if policy_start is None:
-            continue
-        try:
-            policy_order, _ = build_receding_horizon_order(
-                policy_start, graph, analyses, journey=journey, end=end_index, config=policy_config
-            )
-            if (
-                _valid_order(policy_order, count, start_index, end_index)
-                and not any((a, b) in blocked for a, b in zip(policy_order, policy_order[1:]))
-            ):
-                candidates.append(policy_order)
-        except (RuntimeError, ValueError):
-            pass
-    try:
-        unified = build_unified_ai_order(
-            graph,
-            analyses,
-            journey=journey,
-            start=start_index,
-            end=end_index,
-            blocked_pairs=blocked,
-        )
-        if _valid_order(unified.order, count, start_index, end_index):
-            candidates.append(unified.order)
-    except (RuntimeError, ValueError):
-        # The unified search is additive. Existing deterministic/receding-horizon
-        # candidates remain the fallback when it cannot complete a safe route.
-        pass
-    if not candidates:
-        raise RuntimeError("The optimizer could not construct a valid set order.")
-    best = max(
-        candidates,
-        key=lambda value: _order_score(
-            value,
+    return optimize_order_candidates(
+        analyses,
+        graph,
+        score_order=lambda candidate: _order_score(
+            candidate,
             graph,
             analyses,
             journey=journey,
             listener_profile=listener_profile,
             blocked_pairs=blocked,
         ),
-    )
-    local_passes = (
-        _env_int("DJAI_LARGE_SET_LOCAL_PASSES", 2, minimum=1, maximum=4)
-        if large_set
-        else 8
-    )
-    return _local_improve(
-        best,
-        graph,
-        analyses,
+        start_index=start_index,
+        end_index=end_index,
         journey=journey,
-        listener_profile=listener_profile,
-        start=start_index,
-        end=end_index,
         blocked_pairs=blocked,
-        max_passes=local_passes,
     )
 
 
@@ -2015,8 +1497,8 @@ def _progressive_sparse_configs(
                 max(config.lazy_candidate_width, candidate_width),
             ),
             lazy_expansion_width=min(
-                max(2, candidate_width),
-                max(config.lazy_expansion_width, 4),
+                max(2, track_count - 1),
+                max(config.lazy_expansion_width, candidate_width),
             ),
         )
         signature = _route_search_signature(
@@ -2230,27 +1712,6 @@ def _mixing_window(
     latest_body = min(latest_body, max(required_source, remaining - 0.5))
     return current_cursor + target_body, current_cursor + latest_body
 
-def _candidate_diverse_by_bar(
-    candidates: list[tuple[float, TransitionCandidate]],
-    *,
-    limit: int,
-    minimum_bar_distance: int = 2,
-) -> list[TransitionCandidate]:
-    selected: list[TransitionCandidate] = []
-    for _, candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
-        if all(abs(candidate.bar_index - existing.bar_index) >= minimum_bar_distance for existing in selected):
-            selected.append(candidate)
-        if len(selected) >= limit:
-            break
-    if len(selected) < min(limit, len(candidates)):
-        for _, candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
-            if candidate not in selected:
-                selected.append(candidate)
-            if len(selected) >= limit:
-                break
-    return selected
-
-
 def _sequence_exit_candidates(
     track: TrackAnalysis,
     *,
@@ -2418,7 +1879,7 @@ def _dedupe_plans(plans: list[TransitionPlan]) -> list[TransitionPlan]:
 
 
 def _complete_move_preference_score(plan: TransitionPlan, decision: CompleteMoveDecision) -> float:
-    """Measure how closely a path-dependent plan preserves a generated 1.7 move.
+    """Measure how closely a path-dependent plan preserves the complete-move proposal.
 
     The final compiler is allowed to substitute a safer/rehearsed plan, but in
     move_authoritative mode it should preserve the generator's concrete timing
@@ -2601,10 +2062,12 @@ def _compile_sequence_edges(
         )
         all_plans: list[TransitionPlan] = []
         matrix: PairEvidenceMatrix | None = None
+        sequence_evidence_reused = False
         stems_available = bool(stem_maps[from_index] and stem_maps[to_index])
         if selected_exits:
             matrix = active_session.get((from_index, to_index))
             if matrix is not None:
+                sequence_evidence_reused = True
                 matrix = matrix.subset(
                     exit_candidates=selected_exits,
                     entry_candidates=selected_entries or None,
@@ -2617,7 +2080,9 @@ def _compile_sequence_edges(
                     or (selected_entries and len(matrix.entry_candidates) < len(selected_entries))
                 ):
                     matrix = None
+                    sequence_evidence_reused = False
             if matrix is None or not matrix.pairs:
+                sequence_evidence_reused = False
                 matrix = build_pair_evidence_matrix(
                     track_a,
                     track_b,
@@ -2657,7 +2122,7 @@ def _compile_sequence_edges(
                     "preferred_exit_time": round(target_exit, 6),
                     "soft_latest_exit_time": round(soft_latest_exit, 6),
                     "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                    "sequence_evidence_reused": True,
+                    "sequence_evidence_reused": sequence_evidence_reused,
                     "sequence_matrix_size": matrix.compatibility_evaluations,
                     "stem_rendering": bool(
                         stems_available
@@ -3055,7 +2520,7 @@ def _compile_sequence_edges(
                 "preferred_exit_time": round(target_exit, 6),
                 "soft_latest_exit_time": round(soft_latest_exit, 6),
                 "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                "sequence_evidence_reused": bool(matrix is not None and matrix.pairs),
+                "sequence_evidence_reused": sequence_evidence_reused,
                 "sequence_matrix_size": (matrix.compatibility_evaluations if matrix is not None else 0),
                 "quality_loop_summary": measurement_summary,
             }
@@ -3149,6 +2614,19 @@ def _compile_sequence_edges(
             chosen.requires_confirmation = False
             chosen.auto_approved = True
             chosen.metadata = {**chosen.metadata, "automatic_delivery": True}
+
+        # A deterministic rescue may replace the candidate after graph evidence
+        # informed sequence compilation. Preserve that provenance on the final
+        # executable plan instead of making the replacement look evidence-free.
+        chosen.metadata = {
+            **chosen.metadata,
+            "sequence_evidence_reused": sequence_evidence_reused,
+            "sequence_matrix_size": (
+                matrix.compatibility_evaluations
+                if matrix is not None
+                else int(chosen.metadata.get("sequence_matrix_size", 0) or 0)
+            ),
+        }
 
         # V6 connects the formal transition-policy boundary without changing
         # candidate ranking in this behavior-preserving migration. The
@@ -3711,7 +3189,7 @@ def make_set_plan(
     headphones_cfg = AIHeadphonesConfig.from_environment()
     lazy_graph_authority = complete_move_cfg.mode == "move_authoritative" and manual_order is None
     if lazy_graph_authority:
-        # 1.7.1 materializes graph edges only as the move search reaches them.
+        # Authoritative complete-move search materializes graph edges only as needed.
         graph: dict[tuple[int, int], TransitionEdge] = {}
         session.graph_mode = "lazy"
     else:
@@ -4093,7 +3571,7 @@ def make_set_plan(
     dj_executive_report = dict(executive_result.executive_report)
     if lazy_graph_authority:
         # Scoring diagnostics need only the adjacent baseline/final edges, not
-        # the full N*(N-1) graph. Keep 1.7.1 sparse even for reporting.
+        # the full N*(N-1) graph. Keep authoritative search sparse even for reporting.
         _ensure_graph_pairs(
             list(zip(baseline_order, baseline_order[1:])) + list(zip(order, order[1:]))
         )

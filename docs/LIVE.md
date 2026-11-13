@@ -1,17 +1,31 @@
-# DJAI 4.0.0 live architecture
+# SAUND.AI live architecture
 
-The live audio path executes a fully prepared immutable route. Strategic planning and private rehearsal happen before the audio deadline.
+Current authority boundaries are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
+
+The live audio path executes committed immutable programs while allowing bounded
+planning work only beyond the committed horizon.
+
+## NOW / NEXT / FUTURE
+
+- **NOW** is executing and immutable.
+- **NEXT** is committed and immutable.
+- **FUTURE** may be replanned at safe boundaries.
+
+FUTURE replans carry a schedule generation and deadline. Late or stale results
+are discarded instead of mutating the active schedule.
 
 ## Prepared alternatives
 
-The live manifest exposes, per transition:
+The live manifest exposes prepared primary/backup/emergency transition metadata.
+Backup and emergency programs remain deterministic recovery assets; they do not
+grant a model permission to bypass execution safety.
 
-- `primary`: selected immutable action
-- `backup`: alternate non-emergency executable action when available
-- `emergency`: prepared emergency action when available
+## Runtime safety
 
-The progressive MP3 stream in 4.0 still follows the prepared **primary** route. Backup/emergency alternatives are exposed for future safe switching; the release does not claim crowd-reactive real-time switching yet.
+Prefetch, buffer, deadline, storage and asset-health telemetry can block unsafe
+advancement. If NEXT is not ready by its real audible deadline, Live may hold or
+use prepared recovery behavior rather than advancing into unprepared material.
 
-## Future live brain
-
-The intended evolution is rolling replanning several tracks ahead, with primary/backup/emergency prepared before each transition. Model latency must never be placed in the audio callback.
+The executor owns source-cursor/protocol state. The Executive owns musical
+replanning. Model latency and route search are never placed inside the audio
+callback.
