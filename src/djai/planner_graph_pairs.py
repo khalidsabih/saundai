@@ -33,7 +33,7 @@ class GraphPairTask:
 
 
 SelectAlternative = Callable[
-    [list[TransitionPlan], TrackAnalysis, TrackAnalysis],
+    [list[TransitionPlan], TrackAnalysis, TrackAnalysis, str, JourneyMode],
     tuple[TransitionPlan, float],
 ]
 ClassifyQuality = Callable[[TransitionPlan], QualityClass]
@@ -174,6 +174,8 @@ def plan_graph_pair_core(
         alternatives,
         track_a,
         track_b,
+        preferred_style,
+        journey,
     )
     edge = TransitionEdge(
         from_index=task.from_index,
