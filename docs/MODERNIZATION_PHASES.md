@@ -1,6 +1,6 @@
 # SAUND.AI modernization phases
 
-Status: **Phases 1–3 complete; Phase 4 extraction complete, equivalence/benchmark exit evidence pending**. This plan governs engineering consolidation on top of
+Status: **Phases 1–3 complete; Phase 4 extraction and controlled three-track execution/PCM equivalence verified; benchmark exit evidence pending**. This plan governs engineering consolidation on top of
 the existing Phase 13–15 implementation; it does not replace the product feature
 roadmap in [ROADMAP.md](ROADMAP.md).
 
@@ -74,12 +74,23 @@ order optimizer respects injectable legacy planning hooks.
 For exact operator commands and the fixed pre-extraction commit, see
 [PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
 
-**Not yet certified for Phase 4 exit:** a recorded before/after fixed-fixture
-execution-signature and exact-render comparison, plus comparable planner
-latency/resource benchmark evidence. Existing regression tests cover individual
-contracts but are not a substitute for an archived equivalence report. Until
-those results are recorded, Phase 4 is **implementation-complete, exit-pending**.
-Do not declare Phase 5 complete on the strength of Python test results alone.
+**Phase 4 controlled-fixture equivalence passed (2026-11-13):** the operator
+compared pre-extraction commit `cb731ea0` against the current branch with the
+same three real tracks, analyzed evidence, scoring-model snapshot and automatic
+route configuration. The track order, plan/execution signatures and program
+fingerprints matched. With the existing measured quality loop enabled on both
+branches, the final safety checks passed and decoded rendered PCM hashes
+**MATCHED**. Both branches independently rejected the unrehearsed fixture for
+the same hard 16.1 dB RMS transition-boundary defect; no safety limit was
+weakened. The archived operator evidence is identified in
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
+**Not yet certified for full Phase 4 exit:** comparable planner
+latency/resource benchmark results on the larger controlled crate. A single
+run's timing ratio is not performance evidence. Phase 4 is **functional
+equivalence verified, benchmark exit-pending**. Do not declare Phase 5
+complete on the strength of Python test results or this limited audio fixture
+alone.
 
 ## Phase 5 — Frontend consolidation
 
