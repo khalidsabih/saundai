@@ -709,6 +709,19 @@ def optimize_order(
         end_index=end_index,
         journey=journey,
         blocked_pairs=blocked,
+        receding_horizon_builder=build_receding_horizon_order,
+        unified_order_builder=build_unified_ai_order,
+        improve_order=lambda order, *, score_order, start, end, max_passes: _local_improve(
+            order,
+            graph,
+            analyses,
+            journey=journey,
+            listener_profile=listener_profile,
+            start=start,
+            end=end,
+            blocked_pairs=blocked,
+            max_passes=max_passes,
+        ),
     )
 
 
