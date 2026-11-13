@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 
 from . import __version__
 from .api_training_routers import register_training_routers
+from .api_status_intelligence_routers import register_status_and_intelligence_routers
 from .accounts import AccountExistsError, AccountStore
 from .hosting import HostingConfig, SlidingWindowRateLimiter, invite_code_allowed
 from .object_store import ObjectStore, remove_materialized_tree
@@ -678,7 +679,6 @@ def account_projects(
     }
 
 
-@app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
@@ -818,7 +818,6 @@ def health() -> dict[str, Any]:
     }
 
 
-@app.get("/api/hosting/status")
 def hosting_status() -> dict[str, Any]:
     return HOSTING.public_status(
         database_backend=account_store.backend,
@@ -845,7 +844,6 @@ def _safe_tree_stats(path: Path) -> dict[str, int]:
     return {"files": files, "bytes": size}
 
 
-@app.get("/api/runtime/status")
 def runtime_status() -> dict[str, Any]:
     return {
         "schema_version": "2.0.0",
@@ -873,7 +871,6 @@ def runtime_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/validation/phase16")
 def phase16_validation_status() -> dict[str, Any]:
     report_path = WORKSPACE / "output" / "phase16-real-music" / "phase16-report.json"
     if not report_path.is_file():
@@ -903,7 +900,6 @@ def phase16_validation_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/ready")
 def readiness() -> Response:
     workspace_ready = os.access(WORKSPACE, os.W_OK)
     database_ready = account_store.ping()
@@ -927,13 +923,11 @@ def readiness() -> Response:
     return JSONResponse(payload, status_code=200 if ready else 503)
 
 
-@app.get("/api/release/status")
 def release_status() -> dict[str, Any]:
     """Return operational release state without using HTTP failure status."""
     return release_candidate_status(WORKSPACE, strict=False)
 
 
-@app.get("/api/release/readiness")
 def release_readiness(
     strict: bool = Query(default=False),
     suite: str | None = Query(default=None, min_length=1, max_length=80),
@@ -950,7 +944,6 @@ def release_readiness(
     return JSONResponse(payload, status_code=200 if ready else 503)
 
 
-@app.get("/api/models")
 def model_status() -> dict[str, Any]:
     registry_path = WORKSPACE / "config" / "model-registry.json"
     payload = registry_status(registry_path)
@@ -2041,7 +2034,6 @@ def save_feedback(
     }
 
 
-@app.post("/api/models/scoring/refit")
 def refit_scoring(request: RefitRequest) -> dict[str, Any]:
     ratings = _workspace_path(request.ratings_path)
     measurements = (
@@ -2066,7 +2058,6 @@ def refit_scoring(request: RefitRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/models/genre/train")
 def train_genre(request: GenreTrainRequest) -> dict[str, Any]:
     manifest = _workspace_path(request.manifest_path)
     output = _workspace_path(request.output_path, must_exist=False)
@@ -2075,7 +2066,6 @@ def train_genre(request: GenreTrainRequest) -> dict[str, Any]:
 
 
 
-@app.post("/api/intelligence/listening-session")
 def create_intelligence_listening_session(request: ListeningSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     track_a = _workspace_path(request.track_a)
@@ -2098,7 +2088,6 @@ def create_intelligence_listening_session(request: ListeningSessionRequest) -> d
     return {"session_id": manifest["session_id"], "candidates": items, "generation": manifest.get("generation", {})}
 
 
-@app.post("/api/intelligence/preference")
 def save_intelligence_preference(request: PreferenceVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     manifest_path = _workspace_path(
@@ -2133,13 +2122,11 @@ def save_intelligence_preference(request: PreferenceVoteRequest) -> dict[str, An
     return {"preferences_path": _relative(output), "rejection_paths": rejection_paths}
 
 
-@app.get("/api/training-lab/human-review/status")
 def get_human_review_status() -> dict[str, Any]:
     _require_training_lab()
     return human_preference_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/human-review/session")
 def create_training_lab_human_review_session(request: HumanReviewSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     manifest = create_human_review_session(
@@ -2165,7 +2152,6 @@ def create_training_lab_human_review_session(request: HumanReviewSessionRequest)
     }
 
 
-@app.post("/api/training-lab/human-review/vote")
 def save_training_lab_human_review_vote(request: HumanReviewVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     output = record_human_review_vote(
@@ -2182,7 +2168,6 @@ def save_training_lab_human_review_vote(request: HumanReviewVoteRequest) -> dict
     }
 
 
-@app.post("/api/intelligence/ranker/train")
 def train_intelligence_ranker(request: RankerTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     preferences = _workspace_path(request.preferences_path, must_exist=False)
@@ -2198,7 +2183,6 @@ def train_intelligence_ranker(request: RankerTrainRequest) -> dict[str, Any]:
     }
 
 
-@app.get("/api/intelligence/ranker/status")
 def intelligence_ranker_status() -> dict[str, Any]:
     _require_training_lab()
     report = benchmark_brain(
@@ -2207,7 +2191,6 @@ def intelligence_ranker_status() -> dict[str, Any]:
     )
     return report.to_dict()
 
-@app.get("/api/brain/status")
 def professional_brain_status() -> dict[str, Any]:
     cfg = ProfessionalBrainConfig.from_environment()
     ranker = benchmark_brain(
@@ -2255,7 +2238,6 @@ def professional_brain_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/benchmarks/status")
 def release_benchmark_status() -> dict[str, Any]:
     return benchmark_runtime_status(WORKSPACE)
 
@@ -2441,6 +2423,32 @@ register_training_routers(
         "create_training_lab_human_release_session": create_training_lab_human_release_session,
         "save_training_lab_human_release_vote": save_training_lab_human_release_vote,
         "get_training_lab_human_release_report": get_training_lab_human_release_report,
+    },
+)
+
+
+register_status_and_intelligence_routers(
+    app,
+    {
+        "health": health,
+        "hosting_status": hosting_status,
+        "runtime_status": runtime_status,
+        "phase16_validation_status": phase16_validation_status,
+        "readiness": readiness,
+        "release_status": release_status,
+        "release_readiness": release_readiness,
+        "model_status": model_status,
+        "professional_brain_status": professional_brain_status,
+        "release_benchmark_status": release_benchmark_status,
+        "refit_scoring": refit_scoring,
+        "train_genre": train_genre,
+        "create_intelligence_listening_session": create_intelligence_listening_session,
+        "save_intelligence_preference": save_intelligence_preference,
+        "get_human_review_status": get_human_review_status,
+        "create_training_lab_human_review_session": create_training_lab_human_review_session,
+        "save_training_lab_human_review_vote": save_training_lab_human_review_vote,
+        "train_intelligence_ranker": train_intelligence_ranker,
+        "intelligence_ranker_status": intelligence_ranker_status,
     },
 )
 
