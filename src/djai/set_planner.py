@@ -6,7 +6,6 @@ import math
 import os
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
@@ -72,7 +71,8 @@ from .journey import JourneyMode, curve_fit_score, journey_metadata, normalize_j
 from .performance.program import attach_performance_program
 from .rehearsal.headphones import AIHeadphonesConfig, ai_headphones_status, listen_to_complete_moves
 from .personalization import ListenerProfile, get_listener_profile, plan_personalization_adjustment
-from .parallel import prepare_process_environment, process_context, resolve_worker_selection, worker_initializer
+from .parallel import resolve_worker_selection, worker_initializer
+from .planner_graph_workers import iter_graph_worker_results
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -636,7 +636,6 @@ def build_transition_graph(
             if progress:
                 progress("graph", completed, total, result.label)
     elif missing_tasks:
-        prepare_process_environment()
         if progress:
             mode = f"scout {scout_cues}x{scout_cues}" if scout_cues else "full cue graph"
             progress(
@@ -645,9 +644,9 @@ def build_transition_graph(
                 total,
                 f"{execution_selection.workers} graph workers · {len(missing_tasks)} cache misses · {mode}",
             )
-        with ProcessPoolExecutor(
-            max_workers=execution_selection.workers,
-            mp_context=process_context(),
+        for result in iter_graph_worker_results(
+            missing_tasks,
+            workers=execution_selection.workers,
             initializer=_graph_worker_initializer,
             initargs=(
                 tuple(analyses),
@@ -657,24 +656,14 @@ def build_transition_graph(
                 stem_maps,
                 active_session.scoring_model,
             ),
-        ) as executor:
-            future_map = {
-                executor.submit(_plan_graph_pair_worker, task): task
-                for task in missing_tasks
-            }
-            try:
-                for future in as_completed(future_map):
-                    result = future.result()
-                    key = (result.from_index, result.to_index)
-                    results[key] = result
-                    _store_graph_pair_cache(cache_keys[key], result)
-                    completed += 1
-                    if progress:
-                        progress("graph", completed, total, result.label)
-            except BaseException:
-                for future in future_map:
-                    future.cancel()
-                raise
+            worker=_plan_graph_pair_worker,
+        ):
+            key = (result.from_index, result.to_index)
+            results[key] = result
+            _store_graph_pair_cache(cache_keys[key], result)
+            completed += 1
+            if progress:
+                progress("graph", completed, total, result.label)
 
     graph: dict[tuple[int, int], TransitionEdge] = {}
     move_cfg = MoveBrainConfig.from_environment()
