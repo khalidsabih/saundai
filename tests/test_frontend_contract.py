@@ -169,7 +169,7 @@ def test_frontend_exposes_real_autonomous_dj_performance_state() -> None:
     assert "Tempo handoff" in inspector
     assert "Musical ownership" in inspector
     assert "tempo_release" in live
-    assert "Deck B owns tempo" in live
+    assert "Incoming deck owns tempo" in live
     assert "WHAT SAUND KNOWS" in lab
     assert "WHAT SAUND IS LEARNING" in lab
     assert "WHAT CAN AFFECT LIVE" in lab
