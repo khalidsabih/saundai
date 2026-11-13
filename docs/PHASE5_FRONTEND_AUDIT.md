@@ -87,3 +87,36 @@ upload, planning, review, audition and Live flows in the exit gate.
 
 **Phase 5 is in progress, not complete.** This audit does not establish
 that tests were executed or that any component is dead code.
+
+## First Playwright baseline and accessibility repair (2026-11-13)
+
+The operator reported `npm run typecheck` and `npm run build` passing.
+The frontend npm audit reported 3 advisories (2 high, 1 critical), not
+yet triaged. A locally rebuilt frontend redirected its API to
+`http://127.0.0.1:8000`.
+
+First Playwright run showed missing mocked Create track selectors,
+a Next.js route announcer collision with unscoped `role=alert`,
+and Training Lab initial API fan-out requiring a stable fixture.
+Focused fixture updates were made in `frontend/e2e/release.spec.ts`.
+
+Second Playwright run: **17 passed / 19 failed** across Chromium, Firefox,
+WebKit and mobile. The repeated Create/Brain/Live failure remained at the
+track selector, even after targeting `role=listitem`. Inspection found
+`CrateSelector` overrode native `<button>` semantics with
+`role=listitem`, making it a non-button accessible control and removing
+the expected button accessible name. The native button semantics have now
+been restored and test locators returned to `role=button`; this is an
+accessibility correction, not a new musical behavior.
+
+Several mobile assertions expected deliberately hidden responsive
+metadata: the opening system label, Training Lab header metadata and
+readiness status topbar. Test assertions now check for truthful text
+presence instead of incorrectly requiring these desktop-specific labels
+to be visible on mobile. Core headings, readiness cards and interactive
+workflow assertions remain.
+
+**Third run pending:** rerun `npm run typecheck`, `npm run build`,
+`npm run e2e` after pulling these commits. The current suite is **not
+claimed green** until the operator reports results. Audit dependency
+advisories separately from Playwright failures.
