@@ -24,12 +24,11 @@ python scripts/milestone1_four_track.py \
 
 Use actual filename spelling on your machine. The planner **chooses its own
 order**, which may differ from the argument order. All four sources must have
-distinct basenames. The script stages them in a temporary directory using
-hardlinks where possible, and does not edit or permanently move originals.
+distinct basenames. The script stages them in a persistent `output/milestone1-four-track/crate/` directory using\nhardlinks where possible, without modifying the originals. This keeps the saved\nplan's source paths valid for inspection and rerendering.
 
 ## Outputs
 
-- `output/milestone1-four-track/milestone1-report.json`: per-edge technique,
+- `output/milestone1-four-track/crate/`: retained original audio source references\n- `output/milestone1-four-track/milestone1-report.json`: per-edge technique,
   classification, measured score, beatmatched flag, professional mix family
   and contract data when available
 - `output/milestone1-four-track/phase-rejections.jsonl`: rejected phase-lock
@@ -40,7 +39,7 @@ hardlinks where possible, and does not edit or permanently move originals.
 - `output/milestone1-four-track/phase16-report.json`: technical safety and
   rehearsal readiness
 
-Existing outputs in this benchmark directory are replaced, to avoid confusing
+Existing outputs in this benchmark directory, including the staged crate, are replaced, to avoid confusing
 an old passing plan with a new failed run.
 
 ## Interpret carefully
