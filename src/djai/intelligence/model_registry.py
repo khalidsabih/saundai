@@ -96,7 +96,12 @@ def _manifest_from_dict(p: dict[str, Any]) -> ModelManifest:
 def load_model_registry(path: str | Path | None = None) -> ModelRegistry:
     source = Path(path).expanduser() if path is not None else _default_registry_path()
     if not source.exists():
-        source = ensure_default_registry(source)
+        try:
+            source = ensure_default_registry(source)
+        except OSError:
+            # Optional model configuration must not prevent deterministic
+            # planning on read-only hosts (e.g. native macOS /config).
+            return ModelRegistry({m.id: m for m in default_manifests()}, path=None)
     try:
         payload = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
