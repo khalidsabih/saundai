@@ -94,6 +94,8 @@ from .planner_route_search import (
     local_improve as _route_local_improve,
     valid_order as _valid_order,
 )
+
+from .planner_order_optimizer import optimize_order_candidates
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -647,134 +649,22 @@ def optimize_order(
     listener_profile: ListenerProfile | None = None,
     blocked_pairs: set[tuple[int, int]] | None = None,
 ) -> list[int]:
-    count = len(analyses)
-    if start_index is not None and not 0 <= start_index < count:
-        raise ValueError("start_index is outside the track list")
-    if end_index is not None and not 0 <= end_index < count:
-        raise ValueError("end_index is outside the track list")
-    if start_index is not None and start_index == end_index and count > 1:
-        raise ValueError("The same track cannot be fixed as both opener and closer.")
     blocked = blocked_pairs or set()
-
-    # A two-track set has only two possible orders. Running receding-horizon,
-    # unified beam search and local-improvement machinery cannot discover a
-    # third option, so score the complete search space directly. This removes
-    # avoidable model/context work from the most common quick-create case.
-    if count == 2:
-        exact = [
-            order
-            for order in ([0, 1], [1, 0])
-            if _valid_order(order, count, start_index, end_index)
-            and not any((a, b) in blocked for a, b in zip(order, order[1:]))
-        ]
-        if not exact:
-            raise RuntimeError("The optimizer could not construct a valid two-track order.")
-        return max(
-            exact,
-            key=lambda value: _order_score(
-                value,
-                graph,
-                analyses,
-                journey=journey,
-                listener_profile=listener_profile,
-                blocked_pairs=blocked,
-            ),
-        )
-
-    candidates = list(
-        _greedy_orders(
-            graph,
-            count,
-            start=start_index,
-            end=end_index,
-            blocked_pairs=blocked,
-        )
-    )
-    policy_config = SetPolicyConfig.from_environment()
-    policy_starts = [start_index] if start_index is not None else [index for index in range(count) if index != end_index]
-    large_set = count >= _large_set_threshold()
-    if large_set and start_index is None and candidates:
-        # The unified beam already explores opener diversity. Running a full
-        # receding-horizon search from every possible opener is redundant and
-        # became the dominant cost at 10-20 tracks. Keep the strongest greedy
-        # opener seeds, then let beam search + local refinement challenge them.
-        start_limit = _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8)
-        ranked_seeds = sorted(
-            candidates,
-            key=lambda order: sum(
-                float(graph[(left, right)].objective_score)
-                for left, right in zip(order, order[1:])
-            ),
-            reverse=True,
-        )
-        reduced: list[int] = []
-        for order in ranked_seeds:
-            if not order:
-                continue
-            opener = int(order[0])
-            if opener not in reduced:
-                reduced.append(opener)
-            if len(reduced) >= start_limit:
-                break
-        if reduced:
-            policy_starts = reduced
-    for policy_start in policy_starts:
-        if policy_start is None:
-            continue
-        try:
-            policy_order, _ = build_receding_horizon_order(
-                policy_start, graph, analyses, journey=journey, end=end_index, config=policy_config
-            )
-            if (
-                _valid_order(policy_order, count, start_index, end_index)
-                and not any((a, b) in blocked for a, b in zip(policy_order, policy_order[1:]))
-            ):
-                candidates.append(policy_order)
-        except (RuntimeError, ValueError):
-            pass
-    try:
-        unified = build_unified_ai_order(
-            graph,
-            analyses,
-            journey=journey,
-            start=start_index,
-            end=end_index,
-            blocked_pairs=blocked,
-        )
-        if _valid_order(unified.order, count, start_index, end_index):
-            candidates.append(unified.order)
-    except (RuntimeError, ValueError):
-        # The unified search is additive. Existing deterministic/receding-horizon
-        # candidates remain the fallback when it cannot complete a safe route.
-        pass
-    if not candidates:
-        raise RuntimeError("The optimizer could not construct a valid set order.")
-    best = max(
-        candidates,
-        key=lambda value: _order_score(
-            value,
+    return optimize_order_candidates(
+        analyses,
+        graph,
+        score_order=lambda candidate: _order_score(
+            candidate,
             graph,
             analyses,
             journey=journey,
             listener_profile=listener_profile,
             blocked_pairs=blocked,
         ),
-    )
-    local_passes = (
-        _env_int("DJAI_LARGE_SET_LOCAL_PASSES", 2, minimum=1, maximum=4)
-        if large_set
-        else 8
-    )
-    return _local_improve(
-        best,
-        graph,
-        analyses,
+        start_index=start_index,
+        end_index=end_index,
         journey=journey,
-        listener_profile=listener_profile,
-        start=start_index,
-        end=end_index,
         blocked_pairs=blocked,
-        max_passes=local_passes,
     )
 
 
