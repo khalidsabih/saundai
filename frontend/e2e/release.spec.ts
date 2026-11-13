@@ -312,7 +312,7 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: "Brain", exact: true }).click();
 
-  await expect(page.getByRole("heading", { name: /Complex underneath/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /See what SAUND actually knows\./ })).toBeVisible();
   await expect(page.getByText("BRAIN", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("EXECUTIVE", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("SAFETY", { exact: true }).first()).toBeVisible();
