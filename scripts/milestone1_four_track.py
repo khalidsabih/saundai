@@ -155,6 +155,15 @@ def main(argv: list[str] | None = None) -> int:
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     trace_path = output / "phase-rejections.jsonl"
+    # A failed re-run must never inherit a prior successful plan or report.
+    for stale in (
+        output / args.journey / "set-plan.json",
+        output / args.journey / "render-report.json",
+        output / args.journey / "full-set.wav",
+        output / "phase16-report.json",
+        output / "milestone1-report.json",
+    ):
+        stale.unlink(missing_ok=True)
     # Start with a clean rejection trace, without changing phase safety rules.
     trace_path.write_text("", encoding="utf-8")
     previous_trace = os.environ.get("DJAI_PHASE_LOCK_TRACE_PATH")
