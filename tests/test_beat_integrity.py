@@ -33,6 +33,74 @@ def _apply_drift(track, *, drift_seconds_at_30s: float) -> None:
     track.variable_tempo = True
 
 
+
+def test_continuous_beat_position_has_no_nearest_beat_discontinuity():
+    from djai.performance.deck import _continuous_beat_position
+
+    beats = [index * 0.5 for index in range(120)]
+    before = _continuous_beat_position(
+        beats, 10.249, expected_source_beat_seconds=0.5
+    )
+    after = _continuous_beat_position(
+        beats, 10.251, expected_source_beat_seconds=0.5
+    )
+    assert before == pytest.approx(20.498)
+    assert after == pytest.approx(20.502)
+    assert after - before == pytest.approx(0.004)
+
+
+def test_continuous_beat_position_rejects_missing_beat_intervals():
+    from djai.performance.deck import _continuous_beat_position
+
+    beats = [0.0, 0.5, 1.0, 2.0, 2.5, 3.0]
+    assert _continuous_beat_position(
+        beats, 1.5, expected_source_beat_seconds=0.5
+    ) is None
+    assert _continuous_beat_position(
+        beats, 2.25, expected_source_beat_seconds=0.5
+    ) is not None
+
+
+def test_phase_integrity_stable_grids_across_nearest_beat_switches(tmp_path: Path):
+    from djai.performance.deck import _phase_integrity_profile
+
+    a = _track(tmp_path, "continuous-a", bpm=120.0)
+    b = _track(tmp_path, "continuous-b", bpm=120.0)
+    a.beats_seconds = [index * 0.5 for index in range(200)]
+    b.beats_seconds = [index * 0.5 + 0.018 for index in range(200)]
+    plan = plan_transition(
+        a, b, force=True, tempo_policy="safe", style="safe",
+        requested_bars=8, exit_time_a=20.0, entry_time_b=4.0,
+    )
+    profile = _phase_integrity_profile(
+        a, b, plan, phase_nudge_seconds_b=0.0
+    )
+    assert profile["safe"] is True
+    assert profile["max_phase_error_ms"] < 1.0
+    assert profile["max_residual_ms"] < 1.0
+
+
+def test_phase_integrity_rejects_real_accumulated_tempo_drift(tmp_path: Path):
+    from djai.performance.deck import _phase_integrity_profile
+
+    a = _track(tmp_path, "real-drift-a", bpm=120.0)
+    b = _track(tmp_path, "real-drift-b", bpm=120.0)
+    a.beats_seconds = [index * 0.5 for index in range(200)]
+    # A valid but 2%-slower incoming beat clock accumulates >300 ms drift.
+    b.beats_seconds = [index * 0.51 for index in range(200)]
+    plan = plan_transition(
+        a, b, force=True, tempo_policy="safe", style="safe",
+        requested_bars=8, exit_time_a=20.0, entry_time_b=4.0,
+    )
+    profile = _phase_integrity_profile(
+        a, b, plan, phase_nudge_seconds_b=0.0
+    )
+    assert profile["safe"] is False
+    assert profile["max_phase_error_ms"] > 100.0
+    assert profile["max_residual_ms"] > 25.0
+
+
+
 def test_stable_grid_needs_effectively_no_continuous_phase_warp(tmp_path: Path):
     track_a = _track(tmp_path, "stable-a")
     track_b = _track(tmp_path, "stable-b")
