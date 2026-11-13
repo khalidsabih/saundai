@@ -328,10 +328,22 @@ def rehearse_candidate_pool(
     if not plans:
         raise ValueError("The professional brain requires at least one transition candidate.")
     resolved_context = dict(context or {})
+    # The unified transition planner may supply an authority-validated
+    # Top-K ranking. Keep it through the final rehearsal shortlist instead
+    # of silently re-sorting by the older analytical score.
+    validated_model_ranking = bool(
+        resolved_context.get("unified_transition")
+        and any(
+            float(plan.metadata.get("transition_ranker_authority", 0.0)) > 0.0
+            and (plan.metadata.get("topk_selection") or {}).get("ranking_source") == "validated_model"
+            for plan in plans
+        )
+    )
     diverse = diversify_transition_candidates(
         list(plans),
         count=min(cfg.finalists, len(plans)),
         diversity_weight=cfg.diversity_weight,
+        score_key="transition_ranker_blended_score" if validated_model_ranking else "selection_utility",
     )
     _attach_cached_stems(track_a, track_b, diverse)
 
