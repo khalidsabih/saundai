@@ -109,6 +109,24 @@ test("SAUND.AI opens as a locked cinematic intro before Create", async ({ page }
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
 });
 
+test("crate selection remains keyboard operable in desktop and mobile views", async ({ page }) => {
+  await mockAuth(page, false);
+  await mockLibrary(page);
+  await page.goto("/");
+  await completeIntro(page);
+
+  const track = page.getByRole("button", { name: /Aurora\\.wav/ });
+  await expect(track).toHaveAttribute("aria-pressed", "false");
+  await track.focus();
+  await expect(track).toBeFocused();
+
+  await page.keyboard.press("Space");
+  await expect(track).toHaveAttribute("aria-pressed", "true");
+
+  await page.keyboard.press("Enter");
+  await expect(track).toHaveAttribute("aria-pressed", "false");
+});
+
 test("guest can shape a set and is asked to log in only when building", async ({ page }) => {
   await mockAuth(page, false);
   await mockLibrary(page);
