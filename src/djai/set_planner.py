@@ -1904,6 +1904,8 @@ def _build_filtered_beam_route(
 def _large_crate_complete_move_config(
     config: CompleteMoveConfig,
     track_count: int,
+    *,
+    experimental_retrieval: bool | None = None,
 ) -> CompleteMoveConfig:
     """Bound structural search cost for large crates without touching safety gates.
 
@@ -1913,9 +1915,10 @@ def _large_crate_complete_move_config(
     """
     if track_count < _large_set_threshold():
         return config
-    experimental_retrieval = os.environ.get(
-        "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    if experimental_retrieval is None:
+        experimental_retrieval = os.environ.get(
+            "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
     if experimental_retrieval:
         return replace(
             config,
@@ -1940,8 +1943,14 @@ def _large_crate_complete_move_config(
 def _route_search_signature(
     config: CompleteMoveConfig,
     track_count: int,
+    *,
+    experimental_retrieval: bool | None = None,
 ) -> tuple[int, ...]:
-    effective = _large_crate_complete_move_config(config, track_count)
+    effective = _large_crate_complete_move_config(
+        config,
+        track_count,
+        experimental_retrieval=experimental_retrieval,
+    )
     return (
         int(effective.lookahead_moves),
         int(effective.search_branch_width),
@@ -1969,7 +1978,13 @@ def _progressive_sparse_configs(
         if experimental_retrieval
         else ((8, 4, 3),)
     )
-    seen_signatures = {_route_search_signature(config, track_count)}
+    seen_signatures = {
+        _route_search_signature(
+            config,
+            track_count,
+            experimental_retrieval=experimental_retrieval,
+        )
+    }
     result: list[CompleteMoveConfig] = []
     for candidate_width, opener_count, branch_width in requested_tiers:
         candidate_cfg = replace(
@@ -1991,7 +2006,11 @@ def _progressive_sparse_configs(
                 max(config.lazy_expansion_width, 4),
             ),
         )
-        signature = _route_search_signature(candidate_cfg, track_count)
+        signature = _route_search_signature(
+            candidate_cfg,
+            track_count,
+            experimental_retrieval=experimental_retrieval,
+        )
         if signature in seen_signatures:
             continue
         seen_signatures.add(signature)
