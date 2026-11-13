@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
+import os
 
 import librosa
 import numpy as np
@@ -791,6 +793,55 @@ def _render_transition_window(
         sample_rate=sample_rate,
         bpm=plan.target_bpm,
     ).audio
+    if (
+        os.environ.get("DJAI_PHASE6_RENDER_TRACE", "0").strip().lower()
+        in {"1", "true", "yes", "on"}
+        and plan.technique == "echo_out_drop_in"
+        and program.source_mode == "master"
+    ):
+        # Optional diagnostics only: rerun the same immutable program with
+        # one deck muted at a time, never modifying the authoritative mix.
+        def _level_db(segment: np.ndarray) -> float:
+            energy = float(np.mean(np.square(np.asarray(segment, dtype=np.float64))))
+            return round(10.0 * np.log10(max(energy, 1e-12)), 3)
+
+        frames = min(mixed.shape[-1], max(1, int(round(sample_rate * 0.6))))
+        deck_a_only = execute_transition_program(
+            program,
+            {"deck_a": sources["deck_a"], "deck_b": np.zeros_like(sources["deck_b"])},
+            sample_rate=sample_rate,
+            bpm=plan.target_bpm,
+        ).audio
+        deck_b_only = execute_transition_program(
+            program,
+            {"deck_a": np.zeros_like(sources["deck_a"]), "deck_b": sources["deck_b"]},
+            sample_rate=sample_rate,
+            bpm=plan.target_bpm,
+        ).audio
+        def _levels(audio: np.ndarray) -> dict[str, float]:
+            return {
+                "head_rms_dbfs": _level_db(audio[..., :frames]),
+                "tail_rms_dbfs": _level_db(audio[..., -frames:]),
+            }
+
+        print(
+            "\\n=== PHASE 6 RENDER DECK LEVELS ===\\n"
+            + json.dumps({
+                "track_a": Path(plan.track_a).name,
+                "track_b": Path(plan.track_b).name,
+                "exit_time_a_seconds": plan.exit_time_a,
+                "entry_time_b_seconds": plan.entry_time_b,
+                "transition_seconds": plan.transition_seconds,
+                "gain_a": gain_a,
+                "gain_b": float(gain_b),
+                "source_a": _levels(sources["deck_a"]),
+                "source_b": _levels(sources["deck_b"]),
+                "rendered_deck_a_only": _levels(deck_a_only),
+                "rendered_deck_b_only": _levels(deck_b_only),
+                "rendered_mix": _levels(mixed),
+            }, indent=2),
+            flush=True,
+        )
     return mixed, plan.source_duration_a, plan.source_duration_b, float(gain_b)
 
 
