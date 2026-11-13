@@ -1,6 +1,6 @@
 # Phase 4 equivalence and performance gate
 
-Status: **planning/execution identity passed on the controlled three-track fixture; rendered PCM and performance sign-off pending**. The supported Python full-suite gate was previously reported green. Both the pre-extraction and current renderer reject the fixture's first transition with the same hard 16.1 dB RMS handoff failure. Matching safety rejection is not PCM equivalence or a production release certificate.
+Status: **controlled three-track execution and decoded-PCM equivalence PASSED with quality rehearsal enabled; broader performance and release sign-off pending**. The supported Python full-suite gate was previously reported green. Without rehearsal, both branches correctly reject the same 16.1 dB RMS handoff; with the existing measured quality loop enabled, both branches render successfully and produce identical decoded PCM. This fixture-level result does not certify production DJ quality.
 
 The pre-extraction reference is Git commit
 `cb731ea035130590bfa39dddbc460085ebf723d7`, the parent of the first
@@ -36,12 +36,12 @@ export SAUND_CACHE="$SAUND_MAIN/output/phase4-evidence/shared-analysis"
 cd "$SAUND_BASELINE"
 PYTHONPATH="$SAUND_BASELINE/src" python "$SAUND_MAIN/scripts/phase4_equivalence.py" capture \
   --audio-dir "$SAUND_AUDIO" --analysis-cache-dir "$SAUND_CACHE" \
-  --output "$SAUND_MAIN/output/phase4-evidence/baseline.json" --render
+  --output "$SAUND_MAIN/output/phase4-evidence/baseline.json" --rehearse --render
 
 cd "$SAUND_MAIN"
 PYTHONPATH="$SAUND_MAIN/src" python scripts/phase4_equivalence.py capture \
   --audio-dir "$SAUND_AUDIO" --analysis-cache-dir "$SAUND_CACHE" \
-  --output "output/phase4-evidence/current.json" --render
+  --output "output/phase4-evidence/current.json" --rehearse --render
 
 python scripts/phase4_equivalence.py compare \
   output/phase4-evidence/baseline.json \
@@ -95,10 +95,11 @@ before/after refactor A/B run.
       changing handler implementations
 - [x] Fixed-input old/new execution signatures and program fingerprints match
       (shared scoring model; both manual route [1,0,2] and automatic routing)
-- [ ] Old/new decoded PCM render hashes match
+- [x] Old/new decoded PCM render hashes match (rehearsed, safety-clean fixture)
 - [ ] Comparable old/new timings and resource metrics recorded and reviewed
 - [x] Interim Phase 4 decision documented with paths to the operator evidence
-- [ ] Final Phase 4 exit decision after a safety-clean rendered PCM match
+- [x] Fixed-fixture safety-clean render decision recorded
+- [ ] Final Phase 4 exit after comparable planner latency/resource benchmark review
 
 If a mismatch appears, preserve the two reports and investigate the
 source/program/render differences instead of updating expected signatures
@@ -133,13 +134,40 @@ planner extraction.
   measured baseline `5.491` s and current `4.949` s. They are **not**
   a controlled performance benchmark or an optimization sign-off.
 
-**Interim decision:** planning and execution identity are verified on this
-fixture. The final rendered PCM comparison remains blocked by a shared,
-pre-existing hard safety rejection. The default fixture intentionally uses
-`quality_loop=None`; it cannot establish production-quality acceptance.
-The next task is to rehearse loudness-safe `echo_out_drop_in` handoff
-alternatives or choose another defensible candidate, then regenerate and
-seal the final execution plan **before** rendering. Never change the verifier
-threshold, silently patch rendered samples after plan sealing, or call
-matching safety failures an exact PCM match. The performance benchmark and
-final Phase 4 sign-off remain pending.
+### Rehearsed render equivalence — PASS (November 13, 2026)
+
+The operator used the same source audio, analyzed-track cache, scoring-model
+configuration, Python environment, and `--rehearse --render` flags on the
+pre-extraction worktree and current branch. The comparison reported:
+
+```text
+schema: MATCH
+audio_fingerprints: MATCH
+analysis_digests: MATCH
+scoring_model_fingerprint: MATCH
+order: MATCH
+transitions: MATCH
+rendered_pcm: MATCH
+render_status: baseline=passed current=passed
+Execution identity equivalence passed.
+```
+
+- Evidence: `output/phase4-evidence/baseline-rehearsed.json` and
+  `output/phase4-evidence/current-rehearsed.json`; corresponding WAV paths
+  use the same stems with `.wav` extensions.
+- Operator repeated the current rehearsed render successfully twice.
+- Single observed run timings: analysis `0.180` s for both; planning
+  baseline `13.937` s vs current `5.614` s; rendering baseline
+  `2.449` s vs current `3.111` s. These are **not** controlled performance
+  benchmarks. In particular, do not infer a planner speedup or render slowdown
+  from one pair of measurements.
+- The `--rehearse` flag opts in to the existing measured-candidate quality
+  loop, not a changed safety threshold or post-signature render alteration.
+  The original non-rehearsed safety rejection remains documented above.
+
+**Decision:** functional Phase 4 extraction equivalence is **verified** for
+this controlled three-track fixture, including identical decoded PCM after
+passing the original render safety checks. Keep the broader planner
+latency/resource benchmark and Phase 6 musical-quality release gate open.
+Review which rehearsed candidate was selected and ensure larger real-music
+crates meet the same safety expectations before any production-quality claim.
