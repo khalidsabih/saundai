@@ -253,12 +253,47 @@ def _candidate_pool(
     # Give the authorized, previously trained taste ranker first choice of the
     # rehearsal pilot. Without validated model authority, its existing helper
     # returns the deterministic ordering unchanged. Audio gates remain final.
+    score_key = "selection_utility"
     if crate_aware_topk_enabled():
         from ..intelligence.transition_ranker import rank_transition_plans
 
         ranked = rank_transition_plans(ranked)
+        # The taste model must carry verified authority. Otherwise the entire
+        # rehearsal shortlist stays on the established deterministic ranking.
+        if any(
+            float(plan.metadata.get("transition_ranker_authority", 0.0)) > 0.0
+            for plan in ranked
+        ):
+            score_key = "transition_ranker_blended_score"
     count = min(len(ranked), max(1, int(finalist_budget)))
-    return diversify_transition_candidates(ranked, count=count, diversity_weight=0.30), durations
+    selected = diversify_transition_candidates(
+        ranked, count=count, diversity_weight=0.30, score_key=score_key,
+    )
+    # This is selection telemetry, not an assertion of predictive accuracy:
+    # unrendered candidates have no observed acceptance labels.
+    ranked_by_score = sorted(
+        ranked,
+        key=lambda plan: (
+            float(plan.metadata.get(score_key, plan.metadata.get("selection_utility", plan.score))),
+            plan.execution_signature,
+        ),
+        reverse=True,
+    )
+    score_ranks = {
+        plan.execution_signature: index + 1
+        for index, plan in enumerate(ranked_by_score)
+    }
+    for plan in selected:
+        plan.metadata = {
+            **plan.metadata,
+            "topk_selection": {
+                "ranking_source": "validated_model" if score_key != "selection_utility" else "deterministic",
+                "rank_in_analytical_pool": score_ranks[plan.execution_signature],
+                "analytical_pool_size": len(ranked),
+                "family_finalist_budget": count,
+            },
+        }
+    return selected, durations
 
 
 
