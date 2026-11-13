@@ -26,6 +26,36 @@ def _percentile(values: list[float], fraction: float) -> float | None:
     return round(ordered[max(0, index)], 3)
 
 
+def classify_phase_motion(points: list[dict]) -> str:
+    """Classify observed phase trajectory; a hint for triage, not safety.
+
+    A monotonic multi-sample drift suggests tempo mismatch, while a sudden
+    jump suggests bad indexing or an unstable beat detector. Neither proves
+    the source audio is actually out of time.
+    """
+    values = [
+        float(point["phase_error_ms"])
+        for point in points
+        if isinstance(point, dict)
+        and isinstance(point.get("phase_error_ms"), (int, float))
+        and math.isfinite(float(point["phase_error_ms"]))
+    ]
+    if len(values) < 4:
+        return "insufficient_trajectory"
+    steps = [b - a for a, b in zip(values, values[1:])]
+    movement = sum(abs(step) for step in steps)
+    excursion = max(values) - min(values)
+    if excursion < 35.0:
+        return "low_phase_excursion"
+    largest = max(abs(step) for step in steps)
+    if largest >= 120.0 and largest >= 0.60 * movement:
+        return "abrupt_phase_jump"
+    net = abs(values[-1] - values[0])
+    if movement > 0 and net / movement >= 0.75:
+        return "mostly_directional_drift"
+    return "irregular_phase_motion"
+
+
 def summarize(path: Path) -> dict[str, object]:
     raw = 0
     malformed = 0
@@ -53,6 +83,10 @@ def summarize(path: Path) -> dict[str, object]:
             unique.setdefault(key, record)
 
     reasons = Counter(str(item.get("reason", "unknown")) for item in unique.values())
+    motion = Counter(
+        classify_phase_motion(list(item.get("points") or []))
+        for item in unique.values()
+    )
     per_pair = defaultdict(lambda: {"unique": 0, "measured": 0, "insufficient": 0})
     residuals: list[float] = []
     for row in unique.values():
@@ -80,6 +114,7 @@ def summarize(path: Path) -> dict[str, object]:
         "unique_candidate_configurations": len(unique),
         "repeated_evaluations": max(0, raw - malformed - len(unique)),
         "reasons_unique": dict(reasons.most_common()),
+        "phase_trajectory_patterns_unique": dict(motion.most_common()),
         "measured_residual_count": len(residuals),
         "measured_residual_median_ms": round(median(residuals), 3) if residuals else None,
         "measured_residual_p90_ms": _percentile(residuals, .90),
@@ -94,6 +129,7 @@ def summarize(path: Path) -> dict[str, object]:
             "A rejection event is not necessarily a distinct cue configuration.",
             "999ms is an unknown-residual sentinel, not observed phase drift.",
             "Only rejected candidates are logged; no recall or acceptance rate can be inferred.",
+            "Trajectory patterns are diagnostic heuristics, not verified beat-tracking diagnoses.",
             "This diagnostic does not change hard beat or audio safety thresholds.",
         ],
     }
