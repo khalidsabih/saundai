@@ -270,3 +270,36 @@ def test_automatic_set_replans_when_phase_lock_is_outside_envelope(tmp_path: Pat
         assert profile.get("safe", True) is True
     else:
         assert chosen.metadata.get("beat_integrity_replanned", False) or chosen.metadata.get("automatic_fallback", False)
+
+
+def test_missing_beat_gap_numbering_is_opt_in_and_does_not_interpolate(monkeypatch):
+    from djai.performance.deck import (
+        _continuous_beat_position,
+        _overlap_crosses_unreliable_beat_interval,
+    )
+
+    beats = [0.0, 0.5, 1.0, 2.0, 2.5, 3.0]
+    monkeypatch.setenv("DJAI_BEAT_GAP_AWARE", "0")
+    original = _continuous_beat_position(
+        beats, 2.25, expected_source_beat_seconds=0.5
+    )
+    assert original is not None and abs(original - 3.5) < 1e-6
+
+    monkeypatch.setenv("DJAI_BEAT_GAP_AWARE", "1")
+    corrected = _continuous_beat_position(
+        beats, 2.25, expected_source_beat_seconds=0.5
+    )
+    assert corrected is not None and abs(corrected - 4.5) < 1e-6
+    # The missing beat interval itself is still forbidden evidence.
+    assert _continuous_beat_position(
+        beats, 1.5, expected_source_beat_seconds=0.5
+    ) is None
+    # Nor can sparse sampling hide a gap traversed by a complete overlap.
+    assert _overlap_crosses_unreliable_beat_interval(
+        beats, start_seconds=0.75, end_seconds=2.25,
+        expected_source_beat_seconds=0.5,
+    )
+    assert not _overlap_crosses_unreliable_beat_interval(
+        beats, start_seconds=2.1, end_seconds=2.9,
+        expected_source_beat_seconds=0.5,
+    )
