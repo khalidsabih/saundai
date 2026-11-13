@@ -61,6 +61,11 @@ def capture(args: argparse.Namespace) -> int:
         cache_dir=args.analysis_cache_dir or ".djai-cache/tracks",
     )
     analysis_seconds = time.perf_counter() - started
+    from djai.planning_context import PlanningSession, scoring_model_fingerprint
+    # Snapshot model once per capture: don't accidentally compare a worktree
+    # with no trained model against one with an active learned scorer.
+    planning_session = PlanningSession()
+    scoring_fingerprint = scoring_model_fingerprint(planning_session.scoring_model)
     # Prove the two planner runs consumed identical analyzed features.
     # Source hashes alone do not establish perceptual evidence identity.
     analysis_digests = [
@@ -250,6 +255,7 @@ def capture(args: argparse.Namespace) -> int:
         minimum_body_seconds=8.0,
         minimum_body_fraction=0.10,
         graph_workers=1,
+        planning_session=planning_session,
         quality_loop=None,
         automatic_delivery=False,
     )
@@ -291,6 +297,7 @@ def capture(args: argparse.Namespace) -> int:
         "schema": "phase4-equivalence-v1",
         "audio_fingerprints": fingerprints,
         "analysis_digests": analysis_digests,
+        "scoring_model_fingerprint": scoring_fingerprint,
         "order": plan.order,
         "transitions": transitions,
         **({"selection_trace": selection_trace} if args.trace_selection else {}),
@@ -329,7 +336,10 @@ def capture(args: argparse.Namespace) -> int:
 def compare(args: argparse.Namespace) -> int:
     baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
     current = json.loads(Path(args.current).read_text(encoding="utf-8"))
-    keys = ("schema", "audio_fingerprints", "analysis_digests", "order", "transitions", "rendered_pcm")
+    keys = (
+        "schema", "audio_fingerprints", "analysis_digests",
+        "scoring_model_fingerprint", "order", "transitions", "rendered_pcm",
+    )
     mismatches = [key for key in keys if baseline.get(key) != current.get(key)]
     baseline_times = baseline.get("timing_seconds", {})
     current_times = current.get("timing_seconds", {})
@@ -394,6 +404,12 @@ def compare(args: argparse.Namespace) -> int:
         new = current_times.get(key)
         if old is not None and new is not None:
             print(f"  {key}: baseline={old:.3f}s current={new:.3f}s ratio={new / max(old, 1e-9):.3f}x")
+    if "scoring_model_fingerprint" in mismatches:
+        print(
+            "Scoring models differ: use the SAME absolute DJAI_CONFIG_DIR "
+            "on both worktrees before interpreting planner differences.",
+            file=sys.stderr,
+        )
     if mismatches:
         print("FAILED equivalence fields: " + ", ".join(mismatches), file=sys.stderr)
         return 1
