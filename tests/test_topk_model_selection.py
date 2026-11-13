@@ -62,3 +62,67 @@ def test_ranker_score_fallback_preserves_default_selection(tmp_path: Path) -> No
         [strong, weak], count=1, score_key="transition_ranker_blended_score"
     )
     assert selected[0] is strong
+
+
+def test_authorized_model_rank_is_kept_at_rehearsal_boundary(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+    from djai.brain import professional
+
+    plan = _plan(tmp_path, "validated", .7, .95)
+    plan.metadata["topk_selection"] = {"ranking_source": "validated_model"}
+    plan.metadata["transition_ranker_authority"] = .3
+    score_keys: list[str] = []
+    original_diversify = professional.diversify_transition_candidates
+
+    def capture(plans, **kwargs):
+        score_keys.append(kwargs["score_key"])
+        return original_diversify(plans, **kwargs)
+
+    class StopBeforeAudio(Exception):
+        pass
+
+    def no_audio(*args, **kwargs):
+        raise StopBeforeAudio()
+
+    monkeypatch.setattr(professional, "diversify_transition_candidates", capture)
+    monkeypatch.setattr(professional, "_attach_cached_stems", lambda *args: None)
+    monkeypatch.setattr(professional, "_rehearse", no_audio)
+    with pytest.raises(StopBeforeAudio):
+        professional.rehearse_candidate_pool(
+            analysis(tmp_path / "left.wav"),
+            analysis(tmp_path / "right.wav"),
+            [plan],
+            config=professional.ProfessionalBrainConfig(adaptive_rehearsal=False),
+            context={"unified_transition": True},
+        )
+    assert score_keys == ["transition_ranker_blended_score"]
+
+
+def test_zero_authority_cannot_control_rehearsal_shortlist(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+    from djai.brain import professional
+
+    plan = _plan(tmp_path, "shadow", .8, .95)
+    plan.metadata["topk_selection"] = {"ranking_source": "validated_model"}
+    plan.metadata["transition_ranker_authority"] = 0.0
+    score_keys = []
+
+    def capture(plans, **kwargs):
+        score_keys.append(kwargs["score_key"])
+        return plans
+
+    class StopBeforeAudio(Exception):
+        pass
+
+    monkeypatch.setattr(professional, "diversify_transition_candidates", capture)
+    monkeypatch.setattr(professional, "_attach_cached_stems", lambda *args: None)
+    monkeypatch.setattr(professional, "_rehearse", lambda *args, **kwargs: (_ for _ in ()).throw(StopBeforeAudio()))
+    with pytest.raises(StopBeforeAudio):
+        professional.rehearse_candidate_pool(
+            analysis(tmp_path / "left-shadow.wav"),
+            analysis(tmp_path / "right-shadow.wav"),
+            [plan],
+            config=professional.ProfessionalBrainConfig(adaptive_rehearsal=False),
+            context={"unified_transition": True},
+        )
+    assert score_keys == ["selection_utility"]
