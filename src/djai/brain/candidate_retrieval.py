@@ -12,7 +12,7 @@ from ..models import TrackAnalysis
 from .crowd_state import CrowdDirective, crowd_alignment_adjustment
 from .set_state import SetState, next_track_context_score, track_state_vector
 
-RETRIEVAL_VERSION = "1.8.0"
+RETRIEVAL_VERSION = "1.8.1"
 
 
 def _clamp(value: float) -> float:
@@ -106,6 +106,60 @@ def _embedding_score(current: TrackAnalysis, candidate: TrackAnalysis) -> float:
     if not current.music_embedding or not candidate.music_embedding:
         return 0.5
     return _clamp(embedding_similarity(current.music_embedding, candidate.music_embedding))
+
+
+def _pair_continuity_score(current: TrackAnalysis, candidate: TrackAnalysis) -> float:
+    """Cheap static pair plausibility for route survivability."""
+    tempo, _ = tempo_compatibility(current.bpm, candidate.bpm)
+    harmonic = harmonic_compatibility(current.key, candidate.key)
+    energy = _energy_bridge_score(current, candidate)
+    embedding = _embedding_score(current, candidate)
+    genre = genre_compatibility(current, candidate)
+    return _clamp(
+        0.28 * tempo
+        + 0.20 * harmonic
+        + 0.18 * energy
+        + 0.18 * embedding
+        + 0.16 * genre
+    )
+
+
+def _future_survivability_score(
+    candidate_index: int,
+    available_indices: Sequence[int],
+    analyses: Sequence[TrackAnalysis],
+) -> tuple[float, dict[str, float]]:
+    """Estimate whether a candidate leaves several plausible cheap exits.
+
+    This never replaces exact cue, rehearsal, or safety evaluation. It is only
+    a pre-graph structural guard against sparse-route dead ends.
+    """
+    onward = [index for index in available_indices if index != candidate_index]
+    if not onward:
+        return 1.0, {
+            "future_best": 1.0,
+            "future_second": 1.0,
+            "future_coverage": 1.0,
+            "future_option_count": 0.0,
+        }
+
+    scores = sorted(
+        (
+            _pair_continuity_score(analyses[candidate_index], analyses[index])
+            for index in onward
+        ),
+        reverse=True,
+    )
+    best = scores[0]
+    second = scores[1] if len(scores) > 1 else best
+    coverage = sum(1 for score in scores if score >= 0.45) / len(scores)
+    survivability = _clamp(0.46 * best + 0.34 * second + 0.20 * coverage)
+    return survivability, {
+        "future_best": best,
+        "future_second": second,
+        "future_coverage": coverage,
+        "future_option_count": float(len(scores)),
+    }
 
 
 def _cheap_score(
@@ -219,6 +273,20 @@ def retrieve_candidate_tracks(
                 if cfg.experimental_learned_filter
                 else "deterministic retrieval; learned next-track filter disabled"
             )
+
+        survivability, survivability_components = _future_survivability_score(
+            index,
+            available,
+            analyses,
+        )
+        survivability_adjustment = 0.16 * (survivability - 0.5)
+        score = _clamp(score + survivability_adjustment)
+        components = {
+            **components,
+            "future_survivability": survivability,
+            "future_survivability_adjustment": survivability_adjustment,
+            **survivability_components,
+        }
         ranked.append(
             RetrievedTrack(
                 index=index,
