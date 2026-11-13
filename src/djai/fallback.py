@@ -526,6 +526,34 @@ def build_last_resort_plan(
             render_context=exact_context,
         ).selected
     except MeasuredTransitionError as exc:
+        # Preserve the exact rejected audio evidence for Phase 6 diagnostics.
+        # The quality gate still rejects this transition without exception.
+        from dataclasses import asdict
+        import json
+
+        diagnostic = {
+            "track_a": track_a.path,
+            "track_b": track_b.path,
+            "reason": reason,
+            "failed_candidates": [
+                {
+                    "technique": candidate.technique,
+                    "transition_mode": candidate.transition_mode,
+                    "fallback_level": candidate.fallback_level,
+                    "measurement": (
+                        asdict(candidate.measurement)
+                        if candidate.measurement is not None
+                        else None
+                    ),
+                }
+                for candidate in exc.evaluated
+            ],
+        }
+        print(
+            "\n=== PHASE 6 FAILED TRANSITION ===\n"
+            + json.dumps(diagnostic, indent=2, default=str),
+            flush=True,
+        )
         detail = (
             exc.best.measurement.hard_failures[0]
             if exc.best is not None
