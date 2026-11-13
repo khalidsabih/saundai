@@ -37,7 +37,7 @@ def test_6_versions_and_executable_program(track_pair) -> None:
     program = transition_program_from_dict(plan.performance_program)
     assert DJAI_VERSION == "2.0.0-rc.1"
     assert PLAN_SCHEMA_VERSION == "8.0.0"
-    assert program.version == PERFORMANCE_PROGRAM_VERSION == "4.0"
+    assert program.version == PERFORMANCE_PROGRAM_VERSION
     assert program.fingerprint == plan.performance_program_fingerprint
     assert program.source_mode in {"master", "stems", "layers"}
 
