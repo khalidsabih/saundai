@@ -1,5 +1,8 @@
 # DJAI 4.0.0 release notes — Professional Brain Core
 
+> **Historical status:** This document records an earlier implementation/release milestone. It is retained for provenance and must not be used as the current runtime/version contract. See [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md) for current architecture, authority and schema sources of truth.
+
+
 DJAI 4.0.0 reorganizes automatic decision making around a professional-DJ-brain loop while preserving the tested deterministic renderer and safety contracts from 3.x.
 
 ## Major changes
