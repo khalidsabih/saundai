@@ -108,6 +108,11 @@ from .planner_reporting import (
     build_complete_move_report as _build_complete_move_report,
     build_set_plan_metadata as _build_set_plan_metadata,
 )
+from .planner_quality_loop import (
+    finalize_quality_measurement_run as _finalize_quality_measurement_run,
+    measurement_run_start_offset as _measurement_run_start_offset,
+    professional_brain_config_for_transition as _professional_brain_config_for_transition,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1480,39 +1485,6 @@ def _complete_move_preference_score(plan: TransitionPlan, decision: CompleteMove
     )
 
 
-def _professional_brain_config_for_transition(
-    quality_loop: QualityLoopConfig,
-    preferred_complete_decision: CompleteMoveDecision | None,
-) -> ProfessionalBrainConfig:
-    """Apply V4 compute budgeting without changing Professional Brain gates."""
-
-    thinking_budget = (
-        preferred_complete_decision.thinking_budget
-        if preferred_complete_decision is not None
-        else None
-    )
-    return ProfessionalBrainConfig.from_environment(
-        finalists=(
-            int(os.environ["DJAI_BRAIN_FINALISTS"])
-            if os.environ.get("DJAI_BRAIN_FINALISTS", "").isdigit()
-            else max(6, quality_loop.top_k * 2)
-        ),
-        adaptive_pilot_finalists=(
-            thinking_budget.professional_pilot_finalists
-            if thinking_budget is not None
-            else None
-        ),
-        adaptive_rehearsal=(
-            thinking_budget.professional_adaptive_rehearsal
-            if thinking_budget is not None
-            else None
-        ),
-        measurement_sample_rate=quality_loop.sample_rate,
-        measurement_context_seconds=quality_loop.context_seconds,
-        measurement_minimum=quality_loop.minimum_measured_score,
-    )
-
-
 def _compile_sequence_edges(
     order: list[int],
     analyses: list[TrackAnalysis],
@@ -2753,9 +2725,7 @@ def make_set_plan(
     journey = normalize_journey(journey)
     listener_profile = get_listener_profile(listener)
     session = planning_session if planning_session is not None else PlanningSession()
-    measurement_run_offset = measurement_log_offset(
-        quality_loop.log_path if quality_loop is not None and quality_loop.enabled else None
-    )
+    measurement_run_offset = _measurement_run_start_offset(quality_loop)
 
     complete_move_cfg = CompleteMoveConfig.from_environment()
     headphones_cfg = AIHeadphonesConfig.from_environment()
@@ -3248,19 +3218,11 @@ def make_set_plan(
         metadata=metadata,
     )
     plan.metadata["full_set_benchmark"] = evaluate_full_set(plan).to_dict()
-    if quality_loop is not None and quality_loop.enabled and quality_loop.log_path:
-        finalize_measurement_run(
-            quality_loop.log_path,
-            start_offset=measurement_run_offset,
-            accepted_signatures=[
-                edge.plan.execution_signature
-                for edge in transitions
-                if edge.plan.measurement is not None
-            ],
-            accepted_plans=[
-                edge.plan for edge in transitions if edge.plan.measurement is not None
-            ],
-        )
+    _finalize_quality_measurement_run(
+        quality_loop,
+        start_offset=measurement_run_offset,
+        transitions=transitions,
+    )
     if plan.requires_confirmation:
         plan.confirmation_token = create_confirmation_token(
             confirmation_payload(plan_id, order, transitions)
