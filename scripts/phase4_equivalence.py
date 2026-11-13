@@ -61,6 +61,19 @@ def capture(args: argparse.Namespace) -> int:
         cache_dir=args.analysis_cache_dir or ".djai-cache/tracks",
     )
     analysis_seconds = time.perf_counter() - started
+    # Prove the two planner runs consumed identical analyzed features.
+    # Source hashes alone do not establish perceptual evidence identity.
+    analysis_digests = [
+        hashlib.sha256(
+            json.dumps(
+                item.to_dict(include_beats=True),
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        for item in analyses
+    ]
 
     if args.manual_order:
         forced = [int(value) for value in args.manual_order.split(",")]
@@ -124,6 +137,7 @@ def capture(args: argparse.Namespace) -> int:
     report = {
         "schema": "phase4-equivalence-v1",
         "audio_fingerprints": fingerprints,
+        "analysis_digests": analysis_digests,
         "order": plan.order,
         "transitions": transitions,
         "rendered_pcm": rendered,
@@ -161,7 +175,7 @@ def capture(args: argparse.Namespace) -> int:
 def compare(args: argparse.Namespace) -> int:
     baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
     current = json.loads(Path(args.current).read_text(encoding="utf-8"))
-    keys = ("schema", "audio_fingerprints", "order", "transitions", "rendered_pcm")
+    keys = ("schema", "audio_fingerprints", "analysis_digests", "order", "transitions", "rendered_pcm")
     mismatches = [key for key in keys if baseline.get(key) != current.get(key)]
     baseline_times = baseline.get("timing_seconds", {})
     current_times = current.get("timing_seconds", {})
