@@ -82,6 +82,76 @@ def capture(args: argparse.Namespace) -> int:
                 f"--manual-order must be a permutation of 0..{len(paths) - 1}"
             )
 
+    selection_trace: list[dict[str, object]] = []
+    if args.trace_selection:
+        import djai.set_planner as planner_module
+
+        original_select = planner_module._select_alternative
+        original_exit = planner_module._sequence_exit_candidates
+        original_entry = planner_module._sequence_entry_candidates
+
+        def trace_exit(track, **kwargs):
+            result = original_exit(track, **kwargs)
+            selection_trace.append({
+                "stage": "exit_cues",
+                "track": track.title,
+                "source_cursor": kwargs.get("source_cursor"),
+                "required_source": kwargs.get("required_source"),
+                "cues": [
+                    {
+                        "time": cue.time_seconds,
+                        "bar": cue.bar_index,
+                        "section": cue.section_label,
+                        "score": cue.score,
+                    }
+                    for cue in result[0]
+                ],
+            })
+            return result
+
+        def trace_entry(track, **kwargs):
+            result = original_entry(track, **kwargs)
+            selection_trace.append({
+                "stage": "entry_cues",
+                "track": track.title,
+                "cues": [
+                    {
+                        "time": cue.time_seconds,
+                        "bar": cue.bar_index,
+                        "section": cue.section_label,
+                        "score": cue.score,
+                    }
+                    for cue in result
+                ],
+            })
+            return result
+
+        def trace_select(plans, track_a, track_b, **kwargs):
+            selected = original_select(plans, track_a, track_b, **kwargs)
+            selection_trace.append({
+                "stage": "select_alternative",
+                "from": track_a.title,
+                "to": track_b.title,
+                "plans": [
+                    {
+                        "style": candidate.style,
+                        "technique": candidate.technique,
+                        "score": candidate.score,
+                        "selection_utility": candidate.metadata.get("selection_utility"),
+                        "exit": candidate.exit_time_a,
+                        "entry": candidate.entry_time_b,
+                        "signature": candidate.execution_signature,
+                    }
+                    for candidate in plans
+                ],
+                "winner": selected[0].execution_signature,
+            })
+            return selected
+
+        planner_module._sequence_exit_candidates = trace_exit
+        planner_module._sequence_entry_candidates = trace_entry
+        planner_module._select_alternative = trace_select
+
     started = time.perf_counter()
     plan = make_set_plan(
         analyses,
@@ -140,6 +210,7 @@ def capture(args: argparse.Namespace) -> int:
         "analysis_digests": analysis_digests,
         "order": plan.order,
         "transitions": transitions,
+        **({"selection_trace": selection_trace} if args.trace_selection else {}),
         "rendered_pcm": rendered,
         "timing_seconds": {
             "analysis": round(analysis_seconds, 4),
@@ -201,6 +272,18 @@ def compare(args: argparse.Namespace) -> int:
             for field in sorted(set(a) | set(b)):
                 if a.get(field) != b.get(field):
                     print(f"    {field}: baseline={a.get(field)!r} current={b.get(field)!r}")
+    if baseline.get("selection_trace") is not None and current.get("selection_trace") is not None:
+        a_trace = baseline["selection_trace"]
+        b_trace = current["selection_trace"]
+        print(f"  selection trace entries: baseline={len(a_trace)} current={len(b_trace)}")
+        for index in range(max(len(a_trace), len(b_trace))):
+            a = a_trace[index] if index < len(a_trace) else None
+            b = b_trace[index] if index < len(b_trace) else None
+            if a != b:
+                print(f"  first selection trace mismatch at step {index + 1}:")
+                print(f"    baseline: {json.dumps(a, sort_keys=True)}")
+                print(f"    current:  {json.dumps(b, sort_keys=True)}")
+                break
     if baseline.get("context") != current.get("context"):
         print(f"  baseline context: {baseline.get('context')!r}")
         print(f"  current context:  {current.get('context')!r}")
@@ -225,6 +308,7 @@ def main() -> int:
     capture_parser.add_argument("--audio-dir", required=True)
     capture_parser.add_argument("--output", required=True)
     capture_parser.add_argument("--render", action="store_true")
+    capture_parser.add_argument("--trace-selection", action="store_true")
     capture_parser.add_argument(
         "--manual-order",
         help="Comma-separated track indices, e.g. 1,0,2; isolate compiler from route search",
