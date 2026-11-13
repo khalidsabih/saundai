@@ -269,3 +269,41 @@ Next.js continued reporting the external lockfile /
 `output: standalone` warning. Both are outstanding deployment/test
 harness cleanup, distinct from the passing frontend regression suite.
 Previously reported npm dependency advisories also remain open.
+
+## Dependency security patch and standalone-server harness cleanup (2026-11-13)
+
+The operator reported successfully rebasing and pushing the dedicated
+frontend production dependency patch. The branch advanced to
+`a4469d3` (security patch), following `ff1e921`.
+GitHub's committed lockfile now contains Next.js **16.4.6**,
+sharp **0.35.5**, and source-map-js **1.2.2**. The operator reported
+the local audit and regression verification **PASSED**, but did not
+paste their detailed post-upgrade test counts; do not present them as
+independently observed logs.
+
+The next configuration-only slice explicitly sets both
+`outputFileTracingRoot` and `turbopack.root` to the frontend build
+working directory to avoid inferring an unrelated external lockfile.
+Playwright now uses the generated standalone production server,
+rather than unsupported `next start` with `output: "standalone"`.
+Because standalone output intentionally omits copied static assets,
+`frontend/scripts/prepare-e2e-standalone.mjs` mirrors the same
+`public` and `.next/static` directories the production Dockerfile
+already copies. No UI, service API, job or audio control code changed.
+
+**Infrastructure cleanup verification pending**. Rebuild before E2E
+because the Playwright server now uses `.next/standalone/server.js`:
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+cd frontend
+npm audit --omit=dev
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+```
+
+Review any Next.js diagnostics and compare the complete test results
+before calling Phase 5.4 green.
