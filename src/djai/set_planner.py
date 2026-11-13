@@ -1521,7 +1521,210 @@ def _compile_sequence_edges(
 
         measurement_summary: dict[str, object] | None = None
         if quality_loop is not None and quality_loop.enabled and automatic_delivery:
+            if progress:
+                progress(
+                    "measure",
+                    position,
+                    max(1, global_track_count - 1),
+                    f"{track_a.title} -> {track_b.title}",
+                )
+            brain_enabled = os.environ.get("DJAI_PROFESSIONAL_BRAIN", "1").strip().lower() not in {"0", "false", "no", "off"}
+            if brain_enabled:
+                if matrix is None or not matrix.pairs:
+                    if replan_on_review and not allow_emergency_escape:
+                        raise TransitionReplanRequired(
+                            from_index,
+                            to_index,
+                            action="replan_track",
+                            reason="No pair-evidence matrix remained for a rehearsed automatic transition.",
+                            resolution={"action": "replan_track", "reason": "no_evidence_matrix"},
+                            compiled_prefix=list(compiled),
+                        )
+                    chosen = build_last_resort_plan(
+                        track_a,
+                        track_b,
+                        effective_bpm_a=current_effective_bpm,
+                        render_rate_a=current_rate,
+                        source_cursor=source_cursor,
+                        preferred_exit_time=required_exit,
+                        reason="No evidence matrix remained after global replanning; deterministic final escape used.",
+                        render_context=edge_render_context,
+                        verify_audio=True,
+                    )
+                    measurement_summary = {
+                        "action": "emergency_escape",
+                        "fallback_used": True,
+                        "reason": "no_evidence_matrix",
+                    }
+                else:
+                    from .brain.unified_transition import resolve_emergency_escape, resolve_transition
 
+                    state = move_set_state
+                    thinking_budget = (
+                        preferred_complete_decision.thinking_budget
+                        if preferred_complete_decision is not None
+                        else None
+                    )
+                    brain_cfg = _professional_brain_config_for_transition(
+                        quality_loop, preferred_complete_decision
+                    )
+                    resolution = resolve_transition(
+                        track_a,
+                        track_b,
+                        evidence_matrix=matrix,
+                        professional_config=brain_cfg,
+                        tempo_policy=tempo_policy,
+                        preferred_style=preferred_style,
+                        effective_bpm_a=current_effective_bpm,
+                        render_rate_a=current_rate,
+                        stems_available=stems_available,
+                        set_state=state,
+                        dj_state=dj_state,
+                        journey=journey,
+                        journey_progress=journey_progress,
+                        listener=listener_profile.listener if listener_profile is not None else None,
+                        measurement_log_path=quality_loop.log_path,
+                        transition_policy_context=(
+                            policy_context if transition_policy_authority == "bounded_advisory" else None
+                        ),
+                        crowd_directive=(
+                            crowd_directive if transition_policy_authority == "bounded_advisory" else None
+                        ),
+                        context={
+                            "mode": "set_sequence",
+                            "sequence_position": global_position,
+                            "from_index": from_index,
+                            "to_index": to_index,
+                            "journey": journey,
+                            "preferred_style": preferred_style,
+                            "adaptive_thinking": (
+                                thinking_budget.to_dict() if thinking_budget is not None else None
+                            ),
+                        },
+                        render_context=edge_render_context,
+                    )
+                    if resolution.accepted:
+                        assert resolution.selected is not None
+                        if (
+                            automatic_delivery
+                            and replan_on_review
+                            and not allow_emergency_escape
+                            and resolution.selected.transition_mode == "emergency_cut"
+                        ):
+                            raise TransitionReplanRequired(
+                                from_index,
+                                to_index,
+                                action="replan_track",
+                                reason=(
+                                    "Professional rehearsal found only a structural reset for this pair; "
+                                    "offline automatic delivery must route through another track before using emergency escape."
+                                ),
+                                resolution={
+                                    **resolution.to_dict(),
+                                    "reason": "emergency_cut_not_production_route",
+                                },
+                                compiled_prefix=list(compiled),
+                            )
+                        chosen = resolution.selected
+                        measurement_summary = resolution.to_dict()
+                    elif replan_on_review and not allow_emergency_escape:
+                        raise TransitionReplanRequired(
+                            from_index,
+                            to_index,
+                            action=resolution.action,
+                            reason=(
+                                resolution.reasons[-1]
+                                if resolution.reasons
+                                else "Rendered transition did not clear the professional acceptance gate."
+                            ),
+                            resolution=resolution.to_dict(),
+                            compiled_prefix=list(compiled),
+                        )
+                    else:
+                        emergency = resolve_emergency_escape(
+                            track_a,
+                            track_b,
+                            evidence_matrix=matrix,
+                            professional_config=brain_cfg,
+                            effective_bpm_a=current_effective_bpm,
+                            render_rate_a=current_rate,
+                            stems_available=stems_available,
+                            set_state=state,
+                            journey=journey,
+                            journey_progress=journey_progress,
+                            listener=listener_profile.listener if listener_profile is not None else None,
+                            measurement_log_path=quality_loop.log_path,
+                            context={
+                                "mode": "set_sequence_final_escape",
+                                "sequence_position": global_position,
+                                "from_index": from_index,
+                                "to_index": to_index,
+                            },
+                            render_context=edge_render_context,
+                        )
+                        if emergency.accepted:
+                            assert emergency.selected is not None
+                            chosen = emergency.selected
+                            measurement_summary = emergency.to_dict()
+                        else:
+                            chosen = build_last_resort_plan(
+                                track_a,
+                                track_b,
+                                effective_bpm_a=current_effective_bpm,
+                                render_rate_a=current_rate,
+                                source_cursor=source_cursor,
+                                preferred_exit_time=required_exit,
+                                reason=(
+                                    "All alternate track routes and separately rehearsed emergency escapes were exhausted; "
+                                    "deterministic phrase-aligned final escape used to preserve delivery."
+                                ),
+                                render_context=edge_render_context,
+                                verify_audio=True,
+                            )
+                            chosen.metadata = {
+                                **chosen.metadata,
+                                "unified_transition_final_escape": True,
+                                "emergency_resolution": emergency.to_dict(),
+                            }
+                            measurement_summary = {
+                                **emergency.to_dict(),
+                                "deterministic_final_escape": True,
+                            }
+            else:
+                scores = {
+                    plan.execution_signature: float(plan.metadata.get("selection_utility", plan.score))
+                    for plan in all_plans
+                }
+                chosen = select_automatic_transition(
+                    track_a, track_b, all_plans, analytical_scores=scores, quality_config=quality_loop,
+                    context={"sequence_position": global_position, "from_index": from_index, "to_index": to_index, "journey": journey, "preferred_style": preferred_style},
+                    render_context=edge_render_context,
+                    source_cursor=source_cursor, preferred_exit_time=required_exit, effective_bpm_a=current_effective_bpm, render_rate_a=current_rate,
+                )
+                measurement_summary = {
+                    "automatic_delivery": True, "fallback_level": chosen.fallback_level,
+                    "selected_measured_score": chosen.measured_score, "selected_final_score": chosen.score,
+                    "gate_passed": chosen.measurement_passed,
+                }
+            chosen.metadata = {
+                **chosen.metadata,
+                "sequence_position": global_position,
+                "source_cursor_before_body": round(source_cursor, 6),
+                "minimum_source_body": round(required_source, 6),
+                "preferred_exit_time": round(target_exit, 6),
+                "soft_latest_exit_time": round(soft_latest_exit, 6),
+                "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
+                "sequence_evidence_reused": sequence_evidence_reused,
+                "sequence_matrix_size": (matrix.compatibility_evaluations if matrix is not None else 0),
+                "quality_loop_summary": measurement_summary,
+            }
+            if progress:
+                progress(
+                    "measure",
+                    position + 1,
+                    max(1, global_track_count - 1),
+                    f"{track_a.title} -> {track_b.title}: {chosen.measured_score or 0.0:.0%}",
+                )
         else:
             chosen, measurement_summary = _select_nonautomatic_sequence_transition(
                 track_a=track_a,
@@ -1532,6 +1735,8 @@ def _compile_sequence_edges(
                 preferred_style=preferred_style,
                 journey=journey,
                 listener_profile=listener_profile,
+                from_index=from_index,
+                to_index=to_index,
                 global_position=global_position,
                 global_track_count=global_track_count,
                 source_cursor=source_cursor,
