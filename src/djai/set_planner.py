@@ -1708,22 +1708,42 @@ def _build_filtered_beam_route(
             if not generated:
                 continue
 
-            seen_targets: set[int] = set()
-            branch: list[Any] = []
+            retrieval_by_index = {item.index: item for item in retrieval.ranked}
+            target_best: dict[int, tuple[float, Any]] = {}
             for candidate in generated:
-                if candidate.next_index in seen_targets:
-                    continue
-                seen_targets.add(candidate.next_index)
-                branch.append(candidate)
-                if len(branch) >= branch_width:
-                    break
+                retrieved = retrieval_by_index.get(candidate.next_index)
+                survivability = (
+                    float(retrieved.components.get("future_survivability", 0.5))
+                    if retrieved is not None
+                    else 0.5
+                )
+                route_score = float(candidate.selection_score) + 0.12 * (survivability - 0.5)
+                previous = target_best.get(candidate.next_index)
+                if previous is None or route_score > previous[0]:
+                    target_best[candidate.next_index] = (route_score, candidate)
 
-            for candidate in branch:
+            branch = sorted(
+                target_best.values(),
+                key=lambda item: (
+                    item[0],
+                    float(item[1].move.future_optionality),
+                    -int(item[1].next_index),
+                ),
+                reverse=True,
+            )[:branch_width]
+
+            for route_score, candidate in branch:
+                retrieved = retrieval_by_index.get(candidate.next_index)
+                survivability = (
+                    float(retrieved.components.get("future_survivability", 0.5))
+                    if retrieved is not None
+                    else 0.5
+                )
                 timing_adjustment, timing_evidence = timing_candidate_adjustment(
                     timing_state,
                     analyses[candidate.next_index],
                 )
-                step_score = float(candidate.selection_score) + timing_adjustment
+                step_score = route_score + timing_adjustment
                 candidate.plan.metadata = {
                     **candidate.plan.metadata,
                     "set_timing": {
@@ -1731,8 +1751,14 @@ def _build_filtered_beam_route(
                         "candidate_adjustment": round(timing_adjustment, 6),
                         "candidate_evidence": timing_evidence,
                     },
+                    "route_survivability": round(survivability, 6),
                     "neural_route_beam": True,
                 }
+                candidate.components["future_survivability"] = round(survivability, 6)
+                candidate.components["route_survivability_adjustment"] = round(
+                    0.12 * (survivability - 0.5),
+                    6,
+                )
                 projected = candidate.move.projected_state
                 next_order = state.order + (candidate.next_index,)
                 next_plans = state.plans + (candidate.plan,)
