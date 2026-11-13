@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+// Preserve the exact former globals.css cascade order after feature ownership split.
+import "./training-lab.css";
+import "./account-foundation.css";
+import "./legacy-experiences.css";
 import "./design-tokens.css";
 import "./autonomous.css";
 import "./studio-intelligence.css";
