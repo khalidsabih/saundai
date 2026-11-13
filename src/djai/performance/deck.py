@@ -52,6 +52,33 @@ def _unwrapped_beat_numbers(
     return positions
 
 
+def _overlap_crosses_unreliable_beat_interval(
+    beats: list[float],
+    *,
+    start_seconds: float,
+    end_seconds: float,
+    expected_source_beat_seconds: float,
+) -> bool:
+    """Fail closed if an overlap traverses any unsupported beat interval."""
+    if len(beats) < 2:
+        return True
+    first = max(1, bisect.bisect_right(beats, start_seconds))
+    last = min(len(beats), bisect.bisect_left(beats, end_seconds) + 1)
+    for index in range(first, last):
+        left, right = float(beats[index - 1]), float(beats[index])
+        interval = right - left
+        if (
+            left < end_seconds and right > start_seconds
+            and not (
+                math.isfinite(interval)
+                and 0.65 * expected_source_beat_seconds <= interval
+                <= 1.35 * expected_source_beat_seconds
+            )
+        ):
+            return True
+    return False
+
+
 def _continuous_beat_position(
     beats: list[float],
     source_seconds: float,
@@ -186,6 +213,33 @@ def _phase_integrity_profile(
     numbers_b = _unwrapped_beat_numbers(
         track_b.beats_seconds, expected_source_beat_seconds=beat_seconds * rate_b
     )
+    overlap_a_start = float(plan.exit_time_a)
+    overlap_b_start = float(plan.entry_time_b) + float(phase_nudge_seconds_b)
+    overlap_a_end = overlap_a_start + float(plan.transition_seconds) * rate_a
+    overlap_b_end = overlap_b_start + float(plan.transition_seconds) * rate_b
+    if (
+        _overlap_crosses_unreliable_beat_interval(
+            track_a.beats_seconds,
+            start_seconds=overlap_a_start,
+            end_seconds=overlap_a_end,
+            expected_source_beat_seconds=beat_seconds * rate_a,
+        )
+        or _overlap_crosses_unreliable_beat_interval(
+            track_b.beats_seconds,
+            start_seconds=overlap_b_start,
+            end_seconds=overlap_b_end,
+            expected_source_beat_seconds=beat_seconds * rate_b,
+        )
+    ):
+        return {
+            "enabled": False,
+            "safe": False,
+            "reason": "unreliable beat interval crossed by overlap",
+            "points": [],
+            "max_phase_error_ms": 0.0,
+            "max_residual_ms": 999.0,
+            "source_delta_seconds_b": 0.0,
+        }
 
     for index in range(samples):
         fraction = index / max(1, samples - 1)
