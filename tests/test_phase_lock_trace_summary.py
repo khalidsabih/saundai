@@ -34,3 +34,14 @@ def test_summary_deduplicates_rejections_and_excludes_sentinel(tmp_path: Path) -
     assert result["measured_residual_count"] == 1
     assert result["measured_residual_median_ms"] == 41.0
     assert result["measured_residual_p90_ms"] == 41.0
+
+
+def test_trajectory_triage_is_diagnostic_only():
+    from scripts.summarize_phase_lock_trace import classify_phase_motion
+
+    points = lambda values: [{"phase_error_ms": value} for value in values]
+    assert classify_phase_motion(points([0, 40, 80, 120, 160])) == "mostly_directional_drift"
+    assert classify_phase_motion(points([0, 2, 5, 210, 212])) == "abrupt_phase_jump"
+    assert classify_phase_motion(points([0, 10, 15, 20])) == "low_phase_excursion"
+    assert classify_phase_motion(points([0, 4])) == "insufficient_trajectory"
+    assert classify_phase_motion(points([0, 100, 0, 100, 0])) == "irregular_phase_motion"
