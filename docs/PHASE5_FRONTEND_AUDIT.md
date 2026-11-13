@@ -208,3 +208,44 @@ job lifecycle extraction has been performed yet.
 Known outstanding tasks include package audit advisories,
 Next.js standalone/tracing-root warnings, CSS ownership inventory,
 and the additional frontend modules. Phase 5 remains in progress.
+
+## Second implementation slice: shared job lifecycle (2026-11-13)
+
+After operator verification of the previous transport slice (**36/36 E2E,
+production build and typecheck passing**), a small, reversible
+organizational extraction moved the existing `getJob`, `cancelJob`,
+`pollForJob`, `waitForJob`, and `JobCancelledError` implementations
+from `lib/api.ts` into `lib/api-jobs.ts`. `lib/api.ts` re-exports the
+same public names, so Create and Studio imports are unchanged.
+
+The SSE event processing, 10-second diagnostic poll, malformed-event
+handling, final authoritative GET, HTTP fallback on disconnect,
+cancellation behavior, status and errors are intentionally unmodified
+by this extraction. Live telemetry and executive control remain separate
+and untouched.
+
+The focused `npm run test:jobs` regression harness compiles the **real**
+`api-jobs.ts` module in memory with TypeScript, supplies fake transport,
+clock, and EventSource via a VM, and asserts:
+
+- already completed / failed / cancelled initial states;
+- polling completion and cancelled terminal state;
+- SSE progress followed by authoritative final job GET;
+- malformed SSE progress and disconnect fallback to polling;
+- failed terminal SSE job;
+- explicit POST cancellation;
+- diagnostic polling and terminal completion.
+
+**Verification gate OPEN:** after pulling the commits run:
+
+```bash
+cd "$SAUND_MAIN/frontend"
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+```
+
+These changes are not yet claimed passing on the operator's machine.
+The new tests are focused code-level contracts and complement, but do not
+replace, the Playwright browser suite or backend verification.
