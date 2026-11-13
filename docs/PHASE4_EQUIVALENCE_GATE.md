@@ -296,3 +296,51 @@ Review outcomes and repeat under controlled conditions before certifying
 performance. Timing and process RSS comparisons are diagnostic, not proof
 of a speedup from a single capture. Record final evidence and explicitly close
 Phase 4 only after reviewing the remaining results.
+
+## Full 13-track planner before/after — identity PASS (November 13, 2026)
+
+The operator used `scripts/phase4_full_planner_benchmark.py` on the same
+13 real files in `audio/uploads`, the same scoring-model configuration,
+1 graph worker and isolated cold graph caches. Captures:
+
+- `output/phase4-evidence/full-baseline.json`
+- `output/phase4-evidence/full-current.json`
+
+The comparison reported **MATCH** for schema, track count, audio SHA,
+analysis digests, scoring model fingerprint, success status, full track
+order, all transitions including execution signatures, fallback count,
+and emergency count.
+
+| Metric | Pre-extraction baseline | Refactored current | Observed change |
+| --- | ---: | ---: | ---: |
+| Cold analysis | 177.0037 s | 176.1217 s | -0.5% |
+| Total set planning | 518.2782 s | 530.0372 s | +2.3% |
+| Total analysis + planning | 695.2922 s | 706.1695 s | +1.6% |
+| Graph stage | 20.002265 s | 20.035349 s | +0.2% |
+| Route search (9 calls) | 316.201502 s | 320.755810 s | +1.4% |
+| Compile/rehearsal (9 calls) | 201.903657 s | 209.085011 s | +3.6% |
+| Peak process RSS | 3,319,955,456 bytes | 3,441,754,112 bytes | +3.7% |
+| Graph cache | 0 hits / 156 misses | 0 hits / 156 misses | Match |
+| Fallback transitions | 11 | 11 | Match |
+| Emergency transitions | 9 | 9 | Match |
+
+Both runs returned `status=passed` from **planning**. This status does
+**not** mean a complete 13-track rendered mix passed the final audio
+verifier: this benchmark does not render a set. Previous three-track
+rehearsed decoded-PCM equivalence remains the render evidence.
+
+**Review outcome:** full-planner identity and bounded large-crate performance
+are recorded, with no demonstrated major refactor-related slowdown in this
+one paired execution. Current planning and peak RSS were modestly higher;
+single-run deltas are descriptive, not statistically significant estimates.
+The very high fallback rate (11/12 edges) and emergency count (9/12)
+are shared pre-existing music-quality debts, not proof of suitable live
+delivery. These require a dedicated larger-crate quality and rendered-audio
+gate before production release.
+
+The **Phase 4 refactor correctness and controlled benchmark evidence gates
+are satisfied at fixture scope**, with the limits above explicitly recorded.
+A repeat-run performance distribution, broader fixtures, parallel-worker
+scaling and release-level real-music listening remain desirable Phase 6
+validation; they are not established by this result. No audio safety limit
+was changed, and the result does not certify production readiness.
