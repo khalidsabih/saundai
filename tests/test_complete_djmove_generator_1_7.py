@@ -284,3 +284,29 @@ def test_neural_beam_batches_multiple_openers_into_one_graph_frontier(
     assert route.order
     assert batches
     assert len({left for left, _ in batches[0]}) > 1
+
+
+def test_graph_pair_cache_survives_crate_reordering(tmp_path: Path, monkeypatch) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_CACHE_DIR", str(tmp_path / "cache-reordered"))
+
+    first_session = PlanningSession(scoring_model=None)
+    build_transition_graph(
+        tracks,
+        workers=1,
+        session=first_session,
+        pair_indices=[(0, 1)],
+    )
+    assert first_session.graph_cache_misses == 1
+
+    reordered = [tracks[2], tracks[0], tracks[1], tracks[3]]
+    second_session = PlanningSession(scoring_model=None)
+    graph = build_transition_graph(
+        reordered,
+        workers=1,
+        session=second_session,
+        pair_indices=[(1, 2)],
+    )
+    assert (1, 2) in graph
+    assert second_session.graph_cache_hits == 1
+    assert second_session.graph_cache_misses == 0
