@@ -103,6 +103,49 @@ def test_large_drift_is_rejected_by_phase_integrity(tmp_path: Path):
 
 
 
+
+def test_phase_rejection_trace_is_opt_in_and_preserves_gate(tmp_path: Path, monkeypatch):
+    import json
+
+    from djai.performance.deck import _trace_rejected_phase_lock
+
+    track_a = _track(tmp_path, "trace-a")
+    track_b = _track(tmp_path, "trace-b")
+    plan = plan_transition(
+        track_a, track_b, force=True, tempo_policy="safe",
+        style="safe", requested_bars=8, exit_time_a=20.0, entry_time_b=4.0,
+    )
+    path = tmp_path / "phase-rejections.jsonl"
+    profile = {
+        "safe": False,
+        "reason": "required correction exceeds bounded phase-lock envelope",
+        "max_phase_error_ms": 125.0,
+        "max_residual_ms": 100.0,
+        "residual_limit_ms": 25.0,
+        "points": [{"fraction": 0.0, "residual_ms": 0.0}],
+    }
+
+    monkeypatch.delenv("DJAI_PHASE_LOCK_TRACE_PATH", raising=False)
+    _trace_rejected_phase_lock(track_a, track_b, plan, profile)
+    assert not path.exists()
+
+    monkeypatch.setenv("DJAI_PHASE_LOCK_TRACE_PATH", str(path))
+    _trace_rejected_phase_lock(track_a, track_b, plan, profile)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    evidence = json.loads(lines[0])
+    assert evidence["reason"] == profile["reason"]
+    assert evidence["exceeds_residual_limit"] is True
+    assert evidence["max_residual_ms"] == 100.0
+    assert evidence["unmatched_points"] == evidence["sample_count"] - 1
+    assert evidence["track_a"] == "trace-a.wav"
+    assert profile["safe"] is False
+
+    _trace_rejected_phase_lock(track_a, track_b, plan, {**profile, "safe": True})
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+
 def _tone(seconds: float, sample_rate: int = 16_000, frequency: float = 440.0) -> np.ndarray:
     t = np.arange(int(seconds * sample_rate), dtype=np.float32) / sample_rate
     mono = 0.25 * np.sin(2.0 * np.pi * frequency * t)
