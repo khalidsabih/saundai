@@ -210,10 +210,15 @@ def test_progressive_sparse_widening_skips_equivalent_large_crate_tiers() -> Non
         experimental_retrieval=True,
     )
 
-    signatures = [_route_search_signature(item, 30) for item in configs]
+    signatures = [
+        _route_search_signature(item, 30, experimental_retrieval=True)
+        for item in configs
+    ]
     assert len(signatures) == len(set(signatures))
     assert len(configs) == 1
-    assert _route_search_signature(configs[0], 30)[2] == 12
+    assert _route_search_signature(
+        configs[0], 30, experimental_retrieval=True
+    )[2] == 12
 
 
 def test_parallel_graph_build_reuses_pair_cache_on_repeat(tmp_path: Path, monkeypatch) -> None:
