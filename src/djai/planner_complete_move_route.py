@@ -69,6 +69,7 @@ def complete_move_route_from_opener(
     listener: str | None = None,
     ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None = None,
     timing_intent: SetTimingIntent | None = None,
+    listen_to_moves: Callable[..., Any] = listen_to_complete_moves,
 ) -> CompleteMoveRoute:
     order = [opener]
     plans: list[TransitionPlan] = []
@@ -260,7 +261,7 @@ def complete_move_route_from_opener(
                 maximum_renders=thinking_budget.headphones_maximum_renders,
             ).normalized()
 
-            headphones = listen_to_complete_moves(
+            headphones = listen_to_moves(
                 preferred=choice.winner,
                 candidates=choice.candidates,
                 analyses=analyses,
