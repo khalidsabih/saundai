@@ -61,8 +61,13 @@ def diversify_transition_candidates(
     *,
     count: int,
     diversity_weight: float = 0.34,
+    score_key: str = "selection_utility",
 ) -> list[TransitionPlan]:
-    """Maximal-marginal-relevance selection over executable DJ ideas."""
+    """Maximal-marginal-relevance selection over executable DJ ideas.
+
+    A validated taste score may guide the shortlist only when explicitly
+    requested. The default preserves deterministic production ranking.
+    """
     if not plans:
         return []
     count = max(1, min(int(count), len(plans)))
@@ -70,7 +75,7 @@ def diversify_transition_candidates(
     ranked = sorted(
         plans,
         key=lambda plan: (
-            float(plan.metadata.get("selection_utility", plan.score)),
+            float(plan.metadata.get(score_key, plan.metadata.get("selection_utility", plan.score))),
             plan.score,
             plan.cue_confidence,
             plan.execution_signature,
@@ -83,7 +88,7 @@ def diversify_transition_candidates(
         best: TransitionPlan | None = None
         best_value = -1e9
         for plan in remaining:
-            analytical = float(plan.metadata.get("selection_utility", plan.score))
+            analytical = float(plan.metadata.get(score_key, plan.metadata.get("selection_utility", plan.score)))
             minimum_distance = min(candidate_distance(plan, existing) for existing in chosen)
             # Encourage a new technique/intent particularly strongly early in the list.
             novelty_bonus = 0.04 if all(plan.technique != item.technique for item in chosen) else 0.0
