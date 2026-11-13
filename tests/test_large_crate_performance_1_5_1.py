@@ -311,3 +311,95 @@ def test_readonly_model_registry_falls_back_to_shadow_defaults(tmp_path: Path, m
     assert registry.get("next_track_policy") is not None
     assert registry.authority("next_track_policy", confidence=1.0) == 0.0
     assert not missing.exists()
+
+
+def test_resumable_topk_widens_without_restarting_successful_prefixes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    from djai.brain.move_generator import CompleteMoveConfig
+
+    tracks = []
+    for index in range(8):
+        path = tmp_path / f"beam-{index}.wav"
+        path.write_bytes(b"x")
+        tracks.append(analysis(path, bpm=124.0, energy=0.5))
+
+    retrieval_calls = []
+    monkeypatch.setattr(
+        set_planner, "build_set_state",
+        lambda *args, **kwargs: SimpleNamespace(elapsed_seconds=0.0),
+    )
+    monkeypatch.setattr(
+        set_planner, "build_dj_state",
+        lambda *args, **kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        set_planner, "build_timing_state",
+        lambda *args, **kwargs: SimpleNamespace(
+            elapsed_seconds=0.0, progress=0.5, to_dict=lambda: {}
+        ),
+    )
+    monkeypatch.setattr(
+        set_planner, "timing_candidate_adjustment",
+        lambda *args, **kwargs: (0.0, {}),
+    )
+
+    def retrieve(*, current_index, candidate_indices, width, **kwargs):
+        retrieval_calls.append((current_index, width))
+        selected = tuple(candidate_indices[:width])
+        ranked = tuple(
+            SimpleNamespace(
+                index=index, components={"future_survivability": 0.8}
+            )
+            for index in candidate_indices
+        )
+        return SimpleNamespace(selected=selected, ranked=ranked)
+
+    monkeypatch.setattr(set_planner, "retrieve_candidate_tracks", retrieve)
+
+    def generate(*, current_index, candidate_indices, **kwargs):
+        # The opener is a genuine dead end at Top-3; widening to Top-5
+        # discovers a valid successor. All subsequent prefixes stay reusable.
+        if current_index == 0 and len(candidate_indices) < 5:
+            return []
+        successor = current_index + 1
+        if successor not in candidate_indices:
+            return []
+        projected = SimpleNamespace(
+            source_cursor_seconds=0.0,
+            effective_bpm=124.0,
+            render_rate=1.0,
+            tempo_owner="deck_b",
+        )
+        return [
+            SimpleNamespace(
+                next_index=successor,
+                selection_score=0.9,
+                move=SimpleNamespace(
+                    future_optionality=0.8, projected_state=projected
+                ),
+                plan=SimpleNamespace(metadata={}),
+                components={},
+            )
+        ]
+
+    monkeypatch.setattr(set_planner, "generate_complete_moves", generate)
+    route = set_planner._build_filtered_beam_route(
+        0, tracks, {},
+        end_index=None,
+        journey="balanced",
+        blocked_pairs=set(),
+        config=CompleteMoveConfig(
+            mode="move_authoritative", lazy_candidate_width=3
+        ),
+        ensure_pairs=lambda pairs: None,
+        adaptive_widths=(3, 5, 7),
+    )
+    assert route.completed
+    assert route.order == tuple(range(8))
+    assert retrieval_calls.count((0, 3)) == 1
+    assert retrieval_calls.count((0, 5)) == 1
+    assert retrieval_calls.count((1, 3)) == 1
+    assert (1, 5) not in retrieval_calls
