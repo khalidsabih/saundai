@@ -238,3 +238,61 @@ latency and process resource profile (including route, sequence compile,
 rehearsal, fallbacks) have not been captured as controlled before/after
 benchmark evidence. Do not imply that the graph-only benchmark covers these
 stages or conclude a production-quality release gate from it.
+
+## Full 13-track planning benchmark (pending operator run)
+
+Use `scripts/phase4_full_planner_benchmark.py` from the **current branch** as
+the common test harness for both worktrees. Its `PYTHONPATH` determines which
+implementation is exercised. Use the identical `audio/uploads` fixture and
+absolute `DJAI_CONFIG_DIR`; avoid accidentally loading a different trained
+scoring model. The script requires exactly 13 supported audio files.
+
+The benchmark measures full `make_set_plan` execution, including whichever
+graph, route, compile, professional-brain and quality-rehearsal paths are selected
+by the environment. It records graph cache hit/miss counts, the planner's
+internal stage breakdown, fallback and emergency counts, transition identity,
+and process peak RSS. It **does not** claim that an unrendered full set passed
+final PCM verification; that remains the separate three-track render gate.
+
+Run from the operator's configured worktrees:
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+export DJAI_CONFIG_DIR="$SAUND_MAIN/config"
+export SAUND_BENCH_AUDIO="$SAUND_MAIN/audio/uploads"
+
+cd "$SAUND_BASELINE"
+PYTHONHASHSEED=0 PYTHONPATH="$SAUND_BASELINE/src" \
+python "$SAUND_MAIN/scripts/phase4_full_planner_benchmark.py" capture \
+  --audio-dir "$SAUND_BENCH_AUDIO" \
+  --cache-dir "$SAUND_BASELINE/.djai-cache/phase4-full-benchmark" \
+  --cold-graph \
+  --output "$SAUND_MAIN/output/phase4-evidence/full-baseline.json"
+
+cd "$SAUND_MAIN"
+PYTHONHASHSEED=0 PYTHONPATH="$SAUND_MAIN/src" \
+python scripts/phase4_full_planner_benchmark.py capture \
+  --audio-dir "$SAUND_BENCH_AUDIO" \
+  --cache-dir "$SAUND_MAIN/.djai-cache/phase4-full-benchmark" \
+  --cold-graph \
+  --output output/phase4-evidence/full-current.json
+
+python scripts/phase4_full_planner_benchmark.py compare \
+  output/phase4-evidence/full-baseline.json \
+  output/phase4-evidence/full-current.json
+```
+
+The default run preserves existing quality rehearsal and automatic-delivery
+safety behavior. Each run writes its JSON even if planning fails; a failed
+planning or safety outcome returns a nonzero exit status and is **not** a gate
+pass. The optional `--cold-analysis` flag forces fresh analyses; leave it
+unset when comparing the already validated analysis stage independently.
+`--cold-graph` clears only the isolated graph-pair cache used by this
+benchmark. The graph and rehearsal paths may have other caches: confirm stats
+and context before claiming a fully uncached end-to-end execution.
+
+Review outcomes and repeat under controlled conditions before certifying
+performance. Timing and process RSS comparisons are diagnostic, not proof
+of a speedup from a single capture. Record final evidence and explicitly close
+Phase 4 only after reviewing the remaining results.
