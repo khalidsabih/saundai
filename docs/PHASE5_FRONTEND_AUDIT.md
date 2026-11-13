@@ -164,3 +164,26 @@ horizon, retaining a meaningful visible-mobile check rather than allowing
 a hidden label to satisfy it.
 
 **Verification remains pending** until the next complete Playwright run.
+
+## Green browser baseline and first module extraction (2026-11-13)
+
+Operator reports `npm run typecheck` passed and **36 / 36 Playwright
+E2E tests passed in 37.3 s**, across Chromium, Firefox, WebKit and
+mobile. The previously reported build also passed, but the latest
+successful test command did not include a fresh production build.
+
+The first implementation slice extracts the unchanged browser request
+transport into `frontend/lib/api-transport.ts`. It preserves
+`API_BASE` normalization, same-origin URL composition, `no-store`,
+`credentials: include`, overriding caller `RequestInit`, JSON parsing
+fallback, and HTTP error message/status/detail behavior. The public
+`API_BASE` export, endpoint functions and `JobCancelledError` remain
+available through `frontend/lib/api.ts`. No API route signatures,
+session state, job policy, UI, live control, or CSS ownership changed.
+This is a code-organization change, not a performance optimization.
+
+**Post-extraction verification pending:** rerun
+`npm run typecheck`, `SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build`,
+and `npm run e2e`. Do not mark the extraction verified until these
+commands pass on the updated branch. The 3 npm dependency advisories
+previously reported remain a separate triage item.
