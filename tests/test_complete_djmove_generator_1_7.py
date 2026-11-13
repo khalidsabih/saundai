@@ -239,3 +239,43 @@ def test_parallel_graph_build_reuses_pair_cache_on_repeat(tmp_path: Path, monkey
     assert second_session.graph_cache_hits == 12
     assert second_session.graph_cache_misses == 0
     assert second_session.graph_build_calls == 1
+
+
+def test_neural_beam_batches_multiple_openers_into_one_graph_frontier(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    tracks = _tracks(tmp_path, 4)
+    monkeypatch.setenv("DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", "1")
+    graph = {}
+    batches: list[set[tuple[int, int]]] = []
+
+    def ensure_pairs(pairs) -> None:
+        batch = {tuple(map(int, pair)) for pair in pairs}
+        batches.append(batch)
+        missing = [pair for pair in batch if pair not in graph]
+        if missing:
+            graph.update(
+                build_transition_graph(
+                    tracks,
+                    workers=1,
+                    pair_indices=missing,
+                )
+            )
+
+    route = build_complete_move_route(
+        tracks,
+        graph,
+        journey="balanced",
+        config=CompleteMoveConfig(
+            mode="move_authoritative",
+            search_branch_width=3,
+            lazy_candidate_width=3,
+            opener_candidates=4,
+        ),
+        ensure_pairs=ensure_pairs,
+    )
+
+    assert route.order
+    assert batches
+    assert len({left for left, _ in batches[0]}) > 1
