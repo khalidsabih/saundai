@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent } from "react";
+import type { PointerEvent } from "react";
 import {
   cancelJob,
   createAutomaticSet,
@@ -31,10 +31,6 @@ const INTRO_SEEN_KEY = "saund.ai.intro.seen.v1";
 function outputName(journey: JourneyMode) {
   const stamp = new Date().toISOString().replaceAll(":", "-").replace("T", "_").slice(0, 19);
   return `SAUND_${journey}_${stamp}.wav`;
-}
-
-function letterStyle(index: number) {
-  return { "--letter-index": index } as CSSProperties;
 }
 
 function friendlyError(message: string) {
