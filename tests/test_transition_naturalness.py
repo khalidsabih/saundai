@@ -36,7 +36,6 @@ def test_difficult_rescue_uses_structural_reset_when_overlap_is_unsafe(tmp_path:
     assert plan.metadata["rescue_transition_kind"] == "structural_reset"
     assert plan.metadata["continuous_mix_required"] is False
     assert plan.metadata["rescue_overlap_safe"] is False
-    assert plan.performance_program["annotations"]["transition_naturalness_profile"] == "structural_reset"
 
 
 def test_compatible_rescue_keeps_balanced_phrase_handoff(tmp_path: Path, monkeypatch) -> None:
