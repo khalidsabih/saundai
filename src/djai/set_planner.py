@@ -1186,6 +1186,18 @@ def optimize_order(
     )
 
 
+class SparseRouteExhaustedError(RuntimeError):
+    """Sparse retrieval could not construct a complete route.
+
+    Diagnostics are deliberately attached to the failure so Phase16 and other
+    research harnesses retain useful evidence even when no SetPlan is emitted.
+    """
+
+    def __init__(self, message: str, *, diagnostics: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
 @dataclass(frozen=True, slots=True)
 class _CompleteMoveRoute:
     order: tuple[int, ...]
@@ -3867,8 +3879,27 @@ def make_set_plan(
                             "broad graph disabled for this experiment"
                         ),
                     )
-                raise RuntimeError(
-                    "Progressive learned retrieval could not complete a safe route without broad-graph fallback."
+                raise SparseRouteExhaustedError(
+                    "Progressive learned retrieval could not complete a safe route without broad-graph fallback.",
+                    diagnostics={
+                        "effective_sparse_attempts": len(complete_move_runs),
+                        "best_sparse_partial_tracks": max(
+                            (len(item.order) for item in complete_move_runs),
+                            default=0,
+                        ),
+                        "materialized_graph_pairs": len(graph),
+                        "possible_graph_pairs": len(analyses) * max(0, len(analyses) - 1),
+                        "graph": session.to_dict(),
+                        "attempts": [
+                            {
+                                "completed": bool(item.completed),
+                                "tracks": len(item.order),
+                                "score": round(float(item.score), 6),
+                                "reason": str(item.reason or ""),
+                            }
+                            for item in complete_move_runs
+                        ],
+                    },
                 )
             if progress:
                 effective_attempts = max(1, len(complete_move_runs))
@@ -3899,8 +3930,17 @@ def make_set_plan(
         route_search_calls += 1
         try:
             return _choose_automatic_order_impl(active_blocked)
-        finally:
+        except SparseRouteExhaustedError as exc:
             route_search_seconds += time.perf_counter() - started
+            exc.diagnostics["route_search_seconds"] = round(route_search_seconds, 6)
+            exc.diagnostics["route_search_calls"] = route_search_calls
+            raise
+        finally:
+            if not (
+                "exc" in locals()
+                and isinstance(locals().get("exc"), SparseRouteExhaustedError)
+            ):
+                route_search_seconds += time.perf_counter() - started
 
     def _complete_move_preferences(selected_order: list[int]) -> dict[tuple[int, int], CompleteMoveDecision] | None:
         if complete_move_cfg.mode != "move_authoritative" or not complete_move_runs:
