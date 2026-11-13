@@ -28,11 +28,36 @@ def _nearest_offset(values: list[float], cue: float, *, radius: float) -> float 
     return min(nearby, key=abs)
 
 
+def _unwrapped_beat_numbers(
+    beats: list[float], *, expected_source_beat_seconds: float
+) -> list[int]:
+    """Account for confidently detected missing-beat gaps in the index origin.
+
+    This is *not* interpolation through gaps. Those intervals remain invalid
+    evidence, and the phase profile rejects a gap crossed by the overlap.
+    """
+    positions = [0]
+    if not beats or expected_source_beat_seconds <= 0:
+        return positions
+    for left, right in zip(beats, beats[1:]):
+        interval = float(right) - float(left)
+        steps = 1
+        if math.isfinite(interval):
+            multiple = round(interval / expected_source_beat_seconds)
+            if 2 <= multiple <= 4 and abs(
+                interval / multiple - expected_source_beat_seconds
+            ) <= 0.15 * expected_source_beat_seconds:
+                steps = multiple
+        positions.append(positions[-1] + steps)
+    return positions
+
+
 def _continuous_beat_position(
     beats: list[float],
     source_seconds: float,
     *,
     expected_source_beat_seconds: float,
+    beat_numbers: list[int] | None = None,
 ) -> float | None:
     """Continuous, unwrapped beat index from adjacent detected beats.
 
@@ -55,7 +80,10 @@ def _continuous_beat_position(
         <= 1.35 * expected_source_beat_seconds
     ):
         return None
-    return float(index - 1) + (source_seconds - left) / interval
+    numbers = beat_numbers if beat_numbers is not None else _unwrapped_beat_numbers(
+        beats, expected_source_beat_seconds=expected_source_beat_seconds
+    )
+    return float(numbers[index - 1]) + (source_seconds - left) / interval
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +180,12 @@ def _phase_integrity_profile(
     missing = 0
     rate_a = max(float(plan.render_rate_a), 1e-9)
     rate_b = max(float(plan.render_rate_b), 1e-9)
+    numbers_a = _unwrapped_beat_numbers(
+        track_a.beats_seconds, expected_source_beat_seconds=beat_seconds * rate_a
+    )
+    numbers_b = _unwrapped_beat_numbers(
+        track_b.beats_seconds, expected_source_beat_seconds=beat_seconds * rate_b
+    )
 
     for index in range(samples):
         fraction = index / max(1, samples - 1)
@@ -162,11 +196,13 @@ def _phase_integrity_profile(
             track_a.beats_seconds,
             source_a,
             expected_source_beat_seconds=beat_seconds * rate_a,
+            beat_numbers=numbers_a,
         )
         phase_b = _continuous_beat_position(
             track_b.beats_seconds,
             source_b,
             expected_source_beat_seconds=beat_seconds * rate_b,
+            beat_numbers=numbers_b,
         )
         if phase_a is None or phase_b is None:
             missing += 1
