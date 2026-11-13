@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import os
@@ -25,6 +26,36 @@ def _nearest_offset(values: list[float], cue: float, *, radius: float) -> float 
     if not nearby:
         return None
     return min(nearby, key=abs)
+
+
+def _continuous_beat_position(
+    beats: list[float],
+    source_seconds: float,
+    *,
+    expected_source_beat_seconds: float,
+) -> float | None:
+    """Continuous, unwrapped beat index from adjacent detected beats.
+
+    Unlike nearest-beat offsets, this does not jump by a beat when the nearest
+    reference changes. Invalid/missing beats are not interpolated through:
+    interpolating across a doubled interval would hide a detection error.
+    """
+    if len(beats) < 2 or not math.isfinite(source_seconds):
+        return None
+    index = bisect.bisect_right(beats, source_seconds)
+    if index == 0 or index >= len(beats):
+        return None
+    left = float(beats[index - 1])
+    right = float(beats[index])
+    interval = right - left
+    if not (
+        math.isfinite(left)
+        and math.isfinite(right)
+        and 0.65 * expected_source_beat_seconds <= interval
+        <= 1.35 * expected_source_beat_seconds
+    ):
+        return None
+    return float(index - 1) + (source_seconds - left) / interval
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +139,6 @@ def _phase_integrity_profile(
         return {"enabled": False, "safe": False, "reason": "beat evidence is too weak for continuous phase control", "points": [], "max_phase_error_ms": 0.0, "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
 
     beat_seconds = 60.0 / max(float(plan.target_bpm), 1.0)
-    radius = min(0.32, beat_seconds * 0.48)
     max_correction = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0) / 1000.0
     max_step = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_STEP_MAX_MS", "18")), 5.0, 35.0) / 1000.0
     residual_limit_ms = _clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0)
@@ -128,12 +158,22 @@ def _phase_integrity_profile(
         output_seconds = float(plan.transition_seconds) * fraction
         source_a = float(plan.exit_time_a) + output_seconds * rate_a
         source_b = float(plan.entry_time_b) + float(phase_nudge_seconds_b) + output_seconds * rate_b
-        offset_a = _nearest_offset(track_a.beats_seconds, source_a, radius=radius)
-        offset_b = _nearest_offset(track_b.beats_seconds, source_b, radius=radius)
-        if offset_a is None or offset_b is None:
+        phase_a = _continuous_beat_position(
+            track_a.beats_seconds,
+            source_a,
+            expected_source_beat_seconds=beat_seconds * rate_a,
+        )
+        phase_b = _continuous_beat_position(
+            track_b.beats_seconds,
+            source_b,
+            expected_source_beat_seconds=beat_seconds * rate_b,
+        )
+        if phase_a is None or phase_b is None:
             missing += 1
             continue
-        phase_error = offset_b / rate_b - offset_a / rate_a
+        # Unwrapped phase coordinates retain real accumulated drift, while
+        # subtracting the initial phase removes arbitrary beat-index origins.
+        phase_error = (phase_a - phase_b) * beat_seconds
         if baseline_error is None:
             baseline_error = phase_error
         drift_error = phase_error - baseline_error
@@ -151,7 +191,7 @@ def _phase_integrity_profile(
         })
 
     if missing > samples // 3 or len(points) < 4:
-        return {"enabled": False, "safe": False, "reason": "insufficient beat matches across overlap", "points": points, "max_phase_error_ms": round(max_error * 1000.0, 3), "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
+        return {"enabled": False, "safe": False, "reason": "insufficient reliable beat intervals across overlap", "points": points, "max_phase_error_ms": round(max_error * 1000.0, 3), "max_residual_ms": 999.0, "source_delta_seconds_b": 0.0}
 
     source_delta = float(points[-1]["source_offset_seconds"])
     available_delta = max(0.0, float(track_b.duration_seconds) - (float(plan.entry_time_b) + float(phase_nudge_seconds_b) + float(plan.source_duration_b)))
