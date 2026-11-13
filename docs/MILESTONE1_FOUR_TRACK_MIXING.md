@@ -104,3 +104,34 @@ The next diagnostic decision should follow from this audit: incorrect source
 features imply a perception fix; unhelpful predictions imply training/ranking
 work; reliable features and choices that cannot pass beat integrity imply a
 phase/DSP implementation investigation.
+
+## World model to DJ Brain utilization audit
+
+This observational report traces saved four-track cue times to the musical
+phrases in the matching cached world models, with evidence-status fields
+that prevent overclaiming causal influence.
+
+```bash
+python scripts/audit_world_model_utilization.py \
+  --set-plan output/milestone1-four-track/balanced/set-plan.json \
+  --world-cache .djai-cache/features \
+  --output output/milestone1-four-track/world-model-utilization-report.json
+```
+
+The report includes per-track phrase role counts, top transition-ready
+phrases, neural evidence, the phrase around each chosen exit and entry cue,
+selected fallback type, and the plan's available routing/ranking metadata.
+
+Important: the `world_model/6.0` JSON is a **projection of the canonical
+musical timeline**, not a learned world-model checkpoint. The planner
+consumes the timeline directly for song-form protection and cue search.
+A matching cached filename alone does not prove that the cache bytes
+match the benchmark's source audio. Multiple cached matches are flagged
+as ambiguous and the phrase join is suppressed. The report does not
+claim to explain the complete ranking process because rejected
+candidate details are not retained in the saved winning plan.
+
+The source code establishes how signals are wired, whereas the report
+establishes their observed values. To prove causality, a separate
+instrumented candidate-decision trace and a controlled feature ablation
+are required. Do that only after validating source features and timing.
