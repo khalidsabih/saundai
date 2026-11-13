@@ -69,3 +69,38 @@ an old passing plan with a new failed run.
 A technically passing benchmark is a **baseline**, not completion of the
 musical milestone. Subsequent changes should demonstrate an improved listening
 experience while keeping every hard safety gate.
+
+## AI knowledge and decision audit (read-only)
+
+Before changing beat or mixing heuristics, inspect what the system actually
+recorded and which AI models are installed locally. This **does not** rerun
+planning, render audio, change safety limits, or promote model authority.
+
+```bash
+python scripts/audit_ai_knowledge.py \
+  --set-plan output/milestone1-four-track/balanced/set-plan.json \
+  --output output/milestone1-four-track/ai-knowledge-report.json
+```
+
+The output separates:
+
+1. **Track knowledge:** detected BPM, beat confidence, structural confidence,
+   instrument/vocal statistics, embeddings, cue counts and neural evidence.
+2. **Model inventory:** registry authority, effective weight, checkpoint
+   presence/loadability, checkpoint feature names and available training metrics.
+3. **Final decisions:** technique, duration, beatmatching, timings, ranker
+   metadata, fallback and selected mix-family evidence.
+4. **Unknowns:** saved `set-plan.json` stores only a truncated beat-grid
+   preview and only the committed transitions, not all rejected proposals.
+   Therefore this report alone cannot prove whether phase drift is real, which
+   model originally caused a decision, or whether a mix sounds professional.
+
+Model configuration is **not** proof of model accuracy or active usage. A
+registered shadow model can be installed and loadable while remaining unable to
+change a final DJ action. Neural beat and embedding adapters need separate
+runtime probes if their saved evidence is unavailable.
+
+The next diagnostic decision should follow from this audit: incorrect source
+features imply a perception fix; unhelpful predictions imply training/ranking
+work; reliable features and choices that cannot pass beat integrity imply a
+phase/DSP implementation investigation.
