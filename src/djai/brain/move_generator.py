@@ -61,6 +61,7 @@ class CompleteMoveConfig:
     lazy_candidate_width: int = 10
     lazy_expansion_width: int = 10
     opener_candidates: int = 5
+    adaptive_expansion: bool = False
 
     @classmethod
     def from_environment(cls) -> "CompleteMoveConfig":
