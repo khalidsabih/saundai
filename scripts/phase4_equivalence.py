@@ -148,7 +148,29 @@ def compare(args: argparse.Namespace) -> int:
     current_times = current.get("timing_seconds", {})
     print("Phase 4 comparison:")
     for key in keys:
-        print(f"  {key}: {'MATCH' if key not in mismatches else 'DIFFERENT'}")
+        if key == "rendered_pcm" and baseline.get(key) is None and current.get(key) is None:
+            print("  rendered_pcm: NOT CAPTURED (no audio equivalence evidence)")
+        else:
+            print(f"  {key}: {'MATCH' if key not in mismatches else 'DIFFERENT'}")
+    if baseline.get("order") != current.get("order"):
+        print(f"  baseline order: {baseline.get('order')}")
+        print(f"  current order:  {current.get('order')}")
+    if baseline.get("transitions") != current.get("transitions"):
+        left = baseline.get("transitions") or []
+        right = current.get("transitions") or []
+        print(f"  baseline edge count: {len(left)}; current edge count: {len(right)}")
+        for index in range(max(len(left), len(right))):
+            a = left[index] if index < len(left) else {}
+            b = right[index] if index < len(right) else {}
+            if a == b:
+                continue
+            print(f"  edge {index + 1} differences:")
+            for field in sorted(set(a) | set(b)):
+                if a.get(field) != b.get(field):
+                    print(f"    {field}: baseline={a.get(field)!r} current={b.get(field)!r}")
+    if baseline.get("context") != current.get("context"):
+        print(f"  baseline context: {baseline.get('context')!r}")
+        print(f"  current context:  {current.get('context')!r}")
     for key in ("analysis", "planning", "render"):
         old = baseline_times.get(key)
         new = current_times.get(key)
