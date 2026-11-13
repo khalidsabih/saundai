@@ -760,11 +760,11 @@ def _build_filtered_beam_route(
     timing_intent: SetTimingIntent | None = None,
     adaptive_widths: Sequence[int] | None = None,
 ) -> _CompleteMoveRoute:
-    """Search several model-filtered partial routes instead of greedily committing.
+    """Search multiple partial routes with optional resumable Top-K expansion.
 
-    This is used only by the explicit neural-retrieval experiment. Retrieval
-    stays cheap and broad, while expensive graph materialization is batched once
-    per beam depth across all surviving partial routes.
+    Used by the opt-in neural retrieval experiment and by crate-aware planning.
+    Retrieval stays cheap, graph materialization is batched by beam depth, and
+    the adaptive path retains prefix states while widening after dead ends.
     """
     opener_values = (
         [int(opener)]
@@ -1034,7 +1034,8 @@ def _build_filtered_beam_route(
             completed=False,
             reason=(
                 f"filtered beam search exhausted after {len(best_partial.order)}/"
-                f"{len(analyses)} tracks"
+                f"{len(analyses)} tracks; backtracks={backtracks}; "
+                f"last_width={candidate_width}"
             ),
         )
     best = max(
