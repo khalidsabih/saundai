@@ -249,9 +249,30 @@ def _candidate_pool(
     )
     if not ranked:
         return [], durations
-    # Preserve genuinely different musical programs before the expensive render.
+    # Prioritize phase-safe candidates before diversity selection and rendering.
+    ranked = _prefer_viable_phase_candidates(ranked)
     count = min(len(ranked), max(1, int(finalist_budget)))
     return diversify_transition_candidates(ranked, count=count, diversity_weight=0.30), durations
+
+
+
+def _prefer_viable_phase_candidates(plans: list[TransitionPlan]) -> list[TransitionPlan]:
+    """Keep known unsafe rhythmic overlaps out of scarce rehearsal slots.
+
+    This does not change beat-integrity thresholds or the rendered quality gate.
+    """
+    def viable(plan: TransitionPlan) -> bool:
+        if not plan.beatmatched:
+            return True
+        profile = dict(
+            dict(plan.metadata.get("deck_performance", {}) or {}).get(
+                "phase_integrity", {}
+            ) or {}
+        )
+        return bool(profile.get("safe", True))
+
+    eligible = [plan for plan in plans if viable(plan)]
+    return eligible if eligible else plans
 
 
 def _judge_records(selection: BrainSelection) -> list[dict[str, Any]]:
