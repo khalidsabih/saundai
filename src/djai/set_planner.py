@@ -2433,6 +2433,72 @@ def make_set_plan(
 
     def _choose_automatic_order_impl(active_blocked: set[tuple[int, int]]) -> list[int]:
         route: _CompleteMoveRoute | None = None
+        if (
+            not broad_graph_materialized
+            and lazy_graph_authority
+            and len(analyses) >= _large_set_threshold()
+            and crate_aware_topk_enabled()
+            and complete_move_cfg.mode == "move_authoritative"
+        ):
+            # One resumable beam replaces three independent sparse searches.
+            # An absent/unauthorized model is handled by cheap deterministic
+            # retrieval; no hard audio gate or fallback authority is changed.
+            topk = crate_topk(len(analyses))
+            candidate_widths = (topk.route_initial, *topk.route_expansions)
+            adaptive_cfg = replace(
+                complete_move_cfg,
+                adaptive_expansion=True,
+                lazy_candidate_width=topk.route_initial,
+                lazy_expansion_width=topk.route_initial,
+            )
+            opener_pool = [
+                index for index in range(len(analyses)) if index != end_index
+            ]
+            if start_index is not None:
+                openers = (start_index,)
+            else:
+                empty_state = SetState()
+                ranked_openers = sorted(
+                    opener_pool,
+                    key=lambda index: (
+                        next_track_context_score(
+                            empty_state, analyses[index], journey=journey, progress=0.0
+                        )[0],
+                        -index,
+                    ),
+                    reverse=True,
+                )
+                openers = tuple(ranked_openers[:min(len(ranked_openers), 4)])
+            route = _build_filtered_beam_route(
+                openers,
+                analyses,
+                graph,
+                end_index=end_index,
+                journey=journey,
+                blocked_pairs=active_blocked,
+                config=adaptive_cfg,
+                ensure_pairs=_ensure_graph_pairs,
+                timing_intent=timing_intent,
+                adaptive_widths=candidate_widths,
+            )
+            complete_move_runs.append(route)
+            if route.completed:
+                return list(route.order)
+            if progress:
+                progress(
+                    "route-search", 1, 2,
+                    "Resumable sparse beam exhausted; recovering with the broad graph",
+                )
+            _ensure_full_graph()
+            return optimize_order(
+                analyses,
+                graph,
+                start_index=start_index,
+                end_index=end_index,
+                journey=journey,
+                listener_profile=listener_profile,
+                blocked_pairs=active_blocked,
+            )
         if broad_graph_materialized:
             return optimize_order(
                 analyses,
