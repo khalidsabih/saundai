@@ -9,6 +9,7 @@ type NavItem = {
   label: string;
   href?: string;
   onClick?: () => void;
+  disabled?: boolean;
 };
 
 export function AppShell({
@@ -26,8 +27,8 @@ export function AppShell({
 }) {
   const nav: NavItem[] = [
     { id: "create", label: "Create", href: "/" },
-    { id: "sets", label: "Sets", href: "/sets" },
-    { id: "live", label: "Live", href: "/live" },
+    { id: "sets", label: "Sets", disabled: true },
+    { id: "live", label: "Live", disabled: true },
     { id: "brain", label: "Brain", onClick: onOpenBrain },
     { id: "lab", label: "Lab", href: "/lab" },
   ];
@@ -42,7 +43,17 @@ export function AppShell({
 
         <nav className="product-shell__nav" aria-label="Primary">
           {nav.map((item) => {
-            const className = item.id === active ? "is-active" : "";
+            const className = [
+              item.id === active ? "is-active" : "",
+              item.disabled ? "is-disabled" : "",
+            ].filter(Boolean).join(" ");
+            if (item.disabled) {
+              return (
+                <span key={item.id} className={className} aria-disabled="true">
+                  {item.label}
+                </span>
+              );
+            }
             if (item.onClick) {
               return (
                 <button key={item.id} type="button" className={className} onClick={item.onClick}>
