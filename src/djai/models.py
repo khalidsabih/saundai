@@ -243,6 +243,13 @@ class TransitionMeasurement:
     phase_correlation: float = 1.0
     loudness_jump_db: float = 0.0
     loudness_jump_lu: float = 0.0
+    # Diagnostic-only boundary detail; does not affect quality decisions.
+    pre_boundary_lufs: float | None = None
+    transition_head_lufs: float | None = None
+    transition_tail_lufs: float | None = None
+    post_boundary_lufs: float | None = None
+    entry_loudness_jump_lu: float | None = None
+    exit_loudness_jump_lu: float | None = None
     transition_lufs: float = -80.0
     true_peak_dbtp: float = -80.0
     true_peak_headroom_db: float = 0.0
