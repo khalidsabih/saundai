@@ -102,6 +102,39 @@ def test_large_drift_is_rejected_by_phase_integrity(tmp_path: Path):
     assert "phase" in (plan.warning or "").lower()
 
 
+
+def test_phase_safe_finalists_are_prioritized_without_relaxing_gate(tmp_path: Path):
+    from djai.brain.unified_transition import _prefer_viable_phase_candidates
+
+    track_a = _track(tmp_path, "rank-a")
+    track_b = _track(tmp_path, "rank-b")
+    unsafe = plan_transition(
+        track_a,
+        track_b,
+        force=True,
+        tempo_policy="safe",
+        style="safe",
+        requested_bars=8,
+        exit_time_a=20.0,
+        entry_time_b=4.0,
+    )
+    safe = plan_transition(
+        track_a,
+        track_b,
+        force=True,
+        tempo_policy="safe",
+        style="safe",
+        requested_bars=4,
+        exit_time_a=20.0,
+        entry_time_b=4.0,
+    )
+    unsafe.metadata["deck_performance"]["phase_integrity"]["safe"] = False
+    safe.metadata["deck_performance"]["phase_integrity"]["safe"] = True
+    assert _prefer_viable_phase_candidates([unsafe, safe]) == [safe]
+    assert _prefer_viable_phase_candidates([unsafe]) == [unsafe]
+
+
+
 def _tone(seconds: float, sample_rate: int = 16_000, frequency: float = 440.0) -> np.ndarray:
     t = np.arange(int(seconds * sample_rate), dtype=np.float32) / sample_rate
     mono = 0.25 * np.sin(2.0 * np.pi * frequency * t)
