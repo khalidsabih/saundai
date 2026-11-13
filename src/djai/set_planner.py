@@ -1610,10 +1610,9 @@ def _build_filtered_beam_route(
 ) -> _CompleteMoveRoute:
     """Search several model-filtered partial routes instead of greedily committing.
 
-    This is used only by the explicit neural-retrieval experiment. It keeps a
-    very small beam of structurally plausible routes, so a locally strong early
-    choice cannot strand the last few tracks. Expensive graph materialization
-    remains limited to candidates admitted by retrieval.
+    This is used only by the explicit neural-retrieval experiment. Retrieval
+    stays cheap and broad, while expensive graph materialization is batched once
+    per beam depth across all surviving partial routes.
     """
     initial_state = build_set_state([analyses[opener]])
     initial_dj = build_dj_state(
@@ -1643,6 +1642,12 @@ def _build_filtered_beam_route(
 
     for _step in range(1, len(analyses)):
         expanded: list[_BeamRouteState] = []
+        prepared_states: list[tuple[Any, ...]] = []
+        pair_batch: set[tuple[int, int]] = set()
+
+        # First pass: do only cheap route-state/retrieval work. Collect every
+        # shortlisted pair needed by the whole beam before materializing graph
+        # edges. This avoids repeated graph setup for each beam state.
         for state in beam:
             current = state.order[-1]
             remaining = set(range(len(analyses))) - set(state.order)
@@ -1677,8 +1682,17 @@ def _build_filtered_beam_route(
                 width=min(len(available), config.lazy_candidate_width),
             )
             shortlisted = list(retrieval.selected)
-            if ensure_pairs is not None:
-                ensure_pairs((current, index) for index in shortlisted)
+            prepared_states.append(
+                (state, current, timing_state, set_state, retrieval, shortlisted)
+            )
+            pair_batch.update((current, index) for index in shortlisted)
+
+        if ensure_pairs is not None and pair_batch:
+            ensure_pairs(pair_batch)
+
+        # Second pass: score complete moves only after all graph edges for this
+        # beam depth are available. Safety/executability gates are unchanged.
+        for state, current, timing_state, set_state, retrieval, shortlisted in prepared_states:
             generated = generate_complete_moves(
                 current_index=current,
                 candidate_indices=shortlisted,
@@ -1695,7 +1709,7 @@ def _build_filtered_beam_route(
                 continue
 
             seen_targets: set[int] = set()
-            branch = []
+            branch: list[Any] = []
             for candidate in generated:
                 if candidate.next_index in seen_targets:
                     continue
