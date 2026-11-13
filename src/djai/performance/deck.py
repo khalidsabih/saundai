@@ -39,6 +39,8 @@ def _unwrapped_beat_numbers(
     positions = [0]
     if not beats or expected_source_beat_seconds <= 0:
         return positions
+    if not _enabled("DJAI_BEAT_GAP_AWARE", "0"):
+        return list(range(len(beats)))
     for left, right in zip(beats, beats[1:]):
         interval = float(right) - float(left)
         steps = 1
@@ -217,7 +219,7 @@ def _phase_integrity_profile(
     overlap_b_start = float(plan.entry_time_b) + float(phase_nudge_seconds_b)
     overlap_a_end = overlap_a_start + float(plan.transition_seconds) * rate_a
     overlap_b_end = overlap_b_start + float(plan.transition_seconds) * rate_b
-    if (
+    if _enabled("DJAI_BEAT_GAP_AWARE", "0") and (
         _overlap_crosses_unreliable_beat_interval(
             track_a.beats_seconds,
             start_seconds=overlap_a_start,
