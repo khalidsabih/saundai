@@ -137,3 +137,16 @@ the remaining architecture and state tests are untouched. The Live
 scenario's error line was not included in the provided summary. Keep it
 open and inspect one targeted Playwright failure before editing Live
 assertions or runtime behavior. Repeat tests to verify all changes.
+
+## Focused Chromium Live/Brain diagnostic (2026-11-13)
+
+The operator ran two targeted Chromium scenarios: **Brain passed**,
+**Live failed**. Live's failure was a Playwright strict-mode locator
+collision: the `NEXT` label is displayed in both the Executive state and
+the labelled Next/future horizon. The test asserted an unscoped
+`getByText("NEXT", { exact: true })` and therefore matched two legitimate
+nodes. The test now scopes NEXT to the named horizon region. The
+live-telemetry, execution-authority and safety logic were not modified.
+
+Run the targeted scenarios, then the complete four-project suite.
+Neither a clean Live test nor an all-browser pass is claimed yet.
