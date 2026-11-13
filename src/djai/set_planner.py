@@ -119,6 +119,9 @@ from .planner_sequence_cues import (
     sequence_exit_candidates as _sequence_exit_candidates_impl,
     sequence_entry_candidates as _sequence_entry_candidates_impl,
 )
+from .planner_sequence_candidates import (
+    build_sequence_candidate_pool as _build_sequence_candidate_pool,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1432,92 +1435,31 @@ def _compile_sequence_edges(
         )
         selected_entries = _sequence_entry_candidates(track_b, limit=10)
 
-        styles = (
-            [preferred_style]
-            if preferred_style in {"safe", "creative", "emergency"}
-            else ["safe", "creative", "emergency"]
+        candidate_pool = _build_sequence_candidate_pool(
+            from_index=from_index,
+            to_index=to_index,
+            track_a=track_a,
+            track_b=track_b,
+            selected_exits=selected_exits,
+            selected_entries=selected_entries,
+            session=active_session,
+            stem_paths_a=stem_maps[from_index],
+            stem_paths_b=stem_maps[to_index],
+            preferred_style=preferred_style,
+            quality_loop=quality_loop,
+            tempo_policy=tempo_policy,
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
+            global_position=global_position,
+            source_cursor=source_cursor,
+            required_source=required_source,
+            target_exit=target_exit,
+            soft_latest_exit=soft_latest_exit,
         )
-        all_plans: list[TransitionPlan] = []
-        matrix: PairEvidenceMatrix | None = None
-        sequence_evidence_reused = False
-        stems_available = bool(stem_maps[from_index] and stem_maps[to_index])
-        if selected_exits:
-            matrix = active_session.get((from_index, to_index))
-            if matrix is not None:
-                sequence_evidence_reused = True
-                matrix = matrix.subset(
-                    exit_candidates=selected_exits,
-                    entry_candidates=selected_entries or None,
-                )
-                # Large-crate graph scouting deliberately stores only a small
-                # cue matrix. Final path compilation must restore the complete
-                # selected cue pool instead of silently inheriting the scout.
-                if (
-                    len(matrix.exit_candidates) < len(selected_exits)
-                    or (selected_entries and len(matrix.entry_candidates) < len(selected_entries))
-                ):
-                    matrix = None
-                    sequence_evidence_reused = False
-            if matrix is None or not matrix.pairs:
-                sequence_evidence_reused = False
-                matrix = build_pair_evidence_matrix(
-                    track_a,
-                    track_b,
-                    exit_candidates=selected_exits,
-                    entry_candidates=selected_entries or None,
-                    scoring_model=active_session.scoring_model,
-                )
-                active_session.store((from_index, to_index), matrix)
-
-            try:
-                candidate_plans = plan_transition_candidate_pool(
-                    track_a,
-                    track_b,
-                    styles=styles,
-                    per_style=(
-                        max(2, quality_loop.top_k)
-                        if quality_loop is not None and quality_loop.enabled
-                        else 1
-                    ),
-                    force=True,
-                    tempo_policy=tempo_policy,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    stems_available=stems_available,
-                    evidence_matrix=matrix,
-                )
-            except (DifficultTransitionError, RuntimeError, ValueError):
-                candidate_plans = []
-            for plan in candidate_plans:
-                plan.stem_paths_a = dict(stem_maps[from_index])
-                plan.stem_paths_b = dict(stem_maps[to_index])
-                plan.metadata = {
-                    **plan.metadata,
-                    "sequence_position": global_position,
-                    "source_cursor_before_body": round(source_cursor, 6),
-                    "minimum_source_body": round(required_source, 6),
-                    "preferred_exit_time": round(target_exit, 6),
-                    "soft_latest_exit_time": round(soft_latest_exit, 6),
-                    "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                    "sequence_evidence_reused": sequence_evidence_reused,
-                    "sequence_matrix_size": matrix.compatibility_evaluations,
-                    "stem_rendering": bool(
-                        stems_available
-                        and plan.technique
-                        in {"eq_bass_swap", "filter_build", "double_drop", "stem_vocal_overlay", "stem_choreography"}
-                    ),
-                    "performance_layer_rendering": plan.technique
-                    in {
-                        "layer_vocal_bridge",
-                        "layer_incoming_vocal_handoff",
-                        "layer_instrumental_handoff",
-                    },
-                }
-                # Stem paths may change the executable program from master to
-                # stem buses. Recompile before any rehearsal or execution.
-                attach_performance_program(plan)
-                seal_execution_plan(plan)
-                all_plans.append(plan)
+        all_plans = list(candidate_pool.plans)
+        matrix = candidate_pool.matrix
+        sequence_evidence_reused = candidate_pool.sequence_evidence_reused
+        stems_available = candidate_pool.stems_available
 
         if not all_plans:
             if automatic_delivery and replan_on_review and not allow_emergency_escape:
