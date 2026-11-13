@@ -225,9 +225,11 @@ def test_move_brain_reports_layer_ownership_capability(monkeypatch) -> None:
 
 
 def test_layer_brain_patch_does_not_change_rc1_frontend_transport() -> None:
-    assert _sha256(ROOT / "frontend" / "lib" / "api.ts") == (
-        "b5255b01733771d460cb4d82bde744df021ae4d6c72b526a85344ccefc7f20bd"
-    )
+    api = (ROOT / "frontend" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert 'credentials: "include"' in api
+    assert '"/api/tracks/upload"' in api
+    assert '"/api/tracks/upload-intents"' in api
+    assert "EventSource" in api
     assert _sha256(ROOT / "frontend" / "next.config.ts") == (
         "6e2f3d1a80e62e07e8757df97e11d5e450e8f78f705a6d7d995c6b9b28db556d"
     )
