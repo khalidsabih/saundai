@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from . import __version__
 from .api_training_routers import register_training_routers
 from .api_status_intelligence_routers import register_status_and_intelligence_routers
+from .api_production_routers import register_account_and_production_routers
 from .accounts import AccountExistsError, AccountStore
 from .hosting import HostingConfig, SlidingWindowRateLimiter, invite_code_allowed
 from .object_store import ObjectStore, remove_materialized_tree
@@ -517,7 +518,6 @@ def _clear_account_cookie(response: Response) -> None:
     )
 
 
-@app.get("/api/auth/me")
 def auth_me(http_request: Request) -> Response:
     snapshot = _auth_snapshot(http_request)
     if snapshot is None:
@@ -528,7 +528,6 @@ def auth_me(http_request: Request) -> Response:
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.post("/api/auth/register")
 def auth_register(request: AccountRegisterRequest, http_request: Request) -> Response:
     _enforce_auth_rate_limit(http_request, "register")
     if not invite_code_allowed(request.invite_code, mode=HOSTING.signup_mode):
@@ -559,7 +558,6 @@ def auth_register(request: AccountRegisterRequest, http_request: Request) -> Res
     return response
 
 
-@app.post("/api/auth/login")
 def auth_login(request: AccountLoginRequest, http_request: Request) -> Response:
     _enforce_auth_rate_limit(http_request, "login")
     snapshot = account_store.authenticate(str(request.email), request.password)
@@ -571,14 +569,12 @@ def auth_login(request: AccountLoginRequest, http_request: Request) -> Response:
     return response
 
 
-@app.get("/api/account/export")
 def account_export(
     account: Annotated[dict[str, Any], Depends(_require_account)],
 ) -> Response:
     return _auth_response({"privacy_version": PRIVACY_VERSION, "account": account_store.export_user(_account_user_id(account))})
 
 
-@app.delete("/api/account")
 def account_delete(
     http_request: Request,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -607,7 +603,6 @@ def account_delete(
     return response
 
 
-@app.post("/api/auth/logout")
 def auth_logout(http_request: Request) -> Response:
     account_store.delete_session(http_request.cookies.get(ACCOUNT_COOKIE_NAME))
     response = _auth_response({"authenticated": False, "user": None, "profile": None, "preferences": None})
@@ -615,7 +610,6 @@ def auth_logout(http_request: Request) -> Response:
     return response
 
 
-@app.patch("/api/account/preferences")
 def account_preferences(
     request: AccountPreferencesRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -629,7 +623,6 @@ def account_preferences(
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.patch("/api/account/profile")
 def account_profile(
     request: AccountProfileRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -652,7 +645,6 @@ def account_profile(
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.get("/api/account/projects")
 def account_projects(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     limit: int = Query(default=30, ge=1, le=100),
@@ -1184,7 +1176,6 @@ def _postprocess_uploaded_batch(
     }
 
 
-@app.post("/api/tracks/upload")
 async def upload_tracks(
     http_request: Request,
     files: Annotated[list[UploadFile], File(description="Audio files")],
@@ -1234,7 +1225,6 @@ async def upload_tracks(
     return _postprocess_uploaded_batch(raw_saved, upload_owner_user_id=upload_owner_user_id)
 
 
-@app.post("/api/tracks/upload-intents")
 def create_upload_intents(
     request: HostedUploadIntentRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1258,7 +1248,6 @@ def create_upload_intents(
     return {"uploads": intents, "backend": "s3", "max_upload_bytes": MAX_UPLOAD_BYTES}
 
 
-@app.post("/api/tracks/upload-complete")
 def complete_direct_uploads(
     request: HostedUploadCompleteRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1300,7 +1289,6 @@ def complete_direct_uploads(
     return _postprocess_uploaded_batch(raw_saved, upload_owner_user_id=_account_user_id(account))
 
 
-@app.get("/api/tracks")
 def list_tracks(
     http_request: Request,
     folder: str = Query(default="audio"),
@@ -1352,7 +1340,6 @@ def list_tracks(
     return {"folder": _relative(root), "tracks": records}
 
 
-@app.post("/api/tracks/readiness/prepare", status_code=202)
 def prepare_track_readiness(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     track_path: str = Query(...),
@@ -1376,7 +1363,6 @@ def prepare_track_readiness(
     }
 
 
-@app.post("/api/set/plan", status_code=202)
 def create_set_plan(
     request: SetPlanRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1529,7 +1515,6 @@ def create_set_plan(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/sets/automatic", status_code=202)
 def create_automatic_set(
     request: AutomaticSetRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1760,7 +1745,6 @@ def create_automatic_set(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/set/render", status_code=202)
 def create_render(
     request: RenderRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1834,7 +1818,6 @@ def create_render(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/set/previews", status_code=202)
 def create_previews(
     request: PreviewRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1872,7 +1855,6 @@ def create_previews(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/studio/transition-preview", status_code=202)
 def create_studio_transition_preview(
     request: StudioTransitionPreviewRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1941,7 +1923,6 @@ def create_studio_transition_preview(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/stems/separate", status_code=202)
 def create_stems(
     request: StemRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1968,7 +1949,6 @@ def create_stems(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/ratings")
 def save_rating(
     request: RatingRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1991,7 +1971,6 @@ def save_rating(
     return {"ratings_path": _relative(output)}
 
 
-@app.post("/api/feedback")
 def save_feedback(
     request: FeedbackRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2449,6 +2428,35 @@ register_status_and_intelligence_routers(
         "save_training_lab_human_review_vote": save_training_lab_human_review_vote,
         "train_intelligence_ranker": train_intelligence_ranker,
         "intelligence_ranker_status": intelligence_ranker_status,
+    },
+)
+
+
+register_account_and_production_routers(
+    app,
+    {
+        "auth_me": auth_me,
+        "auth_register": auth_register,
+        "auth_login": auth_login,
+        "account_export": account_export,
+        "account_delete": account_delete,
+        "auth_logout": auth_logout,
+        "account_preferences": account_preferences,
+        "account_profile": account_profile,
+        "account_projects": account_projects,
+        "upload_tracks": upload_tracks,
+        "create_upload_intents": create_upload_intents,
+        "complete_direct_uploads": complete_direct_uploads,
+        "list_tracks": list_tracks,
+        "prepare_track_readiness": prepare_track_readiness,
+        "create_set_plan": create_set_plan,
+        "create_automatic_set": create_automatic_set,
+        "create_render": create_render,
+        "create_previews": create_previews,
+        "create_studio_transition_preview": create_studio_transition_preview,
+        "create_stems": create_stems,
+        "save_rating": save_rating,
+        "save_feedback": save_feedback,
     },
 )
 
