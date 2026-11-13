@@ -1,6 +1,8 @@
-# DJAI 4.0.0 API
+# SAUND.AI API
 
 Interactive OpenAPI documentation is served at `/docs` when the FastAPI service is running.
+
+Current product/version, authority and schema contracts are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
 
 ## Product endpoints
 
