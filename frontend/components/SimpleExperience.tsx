@@ -22,17 +22,11 @@ import { LivePlayer } from "./LivePlayer";
 import { AppShell } from "./product/AppShell";
 import { BuildProgress } from "./intelligence/BuildProgress";
 import { CrateSelector } from "./music/CrateSelector";
+import { SetIntentPanel } from "./set/SetIntentPanel";
 
 const INTRO_PROGRESS_DELAY_MS = 180;
 const INTRO_PROGRESS_DURATION_MS = 6_800;
 const INTRO_SEEN_KEY = "saund.ai.intro.seen.v1";
-
-const journeys: Array<{ value: JourneyMode; label: string; detail: string; cue: string }> = [
-  { value: "balanced", label: "Flow", detail: "Natural movement with room to breathe.", cue: "Balanced" },
-  { value: "warmup", label: "Warm", detail: "Patient opening, gradual energy and space.", cue: "Patient" },
-  { value: "peak", label: "Drive", detail: "Push toward the strongest moments in the crate.", cue: "Forward" },
-  { value: "sunset", label: "Release", detail: "Warm movement with a softer landing.", cue: "Open" },
-];
 
 function outputName(journey: JourneyMode) {
   const stamp = new Date().toISOString().replaceAll(":", "-").replace("T", "_").slice(0, 19);
@@ -41,17 +35,6 @@ function outputName(journey: JourneyMode) {
 
 function letterStyle(index: number) {
   return { "--letter-index": index } as CSSProperties;
-}
-
-function trackAIState(track: TrackRecord) {
-  const readiness = track.readiness;
-  if (!readiness) return { label: "Waiting", tone: "waiting" };
-  const state = readiness.state.toLowerCase();
-  if (readiness.dj_ready || state === "ready") return { label: "Ready", tone: "ready" };
-  if (state === "failed" || state === "cancelled") return { label: "Needs attention", tone: "failed" };
-  if (state === "pending" || state === "queued") return { label: "Listening", tone: "active" };
-  const percent = Math.round(Math.max(0, Math.min(1, readiness.progress ?? 0)) * 100);
-  return { label: percent > 0 ? `Analysing ${percent}%` : "Analysing", tone: "active" };
 }
 
 function friendlyError(message: string) {
@@ -115,7 +98,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   const [peakFraction, setPeakFraction] = useState(0.65);
   const [closingMinutes, setClosingMinutes] = useState(10);
   const [endingEnergy, setEndingEnergy] = useState(0.45);
-  const [showSetDetails, setShowSetDetails] = useState(false);
   const [showTechnicalError, setShowTechnicalError] = useState(false);
 
   const selectedTracks = tracks.filter((track) => selectedPaths.includes(track.path));
@@ -130,7 +112,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
     }, 0) / selectedTracks.length;
   const selectedReady = selectedPaths.length >= 2 && readySelectedCount === selectedPaths.length && failedSelectedCount === 0;
   const canStartSession = selectedPaths.length >= 2 && failedSelectedCount === 0 && !job && !uploading;
-  const currentJourney = journeys.find((item) => item.value === journey) ?? journeys[0];
 
   const refresh = useCallback(async () => {
     try {
@@ -470,79 +451,25 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                 )}
               />
 
-              <aside className="session-command" aria-label="Session direction">
-                <header className="session-section-head">
-                  <div><span>02</span><div><small>INTENT</small><strong>Shape the night</strong></div></div>
-                </header>
-
-                <div className="session-directions" role="radiogroup" aria-label="Set direction">
-                  {journeys.map((option) => (
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={journey === option.value}
-                      key={option.value}
-                      className={journey === option.value ? "is-selected" : ""}
-                      onClick={() => setJourney(option.value)}
-                    >
-                      <span><small>{option.cue}</small><strong>{option.label}</strong></span>
-                      <p>{option.detail}</p>
-                      <i>{journey === option.value ? <Icon name="check" /> : ""}</i>
-                    </button>
-                  ))}
-                </div>
-
-                <section className="set-brief" aria-label="Set brief">
-                  <div className="set-brief__row">
-                    <span><small>DURATION</small><strong>{targetMinutes ? targetMinutes + " min" : "Use crate"}</strong></span>
-                    <div className="set-brief__choices">
-                      {[60, 90, 120].map((minutes) => (
-                        <button type="button" key={minutes} className={targetMinutes === minutes ? "is-selected" : ""} onClick={() => setTargetMinutes(minutes)}>{minutes}</button>
-                      ))}
-                      <button type="button" className={targetMinutes === null ? "is-selected" : ""} onClick={() => setTargetMinutes(null)}>Auto</button>
-                    </div>
-                  </div>
-                  <div className="set-brief__row">
-                    <span><small>ENDING</small><strong>{endingEnergy < 0.35 ? "Soft" : endingEnergy > 0.65 ? "Strong" : "Balanced"}</strong></span>
-                    <input aria-label="Ending energy" type="range" min="0" max="1" step="0.05" value={endingEnergy} onChange={(event) => setEndingEnergy(Number(event.target.value))} />
-                  </div>
-                  <button type="button" className="set-brief__details-toggle" onClick={() => setShowSetDetails((value) => !value)} aria-expanded={showSetDetails}>
-                    <span>Set details</span><strong>{showSetDetails ? "Hide" : "Show"}</strong>
-                  </button>
-                  {showSetDetails && (
-                    <div className="set-brief__details">
-                      <label><span>Peak timing <b>{Math.round(peakFraction * 100)}%</b></span><input type="range" min="0.15" max="0.95" step="0.05" value={peakFraction} onChange={(event) => setPeakFraction(Number(event.target.value))} /></label>
-                      <label><span>Closing window <b>{closingMinutes} min</b></span><input type="range" min="1" max="30" step="1" value={closingMinutes} onChange={(event) => setClosingMinutes(Number(event.target.value))} /></label>
-                    </div>
-                  )}
-                </section>
-
-                <section className={"crate-preflight " + (failedSelectedCount ? "is-blocked" : selectedReady ? "is-ready" : "")} aria-label="Crate preflight">
-                  <header><span>CRATE PREFLIGHT</span><strong>{selectedReady ? "Ready" : failedSelectedCount ? "Attention" : "Preparing"}</strong></header>
-                  <div className="crate-preflight__stats">
-                    <div><b>{selectedPaths.length}</b><small>selected</small></div>
-                    <div><b>{readySelectedCount}</b><small>ready</small></div>
-                    <div><b>{preparingSelectedCount}</b><small>preparing</small></div>
-                    <div><b>{failedSelectedCount}</b><small>blocked</small></div>
-                  </div>
-                  <p>{failedSelectedCount > 0
-                    ? "Remove or repair tracks that failed readiness before starting the session."
-                    : selectedReady
-                      ? "The selected crate is understood and ready for autonomous planning."
-                      : "SAUND can start once the selected crate is usable; background understanding may continue."}</p>
-                </section>
-
-                <div className="session-command__summary">
-                  <small>SESSION INTENT</small>
-                  <strong>{currentJourney.label}</strong>
-                  <p>{selectedPaths.length >= 2 ? `${selectedPaths.length} tracks ready for autonomous planning.` : "Choose the music that SAUND may perform."}</p>
-                </div>
-
-                <button className="session-start" type="button" disabled={!canStartSession} onClick={requestCreateSet}>
-                  <span><small>{account ? "Executive will prepare the horizon" : "Login requested only when starting"}</small><strong>Build my set</strong></span>
-                  <Icon name="arrow" />
-                </button>
-              </aside>
+              <SetIntentPanel
+                journey={journey}
+                targetMinutes={targetMinutes}
+                peakFraction={peakFraction}
+                closingMinutes={closingMinutes}
+                endingEnergy={endingEnergy}
+                selectedCount={selectedPaths.length}
+                readyCount={readySelectedCount}
+                preparingCount={preparingSelectedCount}
+                failedCount={failedSelectedCount}
+                canBuild={canStartSession}
+                authenticated={Boolean(account)}
+                onJourney={setJourney}
+                onTargetMinutes={setTargetMinutes}
+                onPeakFraction={setPeakFraction}
+                onClosingMinutes={setClosingMinutes}
+                onEndingEnergy={setEndingEnergy}
+                onBuild={requestCreateSet}
+              />
             </div>
 
             {job && (
