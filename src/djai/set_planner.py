@@ -275,18 +275,16 @@ def _graph_select_alternative(
     alternatives: list[TransitionPlan],
     track_a: TrackAnalysis,
     track_b: TrackAnalysis,
+    preferred_style: str,
+    journey: JourneyMode,
 ) -> tuple[TransitionPlan, float]:
     return _select_alternative(
         alternatives,
         track_a,
         track_b,
-        preferred_style=_GRAPH_PAIR_PREFERRED_STYLE,
-        journey=_GRAPH_PAIR_JOURNEY,
+        preferred_style=preferred_style,
+        journey=journey,
     )
-
-
-_GRAPH_PAIR_PREFERRED_STYLE = "auto"
-_GRAPH_PAIR_JOURNEY: JourneyMode = "balanced"
 
 
 def _edge_from_plan(
@@ -352,11 +350,6 @@ def build_transition_graph(
     selection. Only true cache misses are submitted to graph workers, and
     worker results are persisted back into the same pair cache.
     """
-    global _GRAPH_PAIR_PREFERRED_STYLE
-    global _GRAPH_PAIR_JOURNEY
-    _GRAPH_PAIR_PREFERRED_STYLE = preferred_style
-    _GRAPH_PAIR_JOURNEY = journey
-
     if len(analyses) < 2:
         raise ValueError("A set needs at least two tracks.")
 
@@ -456,13 +449,7 @@ def build_transition_graph(
                 journey=journey,
                 stem_maps=stem_maps,
                 scoring_model=active_session.scoring_model,
-                select_alternative=lambda alternatives, track_a, track_b: _select_alternative(
-                    alternatives,
-                    track_a,
-                    track_b,
-                    preferred_style=preferred_style,
-                    journey=journey,
-                ),
+                select_alternative=_graph_select_alternative,
                 classify_quality=classify_quality,
                 transition_warnings=_transition_warnings,
             )
