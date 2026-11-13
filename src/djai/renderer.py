@@ -825,7 +825,7 @@ def _render_transition_window(
             }
 
         print(
-            "\\n=== PHASE 6 RENDER DECK LEVELS ===\\n"
+            "\n=== PHASE 6 RENDER DECK LEVELS ===\n"
             + json.dumps({
                 "track_a": Path(plan.track_a).name,
                 "track_b": Path(plan.track_b).name,
