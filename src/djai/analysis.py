@@ -7,6 +7,7 @@ import hashlib
 import json
 
 import math
+import os
 
 import librosa
 import numpy as np
@@ -36,7 +37,7 @@ LOCAL_SOURCE_BARS = 8
 MIN_LOCAL_HARMONIC_FRAMES = 12
 MIN_LOCAL_SOURCE_FRAMES = 12
 SOURCE_N_FFT = 2048
-ANALYSIS_VERSION = "5.2.0"
+ANALYSIS_VERSION = "5.2.1"
 
 
 @dataclass(slots=True)
@@ -1554,6 +1555,22 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
             beats_per_bar = time_signature if time_signature in {3, 4, 6} else BEATS_PER_BAR
     except Exception as exc:
         neural_evidence["beat_downbeat"] = {"available": False, "used": False, "reason": f"neural beat adapter unavailable: {exc}"}
+
+    # Opt-in consistency reconciliation: never changes beat positions or
+    # downbeat annotations. Three independent onset windows and the complete
+    # beat-grid span must agree before replacing the scalar global tempo.
+    # Strictly limited to steady dance-tempo evidence; not a generic tempo fix.
+    if os.environ.get("DJAI_TEMPO_CONSISTENCY", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        from .music.tempo_consistency import reconcile_bpm
+
+        bpm, tempo_consistency_evidence = reconcile_bpm(
+            bpm,
+            beat_times,
+            onset_envelope,
+            sample_rate=sr,
+            hop_length=HOP_LENGTH,
+        )
+        neural_evidence["tempo_consistency"] = tempo_consistency_evidence
 
     harmonic, percussive = librosa.effects.hpss(y)
     chroma = librosa.feature.chroma_cqt(
