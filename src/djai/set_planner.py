@@ -2095,7 +2095,21 @@ def build_complete_move_route(
     complete = [route for route in routes if route.completed]
     if not complete:
         reason = "; ".join(route.reason for route in routes if route.reason) or "no complete route"
-        return _CompleteMoveRoute(order=(), decisions=(), score=0.0, completed=False, reason=reason)
+        partial = max(
+            routes,
+            key=lambda route: (
+                len(route.order),
+                route.score,
+                sum(decision.winner.move.future_optionality for decision in route.decisions),
+            ),
+        )
+        return _CompleteMoveRoute(
+            order=partial.order,
+            decisions=partial.decisions,
+            score=partial.score,
+            completed=False,
+            reason=reason,
+        )
     best_scout = max(
         complete,
         key=lambda route: (
@@ -3813,21 +3827,35 @@ def make_set_plan(
             ).strip().lower() in {"1", "true", "yes", "on"}
             if not allow_broad:
                 if progress:
+                    effective_attempts = max(1, len(complete_move_runs))
+                    best_partial_depth = max(
+                        (len(item.order) for item in complete_move_runs),
+                        default=0,
+                    )
                     progress(
                         "route-search",
-                        4 if experimental_retrieval else 2,
-                        4 if experimental_retrieval else 2,
-                        "Progressive learned retrieval exhausted; broad graph disabled for this experiment",
+                        effective_attempts,
+                        effective_attempts,
+                        (
+                            "Progressive learned retrieval exhausted after "
+                            f"{effective_attempts} effective sparse attempt(s); "
+                            f"best partial route reached {best_partial_depth}/{len(analyses)} tracks; "
+                            "broad graph disabled for this experiment"
+                        ),
                     )
                 raise RuntimeError(
                     "Progressive learned retrieval could not complete a safe route without broad-graph fallback."
                 )
             if progress:
+                effective_attempts = max(1, len(complete_move_runs))
                 progress(
                     "route-search",
-                    2,
-                    2,
-                    "Sparse route still incomplete; materializing broad graph fallback",
+                    effective_attempts,
+                    effective_attempts + 1,
+                    (
+                        f"Sparse route incomplete after {effective_attempts} effective attempt(s); "
+                        "materializing broad graph fallback"
+                    ),
                 )
             _ensure_full_graph()
         return optimize_order(
