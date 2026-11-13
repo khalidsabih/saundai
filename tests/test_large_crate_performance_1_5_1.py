@@ -294,3 +294,20 @@ def test_authorized_model_can_reorder_small_route_shortlist(tmp_path: Path, monk
     )
     assert result.selected[0] == 3
     assert result.ranked[0].components["learned_weight"] > 0.0
+
+
+def test_readonly_model_registry_falls_back_to_shadow_defaults(tmp_path: Path, monkeypatch) -> None:
+    from djai.intelligence import model_registry
+
+    missing = tmp_path / "readonly" / "model-registry.json"
+
+    def cannot_create(path):
+        raise OSError(30, "Read-only file system", str(path))
+
+    monkeypatch.setattr(model_registry, "ensure_default_registry", cannot_create)
+    registry = model_registry.load_model_registry(missing)
+
+    assert registry.path is None
+    assert registry.get("next_track_policy") is not None
+    assert registry.authority("next_track_policy", confidence=1.0) == 0.0
+    assert not missing.exists()
