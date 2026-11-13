@@ -1,5 +1,8 @@
 # DJAI 4.0.0 verification — Professional Brain Core
 
+> **Historical status:** This document records an earlier implementation/release milestone. It is retained for provenance and must not be used as the current runtime/version contract. See [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md) for current architecture, authority and schema sources of truth.
+
+
 ## Scope
 
 This report verifies the 4.0.0 source tree implementing the professional-DJ-brain architecture. It distinguishes executable architecture from learned artistic skill that still requires real expert data.
