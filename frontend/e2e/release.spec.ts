@@ -64,7 +64,7 @@ async function completeIntro(page: Page) {
   await expect(enter).toBeDisabled();
   // A forced synthetic click must not bypass the authoritative progress gate.
   await enter.dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
 
   // Reduced-motion makes the timeline complete immediately by design, which
   // keeps the rest of the cross-browser smoke suite fast.
@@ -92,19 +92,19 @@ test("SAUND.AI opens as a locked cinematic intro before Create", async ({ page }
   const enter = page.getByRole("button", { name: "Start a session" });
   await expect(enter).toBeVisible();
   await expect(enter).toBeDisabled();
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 
   // Even a synthetic click before completion must not enter the workspace.
   await enter.dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
   const readyEnter = page.getByRole("button", { name: "Start a session" });
   await expect(readyEnter).toBeEnabled();
   await readyEnter.click();
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
   await expect(page.getByRole("button", { name: /Sound on|Play sound|Mute/ })).toHaveCount(0);
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
 });
@@ -123,7 +123,7 @@ test("guest can shape a set and is asked to log in only when building", async ({
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
-  await page.getByRole("button", { name: /Start DJ/ }).click();
+  await page.getByRole("button", { name: /Build my set/ }).click();
 
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Log in to start." })).toBeVisible();
@@ -165,14 +165,14 @@ test("Create turns selected music into a finished set", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Autonomous DJ system")).toBeVisible();
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
-  await page.getByRole("button", { name: /Start DJ/ }).click();
+  await page.getByRole("button", { name: /Build my set/ }).click();
 
-  await expect(page.getByRole("heading", { name: "The room is ready." })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Go live/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your set is ready." })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Perform Live/ })).toBeVisible();
   await expect(page.getByText("2", { exact: true })).toBeVisible();
 });
 
@@ -264,8 +264,8 @@ test("live performance makes NOW, NEXT, FUTURE and the Executive the product sur
   await completeIntro(page);
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
-  await page.getByRole("button", { name: /Start DJ/ }).click();
-  await page.getByRole("button", { name: /Go live/ }).click();
+  await page.getByRole("button", { name: /Build my set/ }).click();
+  await page.getByRole("button", { name: /Perform Live/ }).click();
 
   await expect(page.getByText(/NOW ·/).first()).toBeVisible();
   await expect(page.getByText("NEXT", { exact: true })).toBeVisible();
@@ -305,7 +305,7 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   });
   await page.goto("/");
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: "Brain", exact: true }).click();
@@ -319,7 +319,7 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   await expect(page.getByRole("heading", { name: /Shape the set/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Perform", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
   await expect(page.getByRole("button", { name: /Aurora\.wav/, pressed: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Afterglow\.wav/, pressed: true })).toBeVisible();
 });
@@ -348,7 +348,7 @@ test("API failure becomes an actionable visible error", async ({ page }) => {
   });
   await page.goto("/");
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Give SAUND the room." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("Engine unavailable");
   await expect(page.getByRole("button", { name: "Dismiss error" })).toBeVisible();
 });
