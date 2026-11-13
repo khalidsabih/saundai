@@ -73,6 +73,10 @@ from .rehearsal.headphones import AIHeadphonesConfig, ai_headphones_status, list
 from .personalization import ListenerProfile, get_listener_profile, plan_personalization_adjustment
 from .parallel import resolve_worker_selection, worker_initializer
 from .planner_graph_workers import iter_graph_worker_results
+from .planner_candidates import (
+    candidate_diverse_by_bar as _candidate_diverse_by_bar,
+    graph_scout_candidates as _graph_scout_candidates,
+)
 from .planner_large_crate import (
     env_int as _env_int,
     graph_scout_cue_limit as _graph_scout_cue_limit,
@@ -319,36 +323,6 @@ _GRAPH_WORKER_PREFERRED_STYLE = "auto"
 _GRAPH_WORKER_JOURNEY: JourneyMode = "balanced"
 _GRAPH_WORKER_STEM_MAPS: dict[int, dict[str, str]] = {}
 _GRAPH_WORKER_SCORING_MODEL: dict[str, Any] | None = None
-
-
-def _graph_scout_candidates(
-    candidates: list[TransitionCandidate] | tuple[TransitionCandidate, ...],
-    *,
-    kind: str,
-    limit: int,
-) -> list[TransitionCandidate]:
-    if limit <= 0 or len(candidates) <= limit:
-        return list(candidates)
-    scored: list[tuple[float, TransitionCandidate]] = []
-    for candidate in candidates:
-        low_vocal = 1.0 - max(0.0, min(1.0, float(candidate.vocal_probability)))
-        value = (
-            0.44 * float(candidate.score)
-            + 0.20 * float(candidate.boundary_strength)
-            + 0.18 * float(candidate.phrase_strength)
-            + 0.10 * float(candidate.beat_grid_confidence)
-            + 0.08 * low_vocal
-        )
-        scored.append((value, candidate))
-    selected = _candidate_diverse_by_bar(scored, limit=limit, minimum_bar_distance=4)
-    if kind == "entry":
-        earliest = min(candidates, key=lambda item: (float(item.time_seconds), -float(item.score)))
-        if earliest.section_label == "intro" and earliest not in selected:
-            if len(selected) >= limit:
-                selected[-1] = earliest
-            else:
-                selected.append(earliest)
-    return selected[:limit]
 
 
 def _graph_worker_initializer(
@@ -1966,27 +1940,6 @@ def _mixing_window(
     latest_body = max(target_body, min(latest_cap, remaining * 0.80))
     latest_body = min(latest_body, max(required_source, remaining - 0.5))
     return current_cursor + target_body, current_cursor + latest_body
-
-def _candidate_diverse_by_bar(
-    candidates: list[tuple[float, TransitionCandidate]],
-    *,
-    limit: int,
-    minimum_bar_distance: int = 2,
-) -> list[TransitionCandidate]:
-    selected: list[TransitionCandidate] = []
-    for _, candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
-        if all(abs(candidate.bar_index - existing.bar_index) >= minimum_bar_distance for existing in selected):
-            selected.append(candidate)
-        if len(selected) >= limit:
-            break
-    if len(selected) < min(limit, len(candidates)):
-        for _, candidate in sorted(candidates, key=lambda item: item[0], reverse=True):
-            if candidate not in selected:
-                selected.append(candidate)
-            if len(selected) >= limit:
-                break
-    return selected
-
 
 def _sequence_exit_candidates(
     track: TrackAnalysis,
