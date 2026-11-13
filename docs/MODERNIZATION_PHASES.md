@@ -1,6 +1,6 @@
 # SAUND.AI modernization phases
 
-Status: **Phase 2 complete; Phase 3 in progress**. This plan governs engineering consolidation on top of
+Status: **Phases 1–3 complete; Phase 4 extraction complete, equivalence/benchmark exit evidence pending**. This plan governs engineering consolidation on top of
 the existing Phase 13–15 implementation; it does not replace the product feature
 roadmap in [ROADMAP.md](ROADMAP.md).
 
@@ -57,6 +57,29 @@ router/feature, while preserving public imports and routes.
 **Exit gate:** golden-plan/transition signature and exact-render regression
 checks show equivalent behavior on fixed fixtures, except for separately
 approved bug fixes. No unreviewed change in safety or model authority.
+
+**Implementation checkpoint (2026-11-13):** The private planner modules now own
+graph caching/workers, route search, complete-move lookahead and routing,
+candidate/sequence compilation helpers, Professional Brain resolution plumbing,
+final sequence safety/edge commit, reporting and quality-loop integration.
+`api.py` retains endpoint implementations and compatibility imports while
+four router modules own registration for all HTTP endpoints.
+
+The operator verified the full supported Python suite green on
+`phase-13-15-time-live-venue-hardening` after the router migration,
+including repairs to source-text tests that incorrectly required decorators
+to remain in `api.py`. The large-crate test also verifies the extracted
+order optimizer respects injectable legacy planning hooks.
+
+For exact operator commands and the fixed pre-extraction commit, see
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
+**Not yet certified for Phase 4 exit:** a recorded before/after fixed-fixture
+execution-signature and exact-render comparison, plus comparable planner
+latency/resource benchmark evidence. Existing regression tests cover individual
+contracts but are not a substitute for an archived equivalence report. Until
+those results are recorded, Phase 4 is **implementation-complete, exit-pending**.
+Do not declare Phase 5 complete on the strength of Python test results alone.
 
 ## Phase 5 — Frontend consolidation
 

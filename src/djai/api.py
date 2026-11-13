@@ -18,6 +18,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from . import __version__
+from .api_training_routers import register_training_routers
+from .api_status_intelligence_routers import register_status_and_intelligence_routers
+from .api_production_routers import register_account_and_production_routers
+from .api_live_job_routers import register_live_job_media_routers
 from .accounts import AccountExistsError, AccountStore
 from .hosting import HostingConfig, SlidingWindowRateLimiter, invite_code_allowed
 from .object_store import ObjectStore, remove_materialized_tree
@@ -515,7 +519,6 @@ def _clear_account_cookie(response: Response) -> None:
     )
 
 
-@app.get("/api/auth/me")
 def auth_me(http_request: Request) -> Response:
     snapshot = _auth_snapshot(http_request)
     if snapshot is None:
@@ -526,7 +529,6 @@ def auth_me(http_request: Request) -> Response:
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.post("/api/auth/register")
 def auth_register(request: AccountRegisterRequest, http_request: Request) -> Response:
     _enforce_auth_rate_limit(http_request, "register")
     if not invite_code_allowed(request.invite_code, mode=HOSTING.signup_mode):
@@ -557,7 +559,6 @@ def auth_register(request: AccountRegisterRequest, http_request: Request) -> Res
     return response
 
 
-@app.post("/api/auth/login")
 def auth_login(request: AccountLoginRequest, http_request: Request) -> Response:
     _enforce_auth_rate_limit(http_request, "login")
     snapshot = account_store.authenticate(str(request.email), request.password)
@@ -569,14 +570,12 @@ def auth_login(request: AccountLoginRequest, http_request: Request) -> Response:
     return response
 
 
-@app.get("/api/account/export")
 def account_export(
     account: Annotated[dict[str, Any], Depends(_require_account)],
 ) -> Response:
     return _auth_response({"privacy_version": PRIVACY_VERSION, "account": account_store.export_user(_account_user_id(account))})
 
 
-@app.delete("/api/account")
 def account_delete(
     http_request: Request,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -605,7 +604,6 @@ def account_delete(
     return response
 
 
-@app.post("/api/auth/logout")
 def auth_logout(http_request: Request) -> Response:
     account_store.delete_session(http_request.cookies.get(ACCOUNT_COOKIE_NAME))
     response = _auth_response({"authenticated": False, "user": None, "profile": None, "preferences": None})
@@ -613,7 +611,6 @@ def auth_logout(http_request: Request) -> Response:
     return response
 
 
-@app.patch("/api/account/preferences")
 def account_preferences(
     request: AccountPreferencesRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -627,7 +624,6 @@ def account_preferences(
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.patch("/api/account/profile")
 def account_profile(
     request: AccountProfileRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -650,7 +646,6 @@ def account_profile(
     return _auth_response({"authenticated": True, **snapshot})
 
 
-@app.get("/api/account/projects")
 def account_projects(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     limit: int = Query(default=30, ge=1, le=100),
@@ -677,7 +672,6 @@ def account_projects(
     }
 
 
-@app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
@@ -817,7 +811,6 @@ def health() -> dict[str, Any]:
     }
 
 
-@app.get("/api/hosting/status")
 def hosting_status() -> dict[str, Any]:
     return HOSTING.public_status(
         database_backend=account_store.backend,
@@ -844,7 +837,6 @@ def _safe_tree_stats(path: Path) -> dict[str, int]:
     return {"files": files, "bytes": size}
 
 
-@app.get("/api/runtime/status")
 def runtime_status() -> dict[str, Any]:
     return {
         "schema_version": "2.0.0",
@@ -872,7 +864,6 @@ def runtime_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/validation/phase16")
 def phase16_validation_status() -> dict[str, Any]:
     report_path = WORKSPACE / "output" / "phase16-real-music" / "phase16-report.json"
     if not report_path.is_file():
@@ -902,7 +893,6 @@ def phase16_validation_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/ready")
 def readiness() -> Response:
     workspace_ready = os.access(WORKSPACE, os.W_OK)
     database_ready = account_store.ping()
@@ -926,13 +916,11 @@ def readiness() -> Response:
     return JSONResponse(payload, status_code=200 if ready else 503)
 
 
-@app.get("/api/release/status")
 def release_status() -> dict[str, Any]:
     """Return operational release state without using HTTP failure status."""
     return release_candidate_status(WORKSPACE, strict=False)
 
 
-@app.get("/api/release/readiness")
 def release_readiness(
     strict: bool = Query(default=False),
     suite: str | None = Query(default=None, min_length=1, max_length=80),
@@ -949,7 +937,6 @@ def release_readiness(
     return JSONResponse(payload, status_code=200 if ready else 503)
 
 
-@app.get("/api/models")
 def model_status() -> dict[str, Any]:
     registry_path = WORKSPACE / "config" / "model-registry.json"
     payload = registry_status(registry_path)
@@ -1190,7 +1177,6 @@ def _postprocess_uploaded_batch(
     }
 
 
-@app.post("/api/tracks/upload")
 async def upload_tracks(
     http_request: Request,
     files: Annotated[list[UploadFile], File(description="Audio files")],
@@ -1240,7 +1226,6 @@ async def upload_tracks(
     return _postprocess_uploaded_batch(raw_saved, upload_owner_user_id=upload_owner_user_id)
 
 
-@app.post("/api/tracks/upload-intents")
 def create_upload_intents(
     request: HostedUploadIntentRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1264,7 +1249,6 @@ def create_upload_intents(
     return {"uploads": intents, "backend": "s3", "max_upload_bytes": MAX_UPLOAD_BYTES}
 
 
-@app.post("/api/tracks/upload-complete")
 def complete_direct_uploads(
     request: HostedUploadCompleteRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1306,7 +1290,6 @@ def complete_direct_uploads(
     return _postprocess_uploaded_batch(raw_saved, upload_owner_user_id=_account_user_id(account))
 
 
-@app.get("/api/tracks")
 def list_tracks(
     http_request: Request,
     folder: str = Query(default="audio"),
@@ -1358,7 +1341,6 @@ def list_tracks(
     return {"folder": _relative(root), "tracks": records}
 
 
-@app.post("/api/tracks/readiness/prepare", status_code=202)
 def prepare_track_readiness(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     track_path: str = Query(...),
@@ -1382,7 +1364,6 @@ def prepare_track_readiness(
     }
 
 
-@app.post("/api/set/plan", status_code=202)
 def create_set_plan(
     request: SetPlanRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1535,7 +1516,6 @@ def create_set_plan(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/sets/automatic", status_code=202)
 def create_automatic_set(
     request: AutomaticSetRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1766,7 +1746,6 @@ def create_automatic_set(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/set/render", status_code=202)
 def create_render(
     request: RenderRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1840,7 +1819,6 @@ def create_render(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/set/previews", status_code=202)
 def create_previews(
     request: PreviewRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1878,7 +1856,6 @@ def create_previews(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/studio/transition-preview", status_code=202)
 def create_studio_transition_preview(
     request: StudioTransitionPreviewRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1947,7 +1924,6 @@ def create_studio_transition_preview(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/stems/separate", status_code=202)
 def create_stems(
     request: StemRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1974,7 +1950,6 @@ def create_stems(
     return {"job": job.to_dict()}
 
 
-@app.post("/api/ratings")
 def save_rating(
     request: RatingRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -1997,7 +1972,6 @@ def save_rating(
     return {"ratings_path": _relative(output)}
 
 
-@app.post("/api/feedback")
 def save_feedback(
     request: FeedbackRequest,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2040,7 +2014,6 @@ def save_feedback(
     }
 
 
-@app.post("/api/models/scoring/refit")
 def refit_scoring(request: RefitRequest) -> dict[str, Any]:
     ratings = _workspace_path(request.ratings_path)
     measurements = (
@@ -2065,7 +2038,6 @@ def refit_scoring(request: RefitRequest) -> dict[str, Any]:
     }
 
 
-@app.post("/api/models/genre/train")
 def train_genre(request: GenreTrainRequest) -> dict[str, Any]:
     manifest = _workspace_path(request.manifest_path)
     output = _workspace_path(request.output_path, must_exist=False)
@@ -2074,7 +2046,6 @@ def train_genre(request: GenreTrainRequest) -> dict[str, Any]:
 
 
 
-@app.post("/api/intelligence/listening-session")
 def create_intelligence_listening_session(request: ListeningSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     track_a = _workspace_path(request.track_a)
@@ -2097,7 +2068,6 @@ def create_intelligence_listening_session(request: ListeningSessionRequest) -> d
     return {"session_id": manifest["session_id"], "candidates": items, "generation": manifest.get("generation", {})}
 
 
-@app.post("/api/intelligence/preference")
 def save_intelligence_preference(request: PreferenceVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     manifest_path = _workspace_path(
@@ -2132,13 +2102,11 @@ def save_intelligence_preference(request: PreferenceVoteRequest) -> dict[str, An
     return {"preferences_path": _relative(output), "rejection_paths": rejection_paths}
 
 
-@app.get("/api/training-lab/human-review/status")
 def get_human_review_status() -> dict[str, Any]:
     _require_training_lab()
     return human_preference_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/human-review/session")
 def create_training_lab_human_review_session(request: HumanReviewSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     manifest = create_human_review_session(
@@ -2164,7 +2132,6 @@ def create_training_lab_human_review_session(request: HumanReviewSessionRequest)
     }
 
 
-@app.post("/api/training-lab/human-review/vote")
 def save_training_lab_human_review_vote(request: HumanReviewVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     output = record_human_review_vote(
@@ -2181,7 +2148,6 @@ def save_training_lab_human_review_vote(request: HumanReviewVoteRequest) -> dict
     }
 
 
-@app.post("/api/intelligence/ranker/train")
 def train_intelligence_ranker(request: RankerTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     preferences = _workspace_path(request.preferences_path, must_exist=False)
@@ -2197,7 +2163,6 @@ def train_intelligence_ranker(request: RankerTrainRequest) -> dict[str, Any]:
     }
 
 
-@app.get("/api/intelligence/ranker/status")
 def intelligence_ranker_status() -> dict[str, Any]:
     _require_training_lab()
     report = benchmark_brain(
@@ -2206,7 +2171,6 @@ def intelligence_ranker_status() -> dict[str, Any]:
     )
     return report.to_dict()
 
-@app.get("/api/brain/status")
 def professional_brain_status() -> dict[str, Any]:
     cfg = ProfessionalBrainConfig.from_environment()
     ranker = benchmark_brain(
@@ -2254,24 +2218,20 @@ def professional_brain_status() -> dict[str, Any]:
     }
 
 
-@app.get("/api/benchmarks/status")
 def release_benchmark_status() -> dict[str, Any]:
     return benchmark_runtime_status(WORKSPACE)
 
 
-@app.get("/api/dataset-builder/sources")
 def get_dataset_builder_sources() -> dict[str, Any]:
     _require_training_lab()
     return source_catalog()
 
 
-@app.get("/api/dataset-builder/status")
 def get_dataset_builder_status() -> dict[str, Any]:
     _require_training_lab()
     return dataset_builder_status(WORKSPACE)
 
 
-@app.post("/api/dataset-builder/build")
 def build_dataset_builder_corpus(
     name: str = Query(default="bootstrap-v1", min_length=1, max_length=80),
     production: bool = Query(default=False),
@@ -2285,7 +2245,6 @@ def build_dataset_builder_corpus(
     return {"corpus_id": manifest.get("corpus_id", corpus.name), "corpus_path": _relative(corpus), "manifest": manifest}
 
 
-@app.post("/api/dataset-builder/train")
 def train_dataset_builder_shadows(
     corpus_id: str | None = Query(default=None, min_length=1, max_length=160),
 ) -> dict[str, Any]:
@@ -2299,19 +2258,16 @@ def train_dataset_builder_shadows(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/training-lab/status")
 def get_training_lab_status() -> dict[str, Any]:
     _require_training_lab()
     return training_lab_status(WORKSPACE)
 
 
-@app.get("/api/training-lab/sessions")
 def get_training_lab_sessions(limit: int = Query(default=30, ge=1, le=200)) -> dict[str, Any]:
     _require_training_lab()
     return {"sessions": list_training_sessions(WORKSPACE, limit=limit)}
 
 
-@app.post("/api/training-lab/snapshot")
 def snapshot_training_lab_dataset(request: TrainingSnapshotRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2326,7 +2282,6 @@ def snapshot_training_lab_dataset(request: TrainingSnapshotRequest) -> dict[str,
     }
 
 
-@app.post("/api/training-lab/train")
 def train_training_lab_shadow_model(request: TrainingLabTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     snapshot_id = request.snapshot_id
@@ -2342,13 +2297,11 @@ def train_training_lab_shadow_model(request: TrainingLabTrainRequest) -> dict[st
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.get("/api/training-lab/taste-status")
 def get_taste_learning_status() -> dict[str, Any]:
     _require_training_lab()
     return taste_learning_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/real-taste/train")
 def train_real_taste(request: TrainingLabTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     return train_real_taste_from_snapshot(
@@ -2358,13 +2311,11 @@ def train_real_taste(request: TrainingLabTrainRequest) -> dict[str, Any]:
     )
 
 
-@app.get("/api/training-lab/real-taste/status")
 def get_real_taste_status() -> dict[str, Any]:
     _require_training_lab()
     return real_taste_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/human-release/lock")
 def lock_training_lab_human_release(request: HumanReleaseLockRequest) -> dict[str, Any]:
     _require_training_lab()
     output = Path(request.output_path).expanduser() if request.output_path else WORKSPACE / HUMAN_RELEASE_DEFAULT_MANIFEST
@@ -2388,7 +2339,6 @@ def lock_training_lab_human_release(request: HumanReleaseLockRequest) -> dict[st
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.post("/api/training-lab/human-release/session")
 def create_training_lab_human_release_session(request: HumanReleaseSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2408,7 +2358,6 @@ def create_training_lab_human_release_session(request: HumanReleaseSessionReques
     }
 
 
-@app.post("/api/training-lab/human-release/vote")
 def save_training_lab_human_release_vote(request: HumanReleaseVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2428,7 +2377,6 @@ def save_training_lab_human_release_vote(request: HumanReleaseVoteRequest) -> di
     }
 
 
-@app.get("/api/training-lab/human-release/report")
 def get_training_lab_human_release_report() -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2437,7 +2385,83 @@ def get_training_lab_human_release_report() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.get("/api/live/manifest")
+register_training_routers(
+    app,
+    {
+        "get_dataset_builder_sources": get_dataset_builder_sources,
+        "get_dataset_builder_status": get_dataset_builder_status,
+        "build_dataset_builder_corpus": build_dataset_builder_corpus,
+        "train_dataset_builder_shadows": train_dataset_builder_shadows,
+        "get_training_lab_status": get_training_lab_status,
+        "get_training_lab_sessions": get_training_lab_sessions,
+        "snapshot_training_lab_dataset": snapshot_training_lab_dataset,
+        "train_training_lab_shadow_model": train_training_lab_shadow_model,
+        "get_taste_learning_status": get_taste_learning_status,
+        "train_real_taste": train_real_taste,
+        "get_real_taste_status": get_real_taste_status,
+        "lock_training_lab_human_release": lock_training_lab_human_release,
+        "create_training_lab_human_release_session": create_training_lab_human_release_session,
+        "save_training_lab_human_release_vote": save_training_lab_human_release_vote,
+        "get_training_lab_human_release_report": get_training_lab_human_release_report,
+    },
+)
+
+
+register_status_and_intelligence_routers(
+    app,
+    {
+        "health": health,
+        "hosting_status": hosting_status,
+        "runtime_status": runtime_status,
+        "phase16_validation_status": phase16_validation_status,
+        "readiness": readiness,
+        "release_status": release_status,
+        "release_readiness": release_readiness,
+        "model_status": model_status,
+        "professional_brain_status": professional_brain_status,
+        "release_benchmark_status": release_benchmark_status,
+        "refit_scoring": refit_scoring,
+        "train_genre": train_genre,
+        "create_intelligence_listening_session": create_intelligence_listening_session,
+        "save_intelligence_preference": save_intelligence_preference,
+        "get_human_review_status": get_human_review_status,
+        "create_training_lab_human_review_session": create_training_lab_human_review_session,
+        "save_training_lab_human_review_vote": save_training_lab_human_review_vote,
+        "train_intelligence_ranker": train_intelligence_ranker,
+        "intelligence_ranker_status": intelligence_ranker_status,
+    },
+)
+
+
+register_account_and_production_routers(
+    app,
+    {
+        "auth_me": auth_me,
+        "auth_register": auth_register,
+        "auth_login": auth_login,
+        "account_export": account_export,
+        "account_delete": account_delete,
+        "auth_logout": auth_logout,
+        "account_preferences": account_preferences,
+        "account_profile": account_profile,
+        "account_projects": account_projects,
+        "upload_tracks": upload_tracks,
+        "create_upload_intents": create_upload_intents,
+        "complete_direct_uploads": complete_direct_uploads,
+        "list_tracks": list_tracks,
+        "prepare_track_readiness": prepare_track_readiness,
+        "create_set_plan": create_set_plan,
+        "create_automatic_set": create_automatic_set,
+        "create_render": create_render,
+        "create_previews": create_previews,
+        "create_studio_transition_preview": create_studio_transition_preview,
+        "create_stems": create_stems,
+        "save_rating": save_rating,
+        "save_feedback": save_feedback,
+    },
+)
+
+
 def get_live_manifest(
     response: Response,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2448,7 +2472,6 @@ def get_live_manifest(
     return live_manifest(plan)
 
 
-@app.get("/api/live/events")
 def live_events(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     plan_path: str = Query(...),
@@ -2485,7 +2508,6 @@ def live_events(
     )
 
 
-@app.get("/api/live/stream")
 def stream_live_set(
     account: Annotated[dict[str, Any], Depends(_require_account)],
     plan_path: str = Query(...),
@@ -2516,7 +2538,6 @@ def _manager_for_job(job_id: str) -> JobManager:
     raise KeyError(job_id)
 
 
-@app.get("/api/jobs/{job_id}")
 def get_job(
     job_id: str,
     response: Response,
@@ -2528,7 +2549,6 @@ def get_job(
     return record.to_dict()
 
 
-@app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(
     job_id: str,
     response: Response,
@@ -2539,7 +2559,6 @@ def cancel_job(
     return job_manager.cancel(job_id).to_dict()
 
 
-@app.get("/api/jobs/{job_id}/events")
 def job_events(
     job_id: str,
     account: Annotated[dict[str, Any], Depends(_require_account)],
@@ -2570,7 +2589,6 @@ def job_events(
     )
 
 
-@app.get("/api/media/{relative_path:path}")
 def media(relative_path: str, http_request: Request) -> Response:
     path = _workspace_path(relative_path)
     if not path.is_file():
@@ -2603,6 +2621,20 @@ def media(relative_path: str, http_request: Request) -> Response:
         filename=path.name,
         headers={"Cache-Control": "private, no-store, max-age=0"},
     )
+
+
+register_live_job_media_routers(
+    app,
+    {
+        "get_live_manifest": get_live_manifest,
+        "live_events": live_events,
+        "stream_live_set": stream_live_set,
+        "get_job": get_job,
+        "cancel_job": cancel_job,
+        "job_events": job_events,
+        "media": media,
+    },
+)
 
 
 @app.exception_handler(ValueError)

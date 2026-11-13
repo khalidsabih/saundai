@@ -27,6 +27,9 @@ def optimize_order_candidates(
     end_index: int | None = None,
     journey: JourneyMode = "balanced",
     blocked_pairs: set[tuple[int, int]] | None = None,
+    receding_horizon_builder: Callable[..., tuple[list[int], list]] = build_receding_horizon_order,
+    unified_order_builder: Callable[..., object] = build_unified_ai_order,
+    improve_order: Callable[..., list[int]] = local_improve,
 ) -> list[int]:
     count = len(analyses)
     if start_index is not None and not 0 <= start_index < count:
@@ -98,7 +101,7 @@ def optimize_order_candidates(
         if policy_start is None:
             continue
         try:
-            policy_order, _ = build_receding_horizon_order(
+            policy_order, _ = receding_horizon_builder(
                 policy_start,
                 graph,
                 analyses,
@@ -118,7 +121,7 @@ def optimize_order_candidates(
             pass
 
     try:
-        unified = build_unified_ai_order(
+        unified = unified_order_builder(
             graph,
             analyses,
             journey=journey,
@@ -145,7 +148,7 @@ def optimize_order_candidates(
         if large_set
         else 8
     )
-    return local_improve(
+    return improve_order(
         best,
         score_order=score_order,
         start=start_index,

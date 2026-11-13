@@ -96,6 +96,50 @@ from .planner_route_search import (
 )
 
 from .planner_order_optimizer import optimize_order_candidates
+from .planner_complete_move_lookahead import (
+    LookaheadChoice as _LookaheadChoice,
+    choose_complete_move_with_lookahead as _choose_complete_move_with_lookahead,
+)
+from .planner_complete_move_route import (
+    CompleteMoveRoute as _CompleteMoveRoute,
+    complete_move_route_from_opener as _complete_move_route_from_opener,
+)
+from .planner_reporting import (
+    build_complete_move_report as _build_complete_move_report,
+    build_set_plan_metadata as _build_set_plan_metadata,
+)
+from .planner_quality_loop import (
+    finalize_quality_measurement_run as _finalize_quality_measurement_run,
+    measurement_run_start_offset as _measurement_run_start_offset,
+    professional_brain_config_for_transition as _professional_brain_config_for_transition,
+)
+from .planner_sequence_cues import (
+    required_source_body as _required_source_body,
+    mixing_window as _mixing_window,
+    sequence_exit_candidates as _sequence_exit_candidates_impl,
+    sequence_entry_candidates as _sequence_entry_candidates_impl,
+)
+from .planner_sequence_candidates import (
+    build_sequence_candidate_pool as _build_sequence_candidate_pool,
+)
+from .planner_sequence_ranking import (
+    prepare_sequence_candidates as _prepare_sequence_candidates,
+)
+from .planner_sequence_policy import (
+    apply_sequence_transition_policy as _apply_sequence_transition_policy,
+)
+from .planner_sequence_quality import (
+    select_automatic_without_professional_brain as _select_automatic_without_professional_brain,
+    select_nonautomatic_sequence_transition as _select_nonautomatic_sequence_transition,
+)
+from .planner_sequence_professional import (
+    resolve_professional_emergency_escape as _resolve_professional_emergency_escape,
+    resolve_professional_sequence_transition as _resolve_professional_sequence_transition,
+)
+from .planner_sequence_commit import (
+    deterministic_final_escape as _deterministic_final_escape,
+    finalize_sequence_edge as _finalize_sequence_edge,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -665,6 +709,19 @@ def optimize_order(
         end_index=end_index,
         journey=journey,
         blocked_pairs=blocked,
+        receding_horizon_builder=build_receding_horizon_order,
+        unified_order_builder=build_unified_ai_order,
+        improve_order=lambda order, *, score_order, start, end, max_passes: _local_improve(
+            order,
+            graph,
+            analyses,
+            journey=journey,
+            listener_profile=listener_profile,
+            start=start,
+            end=end,
+            blocked_pairs=blocked,
+            max_passes=max_passes,
+        ),
     )
 
 
@@ -678,446 +735,6 @@ class SparseRouteExhaustedError(RuntimeError):
     def __init__(self, message: str, *, diagnostics: dict[str, Any]) -> None:
         super().__init__(message)
         self.diagnostics = diagnostics
-
-
-@dataclass(frozen=True, slots=True)
-class _CompleteMoveRoute:
-    order: tuple[int, ...]
-    decisions: tuple[CompleteMoveDecision, ...]
-    score: float
-    completed: bool
-    reason: str = ""
-
-    def to_dict(self, *, top_k: int = 5) -> dict[str, Any]:
-        return {
-            "version": COMPLETE_MOVE_VERSION,
-            "order": list(self.order),
-            "score": round(self.score, 6),
-            "completed": self.completed,
-            "reason": self.reason,
-            "decisions": [decision.to_dict(top_k=top_k) for decision in self.decisions],
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class _LookaheadChoice:
-    winner: Any
-    candidates: tuple[Any, ...]
-    search_score: float
-    projected_path: tuple[int, ...]
-    lookahead_depth: int
-    retrieval: CandidateRetrievalResult
-
-
-def _choose_complete_move_with_lookahead(
-    *,
-    current: int,
-    remaining: set[int],
-    analyses: list[TrackAnalysis],
-    graph: dict[tuple[int, int], TransitionEdge],
-    dj_state: DJState,
-    played_order: list[int],
-    played_plans: list[TransitionPlan],
-    journey: JourneyMode,
-    end_index: int | None,
-    blocked_pairs: set[tuple[int, int]],
-    config: CompleteMoveConfig,
-    ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None,
-    depth: int,
-    crowd_directive: CrowdDirective | None = None,
-    timing_intent: SetTimingIntent | None = None,
-) -> _LookaheadChoice | None:
-    available = sorted(remaining)
-    if end_index is not None and end_index in available and len(available) > 1:
-        available = [index for index in available if index != end_index]
-    if not available:
-        return None
-
-    fallback_progress = len(played_order) / max(1, len(analyses) - 1)
-    timing_state = build_timing_state(
-        [analyses[index] for index in played_order],
-        played_plans,
-        intent=timing_intent,
-        fallback_progress=fallback_progress,
-    )
-    progress = timing_state.progress
-    set_state = build_set_state([analyses[index] for index in played_order], played_plans)
-    set_state.elapsed_seconds = timing_state.elapsed_seconds
-    width = min(len(available), config.lazy_candidate_width)
-
-    while True:
-        retrieval = retrieve_candidate_tracks(
-            current_index=current,
-            candidate_indices=available,
-            analyses=analyses,
-            set_state=set_state,
-            journey=journey,
-            progress=progress,
-            width=width,
-            crowd_directive=crowd_directive,
-        )
-        shortlisted = list(retrieval.selected)
-        if ensure_pairs is not None:
-            ensure_pairs((current, index) for index in shortlisted)
-        generated = generate_complete_moves(
-            current_index=current,
-            candidate_indices=shortlisted,
-            analyses=analyses,
-            graph=graph,
-            dj_state=dj_state,
-            set_state=set_state,
-            journey=journey,
-            progress=progress,
-            blocked_pairs=blocked_pairs,
-            config=config,
-            crowd_directive=crowd_directive,
-        )
-        if generated or width >= len(available):
-            break
-        width = min(len(available), width + config.lazy_expansion_width)
-
-    if not generated:
-        return None
-
-    best: _LookaheadChoice | None = None
-    branch = generated[: max(1, config.search_branch_width)]
-    for candidate in branch:
-        next_remaining = set(remaining)
-        next_remaining.discard(candidate.next_index)
-        projected_path = (candidate.next_index,)
-        realized_depth = 1
-        timing_adjustment, timing_evidence = timing_candidate_adjustment(
-            timing_state,
-            analyses[candidate.next_index],
-        )
-        score = float(candidate.selection_score) + timing_adjustment
-        candidate.plan.metadata = {
-            **candidate.plan.metadata,
-            "set_timing": {
-                **timing_state.to_dict(),
-                "candidate_adjustment": round(timing_adjustment, 6),
-                "candidate_evidence": timing_evidence,
-            },
-        }
-
-        if depth > 1 and next_remaining:
-            projected = candidate.move.projected_state
-            next_dj_state = build_dj_state(
-                analyses[candidate.next_index],
-                source_cursor=projected.source_cursor_seconds,
-                effective_bpm=projected.effective_bpm,
-                render_rate=projected.render_rate,
-                set_state=build_set_state(
-                    [analyses[index] for index in played_order + [candidate.next_index]],
-                    played_plans + [candidate.plan],
-                ),
-                tempo_owner=projected.tempo_owner,
-            )
-            future = _choose_complete_move_with_lookahead(
-                current=candidate.next_index,
-                remaining=next_remaining,
-                analyses=analyses,
-                graph=graph,
-                dj_state=next_dj_state,
-                played_order=played_order + [candidate.next_index],
-                played_plans=played_plans + [candidate.plan],
-                journey=journey,
-                end_index=end_index,
-                blocked_pairs=blocked_pairs,
-                config=config,
-                ensure_pairs=ensure_pairs,
-                depth=depth - 1,
-                crowd_directive=crowd_directive,
-                timing_intent=timing_intent,
-            )
-            if future is not None:
-                discount = float(config.lookahead_discount)
-                score = (score + discount * future.search_score) / (1.0 + discount)
-                projected_path = projected_path + future.projected_path
-                realized_depth = 1 + future.lookahead_depth
-
-        choice = _LookaheadChoice(
-            winner=candidate,
-            candidates=tuple(generated),
-            search_score=round(score, 6),
-            projected_path=projected_path,
-            lookahead_depth=realized_depth,
-            retrieval=retrieval,
-        )
-        if best is None or (
-            choice.search_score,
-            candidate.selection_score,
-            candidate.move.future_optionality,
-            tuple(-index for index in choice.projected_path),
-        ) > (
-            best.search_score,
-            best.winner.selection_score,
-            best.winner.move.future_optionality,
-            tuple(-index for index in best.projected_path),
-        ):
-            best = choice
-    return best
-
-
-def _complete_move_route_from_opener(
-    opener: int,
-    analyses: list[TrackAnalysis],
-    graph: dict[tuple[int, int], TransitionEdge],
-    *,
-    end_index: int | None,
-    journey: JourneyMode,
-    blocked_pairs: set[tuple[int, int]],
-    config: CompleteMoveConfig,
-    headphones_config: AIHeadphonesConfig,
-    listener: str | None = None,
-    ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None = None,
-    timing_intent: SetTimingIntent | None = None,
-) -> _CompleteMoveRoute:
-    order = [opener]
-    plans: list[TransitionPlan] = []
-    decisions: list[CompleteMoveDecision] = []
-    remaining = set(range(len(analyses))) - {opener}
-    current = opener
-    set_state = build_set_state([analyses[opener]])
-    dj_state = build_dj_state(
-        analyses[opener],
-        source_cursor=0.0,
-        effective_bpm=analyses[opener].bpm,
-        render_rate=1.0,
-        set_state=set_state,
-    )
-
-    adaptive_cfg = AdaptiveThinkingConfig.from_environment()
-    professional_pilot = ProfessionalBrainConfig.from_environment().adaptive_pilot_finalists
-
-    while remaining:
-        preflight_indices = sorted(remaining)
-        if end_index is not None and end_index in preflight_indices and len(preflight_indices) > 1:
-            preflight_indices = [index for index in preflight_indices if index != end_index]
-        preflight = assess_context_preflight(
-            track_a=analyses[current],
-            candidate_tracks=[analyses[index] for index in preflight_indices],
-            dj_state=dj_state,
-            config=adaptive_cfg,
-        )
-        initial_depth = (
-            min(config.lookahead_moves, max(1, adaptive_cfg.easy_lookahead))
-            if adaptive_cfg.enabled and preflight.easy_candidate_context
-            else config.lookahead_moves
-        )
-        choice = _choose_complete_move_with_lookahead(
-            current=current,
-            remaining=remaining,
-            analyses=analyses,
-            graph=graph,
-            dj_state=dj_state,
-            played_order=order,
-            played_plans=plans,
-            journey=journey,
-            end_index=end_index,
-            blocked_pairs=blocked_pairs,
-            config=config,
-            ensure_pairs=ensure_pairs,
-            depth=initial_depth,
-            timing_intent=timing_intent,
-        )
-        if choice is None:
-            return _CompleteMoveRoute(
-                order=tuple(order),
-                decisions=tuple(decisions),
-                score=(sum(item.commit_score or item.search_score or item.winner.selection_score for item in decisions) / max(1, len(decisions))),
-                completed=False,
-                reason=f"no executable complete move from track index {current}",
-            )
-        initial_assessment = assess_move_brittleness(
-            track_a=analyses[current],
-            track_b=analyses[choice.winner.next_index],
-            winner=choice.winner,
-            candidates=choice.candidates,
-            config=adaptive_cfg,
-        )
-        provisional_budget = build_thinking_budget(
-            assessment=initial_assessment,
-            configured_lookahead=config.lookahead_moves,
-            preflight=preflight,
-            headphones_serious_pool=headphones_config.serious_pool,
-            headphones_minimum_renders=headphones_config.minimum_renders,
-            headphones_maximum_renders=headphones_config.maximum_renders,
-            professional_pilot_finalists=professional_pilot,
-            config=adaptive_cfg,
-            lookahead_initial=initial_depth,
-            lookahead_used=initial_depth,
-        )
-        search_depth_used = initial_depth
-        lookahead_escalated = False
-        if provisional_budget.lookahead_target > initial_depth and len(remaining) > 1:
-            deeper = _choose_complete_move_with_lookahead(
-                current=current,
-                remaining=remaining,
-                analyses=analyses,
-                graph=graph,
-                dj_state=dj_state,
-                played_order=order,
-                played_plans=plans,
-                journey=journey,
-                end_index=end_index,
-                blocked_pairs=blocked_pairs,
-                config=config,
-                ensure_pairs=ensure_pairs,
-                depth=provisional_budget.lookahead_target,
-                timing_intent=timing_intent,
-            )
-            if deeper is not None:
-                choice = deeper
-                search_depth_used = provisional_budget.lookahead_target
-                lookahead_escalated = True
-
-        final_assessment = assess_move_brittleness(
-            track_a=analyses[current],
-            track_b=analyses[choice.winner.next_index],
-            winner=choice.winner,
-            candidates=choice.candidates,
-            config=adaptive_cfg,
-        )
-        assessment = (
-            merge_brittleness(initial_assessment, final_assessment, config=adaptive_cfg)
-            if lookahead_escalated
-            else final_assessment
-        )
-        thinking_budget = build_thinking_budget(
-            assessment=assessment,
-            configured_lookahead=config.lookahead_moves,
-            preflight=preflight,
-            headphones_serious_pool=headphones_config.serious_pool,
-            headphones_minimum_renders=headphones_config.minimum_renders,
-            headphones_maximum_renders=headphones_config.maximum_renders,
-            professional_pilot_finalists=professional_pilot,
-            config=adaptive_cfg,
-            lookahead_initial=initial_depth,
-            lookahead_used=search_depth_used,
-            lookahead_escalated=lookahead_escalated,
-        )
-
-        winner = choice.winner
-        decision_lookahead_depth = choice.lookahead_depth
-        decision_projected_path = choice.projected_path
-        commit_score = float(choice.search_score or winner.selection_score)
-        headphones_report: dict[str, Any] | None = None
-        if config.mode == "move_authoritative" and headphones_config.enabled:
-            current_set_state = build_set_state(
-                [analyses[index] for index in order],
-                plans,
-            )
-            decision_headphones_config = replace(
-                headphones_config,
-                serious_pool=thinking_budget.headphones_serious_pool,
-                minimum_renders=thinking_budget.headphones_minimum_renders,
-                maximum_renders=thinking_budget.headphones_maximum_renders,
-            ).normalized()
-            headphones = listen_to_complete_moves(
-                preferred=choice.winner,
-                candidates=choice.candidates,
-                analyses=analyses,
-                set_state=current_set_state,
-                journey=journey,
-                progress=build_timing_state(
-                    [analyses[index] for index in order],
-                    plans,
-                    intent=timing_intent,
-                    fallback_progress=len(order) / max(1, len(analyses) - 1),
-                ).progress,
-                listener=listener,
-                config=decision_headphones_config,
-            )
-            winner = headphones.winner
-            headphones_report = {
-                **headphones.to_dict(),
-                "adaptive_thinking": thinking_budget.to_dict(),
-            }
-            if headphones.authoritative:
-                commit_score = float(headphones.winner_score)
-                if winner.plan.execution_signature != choice.winner.plan.execution_signature:
-                    # Listening changed the first projected action. The prior
-                    # future path was projected from a different DJState, so do
-                    # not pretend it remains valid. Advance only the search
-                    # projection and replan; DJ Executive V4 owns intent binding, compute budgeting, and final commit.
-                    decision_lookahead_depth = 1
-                    decision_projected_path = (winner.next_index,)
-
-        if winner.plan.execution_signature != choice.winner.plan.execution_signature:
-            listened_assessment = assess_move_brittleness(
-                track_a=analyses[current],
-                track_b=analyses[winner.next_index],
-                winner=winner,
-                candidates=choice.candidates,
-                config=adaptive_cfg,
-            )
-            assessment = merge_brittleness(assessment, listened_assessment, config=adaptive_cfg)
-            thinking_budget = build_thinking_budget(
-                assessment=assessment,
-                configured_lookahead=config.lookahead_moves,
-                preflight=preflight,
-                headphones_serious_pool=headphones_config.serious_pool,
-                headphones_minimum_renders=headphones_config.minimum_renders,
-                headphones_maximum_renders=headphones_config.maximum_renders,
-                professional_pilot_finalists=professional_pilot,
-                config=adaptive_cfg,
-                lookahead_initial=initial_depth,
-                lookahead_used=search_depth_used,
-                lookahead_escalated=lookahead_escalated,
-            )
-
-        same_target_candidates = tuple(
-            candidate for candidate in choice.candidates if int(candidate.next_index) == int(winner.next_index)
-        )
-        move_intent = build_dj_move_intent(
-            current_index=current,
-            next_index=winner.next_index,
-            track_a=analyses[current],
-            track_b=analyses[winner.next_index],
-            winner_move=winner.move,
-            winner_plan=winner.plan,
-            candidate_moves=tuple(candidate.move for candidate in same_target_candidates),
-            candidate_plans=tuple(candidate.plan for candidate in same_target_candidates),
-        )
-        decision = CompleteMoveDecision(
-            current_index=current,
-            winner=winner,
-            candidates=choice.candidates,
-            search_score=choice.search_score,
-            lookahead_depth=decision_lookahead_depth,
-            projected_path=decision_projected_path,
-            retrieval=choice.retrieval,
-            commit_score=round(commit_score, 6),
-            headphones=headphones_report,
-            move_intent=move_intent,
-            thinking_budget=thinking_budget,
-        )
-        decisions.append(decision)
-        order.append(winner.next_index)
-        remaining.remove(winner.next_index)
-        plans.append(winner.plan)
-        current = winner.next_index
-        set_state = build_set_state([analyses[index] for index in order], plans)
-        projected = winner.move.projected_state
-        dj_state = build_dj_state(
-            analyses[current],
-            source_cursor=projected.source_cursor_seconds,
-            effective_bpm=projected.effective_bpm,
-            render_rate=projected.render_rate,
-            set_state=set_state,
-            tempo_owner=projected.tempo_owner,
-        )
-
-    completed = len(order) == len(analyses) and (end_index is None or order[-1] == end_index)
-    return _CompleteMoveRoute(
-        order=tuple(order),
-        decisions=tuple(decisions),
-        score=(sum(item.commit_score or item.search_score or item.winner.selection_score for item in decisions) / max(1, len(decisions))),
-        completed=completed,
-        reason="" if completed else "fixed closer constraint could not be satisfied",
-    )
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -1603,6 +1220,7 @@ def build_complete_move_route(
                 listener=listener,
                 ensure_pairs=ensure_pairs,
                 timing_intent=timing_intent,
+                listen_to_moves=listen_to_complete_moves,
             )
             for opener in openers
         ]
@@ -1651,66 +1269,9 @@ def build_complete_move_route(
         listener=listener,
         ensure_pairs=ensure_pairs,
         timing_intent=timing_intent,
+        listen_to_moves=listen_to_complete_moves,
     )
     return committed if committed.completed else best_scout
-
-def _required_source_body(
-    track: TrackAnalysis,
-    current_cursor: float,
-    current_rate: float,
-    *,
-    minimum_body_seconds: float,
-    minimum_body_fraction: float,
-) -> float:
-    remaining = max(0.0, track.duration_seconds - current_cursor)
-    move_cfg = MoveBrainConfig.from_environment()
-    if move_cfg.enabled and track.bpm > 1.0:
-        # 1.4 hard minimums are musical bars, not a percentage of the file.
-        # Convert the user's pacing request to the next four-bar boundary and
-        # guarantee a small phrase body. The historical fraction remains a UI
-        # pacing hint elsewhere; it no longer forces SAUND to ignore a strong
-        # early phrase opportunity on a long record.
-        bar_source_seconds = max(0.20, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / track.bpm)
-        requested_source = minimum_body_seconds * max(current_rate, 1e-9)
-        requested_bars = int(math.ceil(requested_source / bar_source_seconds))
-        requested_bars = int(math.ceil(max(move_cfg.minimum_body_bars, requested_bars) / 4.0) * 4)
-        desired = requested_bars * bar_source_seconds
-    else:
-        source_for_time = minimum_body_seconds * max(current_rate, 1e-9)
-        source_for_fraction = track.duration_seconds * minimum_body_fraction
-        desired = max(source_for_time, source_for_fraction)
-    if track.duration_seconds < max(60.0, minimum_body_seconds * 2.0):
-        desired = min(desired, max(0.75, remaining * 0.45))
-    return max(0.75, min(desired, max(0.75, remaining - 0.5)))
-
-def _mixing_window(
-    track: TrackAnalysis,
-    current_cursor: float,
-    current_rate: float,
-    required_source: float,
-) -> tuple[float, float]:
-    """Return a weak pacing target and latest window in source seconds.
-
-    In 1.4 this is deliberately subordinate to phrase/payoff reasoning.  When
-    the Move Brain is enabled the pacing clock is expressed in bars, not wall
-    time; the candidate scorer gives this window only a small residual weight.
-    """
-    remaining = max(0.0, track.duration_seconds - current_cursor)
-    if remaining <= 1.0:
-        return current_cursor, current_cursor
-    move_cfg = MoveBrainConfig.from_environment()
-    if move_cfg.enabled and track.bpm > 1.0:
-        bar_source_seconds = max(0.20, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / track.bpm)
-        target_cap = move_cfg.soft_target_bars * bar_source_seconds
-        latest_cap = move_cfg.soft_latest_bars * bar_source_seconds
-    else:
-        rate = max(current_rate, 1e-9)
-        target_cap = float(os.environ.get("DJAI_TARGET_SOURCE_PLAY_SECONDS", "150")) * rate
-        latest_cap = float(os.environ.get("DJAI_SOFT_MAX_SOURCE_PLAY_SECONDS", "210")) * rate
-    target_body = max(required_source, min(target_cap, remaining * 0.62))
-    latest_body = max(target_body, min(latest_cap, remaining * 0.80))
-    latest_body = min(latest_body, max(required_source, remaining - 0.5))
-    return current_cursor + target_body, current_cursor + latest_body
 
 def _sequence_exit_candidates(
     track: TrackAnalysis,
@@ -1722,224 +1283,28 @@ def _sequence_exit_candidates(
     timeline: MusicalTimeline | None = None,
     limit: int = 10,
 ) -> tuple[list[TransitionCandidate], float, float]:
-    """Rank exits primarily by musical state; elapsed time is only a weak prior.
-
-    SAUND 1.4 no longer becomes eager to leave merely because a fixed number
-    of seconds elapsed.  Phrase readiness, protected payoffs and the current
-    bar/phrase state dominate.  The legacy timing window remains as a bounded
-    sanity prior so malformed structure analysis cannot strand the compiler.
-    """
-    target_exit, soft_latest = _mixing_window(track, source_cursor, current_rate, required_source)
-    required_exit = source_cursor + required_source
-    remaining = max(1.0, track.duration_seconds - source_cursor)
-    spread = max(12.0, remaining * 0.24)
-    section_value = {
-        "breakdown": 1.00,
-        "groove": 0.94,
-        "build": 0.78,
-        "outro": 0.86,
-        "drop": 0.44,
-        "intro": 0.18,
-        "unknown": 0.52,
-    }
-    active_timeline = timeline or build_musical_timeline(track)
-    active_state = dj_state or build_dj_state(
+    return _sequence_exit_candidates_impl(
         track,
         source_cursor=source_cursor,
-        effective_bpm=track.bpm * current_rate,
-        render_rate=current_rate,
-        timeline=active_timeline,
-    )
-    song_form_safe_bar = earliest_safe_song_form_exit_bar(active_timeline, active_state.source_bar)
-    song_form_safe_time = active_timeline.bar_start_seconds(song_form_safe_bar)
-    required_exit = max(required_exit, song_form_safe_time)
-    target_exit = max(target_exit, required_exit)
-    soft_latest = max(soft_latest, required_exit)
-    scored: list[tuple[float, TransitionCandidate]] = []
-    protected: list[tuple[float, TransitionCandidate]] = []
-    for candidate in track.exit_candidates:
-        if candidate.time_seconds < required_exit - 1e-6:
-            continue
-        musical, move_meta = exit_candidate_musical_score(
-            track, candidate, active_state, timeline=active_timeline
-        )
-        position = math.exp(-(((candidate.time_seconds - target_exit) / spread) ** 2))
-        late = max(0.0, candidate.time_seconds - soft_latest) / max(remaining * 0.20, 1.0)
-        low_vocal = 1.0 - max(0.0, min(1.0, candidate.vocal_probability))
-        value = (
-            0.48 * musical
-            + 0.18 * candidate.score
-            + 0.10 * candidate.boundary_strength
-            + 0.09 * candidate.phrase_strength
-            + 0.06 * section_value.get(candidate.section_label, 0.5)
-            + 0.04 * low_vocal
-            + 0.05 * position
-            - 0.07 * min(1.0, late)
-        )
-        item = (value, candidate)
-        if bool(move_meta.get("protected_payoff_violation", False)):
-            protected.append(item)
-        else:
-            scored.append(item)
-    # Do not mix out before a musical promise if any valid post-payoff exit is
-    # available. Protected exits survive only as a last-resort pool.
-    if not scored:
-        scored = protected
-    if not scored:
-        fallback = [
-            candidate for candidate in track.exit_candidates
-            if candidate.time_seconds >= max(source_cursor + 0.25, required_exit)
-        ]
-        scored = [(candidate.score, candidate) for candidate in fallback]
-    return _candidate_diverse_by_bar(scored, limit=limit), target_exit, soft_latest
-
-def _sequence_entry_candidates(track: TrackAnalysis, *, limit: int = 10) -> list[TransitionCandidate]:
-    """Rank incoming musical opportunities by phrase role instead of clock time."""
-    if not track.entry_candidates:
-        return []
-    move_cfg = MoveBrainConfig.from_environment()
-    if not move_cfg.enabled:
-        # Exact 1.3 compatibility path: prefer a mature cue and avoid literal
-        # time zero when another usable incoming phrase exists.
-        bar_duration = max(0.5, (track.time_signature if track.time_signature in {3, 4, 6} else 4) * 60.0 / max(track.bpm, 1.0))
-        mature_after = min(4.0 * bar_duration, max(2.0, track.duration_seconds * 0.08))
-        preferred_before = min(135.0, track.duration_seconds * 0.48)
-        mature = [
-            candidate for candidate in track.entry_candidates
-            if candidate.time_seconds >= mature_after and candidate.time_seconds <= preferred_before
-        ]
-        pool = mature or [
-            candidate for candidate in track.entry_candidates
-            if candidate.time_seconds <= min(150.0, track.duration_seconds * 0.55)
-        ] or list(track.entry_candidates)
-        section_value = {
-            "groove": 1.00,
-            "build": 0.96,
-            "drop": 0.94,
-            "intro": 0.72,
-            "breakdown": 0.70,
-            "outro": 0.18,
-            "unknown": 0.52,
-        }
-        target_time = min(18.0 * bar_duration, max(mature_after, track.duration_seconds * 0.16))
-        spread = max(8.0 * bar_duration, track.duration_seconds * 0.18, 12.0)
-        scored: list[tuple[float, TransitionCandidate]] = []
-        for candidate in pool:
-            position = math.exp(-(((candidate.time_seconds - target_time) / spread) ** 2))
-            low_vocal = 1.0 - max(0.0, min(1.0, candidate.vocal_probability))
-            value = (
-                0.34 * candidate.score
-                + 0.18 * candidate.boundary_strength
-                + 0.17 * candidate.phrase_strength
-                + 0.13 * section_value.get(candidate.section_label, 0.5)
-                + 0.10 * low_vocal
-                + 0.08 * position
-            )
-            scored.append((value, candidate))
-        return _candidate_diverse_by_bar(scored, limit=limit)
-
-    # Human-DJ mode: keep extreme late/outro cues available only when the
-    # analysis offers nothing earlier. A real intro at bar zero is a valid
-    # musical entry and must be allowed to compete with later cues.
-    primary = [
-        candidate for candidate in track.entry_candidates
-        if candidate.section_label != "outro"
-        and candidate.time_seconds <= max(24.0, track.duration_seconds * 0.68)
-    ]
-    pool = primary or list(track.entry_candidates)
-    timeline = build_musical_timeline(track)
-    scored: list[tuple[float, TransitionCandidate]] = []
-    for candidate in pool:
-        musical, _ = entry_candidate_musical_score(track, candidate, timeline=timeline)
-        low_vocal = 1.0 - max(0.0, min(1.0, candidate.vocal_probability))
-        value = (
-            0.62 * musical
-            + 0.14 * candidate.score
-            + 0.09 * candidate.boundary_strength
-            + 0.08 * candidate.phrase_strength
-            + 0.07 * low_vocal
-        )
-        scored.append((value, candidate))
-    return _candidate_diverse_by_bar(scored, limit=limit)
-
-def _dedupe_plans(plans: list[TransitionPlan]) -> list[TransitionPlan]:
-    unique: dict[tuple[str, str, float, float, int, str], TransitionPlan] = {}
-    for plan in plans:
-        key = (
-            plan.style,
-            plan.technique,
-            round(plan.exit_time_a, 4),
-            round(plan.entry_time_b, 4),
-            plan.transition_bars,
-            plan.execution_signature,
-        )
-        unique[key] = plan
-    return list(unique.values())
-
-
-
-def _complete_move_preference_score(plan: TransitionPlan, decision: CompleteMoveDecision) -> float:
-    """Measure how closely a path-dependent plan preserves the complete-move proposal.
-
-    The final compiler is allowed to substitute a safer/rehearsed plan, but in
-    move_authoritative mode it should preserve the generator's concrete timing
-    and technique whenever those choices remain executable.
-    """
-    target = decision.winner.move
-    exit_bar = int(plan.metadata.get("exit_bar_index", -10_000))
-    entry_bar = int(plan.metadata.get("entry_bar_index", -10_000))
-    exit_fit = max(0.0, 1.0 - abs(exit_bar - int(target.exit_bar)) / 16.0)
-    entry_fit = max(0.0, 1.0 - abs(entry_bar - int(target.entry_bar)) / 16.0)
-    duration_fit = max(0.0, 1.0 - abs(int(plan.transition_bars) - int(target.transition_bars)) / 16.0)
-    technique_fit = 1.0 if str(plan.technique) == str(target.technique) else 0.0
-    intent_fit = 1.0 if str(plan.intent) == str(target.intent) else 0.0
-    tempo_fit = 1.0 if str(plan.tempo_strategy) == str(target.tempo_strategy) else 0.35
-    return max(
-        0.0,
-        min(
-            1.0,
-            0.22 * exit_fit
-            + 0.18 * entry_fit
-            + 0.15 * duration_fit
-            + 0.20 * technique_fit
-            + 0.12 * intent_fit
-            + 0.13 * tempo_fit,
-        ),
+        current_rate=current_rate,
+        required_source=required_source,
+        dj_state=dj_state,
+        timeline=timeline,
+        limit=limit,
+        candidate_diverse_by_bar=_candidate_diverse_by_bar,
     )
 
 
-def _professional_brain_config_for_transition(
-    quality_loop: QualityLoopConfig,
-    preferred_complete_decision: CompleteMoveDecision | None,
-) -> ProfessionalBrainConfig:
-    """Apply V4 compute budgeting without changing Professional Brain gates."""
-
-    thinking_budget = (
-        preferred_complete_decision.thinking_budget
-        if preferred_complete_decision is not None
-        else None
+def _sequence_entry_candidates(
+    track: TrackAnalysis,
+    *,
+    limit: int = 10,
+) -> list[TransitionCandidate]:
+    return _sequence_entry_candidates_impl(
+        track,
+        limit=limit,
+        candidate_diverse_by_bar=_candidate_diverse_by_bar,
     )
-    return ProfessionalBrainConfig.from_environment(
-        finalists=(
-            int(os.environ["DJAI_BRAIN_FINALISTS"])
-            if os.environ.get("DJAI_BRAIN_FINALISTS", "").isdigit()
-            else max(6, quality_loop.top_k * 2)
-        ),
-        adaptive_pilot_finalists=(
-            thinking_budget.professional_pilot_finalists
-            if thinking_budget is not None
-            else None
-        ),
-        adaptive_rehearsal=(
-            thinking_budget.professional_adaptive_rehearsal
-            if thinking_budget is not None
-            else None
-        ),
-        measurement_sample_rate=quality_loop.sample_rate,
-        measurement_context_seconds=quality_loop.context_seconds,
-        measurement_minimum=quality_loop.minimum_measured_score,
-    )
-
 
 def _compile_sequence_edges(
     order: list[int],
@@ -2055,92 +1420,31 @@ def _compile_sequence_edges(
         )
         selected_entries = _sequence_entry_candidates(track_b, limit=10)
 
-        styles = (
-            [preferred_style]
-            if preferred_style in {"safe", "creative", "emergency"}
-            else ["safe", "creative", "emergency"]
+        candidate_pool = _build_sequence_candidate_pool(
+            from_index=from_index,
+            to_index=to_index,
+            track_a=track_a,
+            track_b=track_b,
+            selected_exits=selected_exits,
+            selected_entries=selected_entries,
+            session=active_session,
+            stem_paths_a=stem_maps[from_index],
+            stem_paths_b=stem_maps[to_index],
+            preferred_style=preferred_style,
+            quality_loop=quality_loop,
+            tempo_policy=tempo_policy,
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
+            global_position=global_position,
+            source_cursor=source_cursor,
+            required_source=required_source,
+            target_exit=target_exit,
+            soft_latest_exit=soft_latest_exit,
         )
-        all_plans: list[TransitionPlan] = []
-        matrix: PairEvidenceMatrix | None = None
-        sequence_evidence_reused = False
-        stems_available = bool(stem_maps[from_index] and stem_maps[to_index])
-        if selected_exits:
-            matrix = active_session.get((from_index, to_index))
-            if matrix is not None:
-                sequence_evidence_reused = True
-                matrix = matrix.subset(
-                    exit_candidates=selected_exits,
-                    entry_candidates=selected_entries or None,
-                )
-                # Large-crate graph scouting deliberately stores only a small
-                # cue matrix. Final path compilation must restore the complete
-                # selected cue pool instead of silently inheriting the scout.
-                if (
-                    len(matrix.exit_candidates) < len(selected_exits)
-                    or (selected_entries and len(matrix.entry_candidates) < len(selected_entries))
-                ):
-                    matrix = None
-                    sequence_evidence_reused = False
-            if matrix is None or not matrix.pairs:
-                sequence_evidence_reused = False
-                matrix = build_pair_evidence_matrix(
-                    track_a,
-                    track_b,
-                    exit_candidates=selected_exits,
-                    entry_candidates=selected_entries or None,
-                    scoring_model=active_session.scoring_model,
-                )
-                active_session.store((from_index, to_index), matrix)
-
-            try:
-                candidate_plans = plan_transition_candidate_pool(
-                    track_a,
-                    track_b,
-                    styles=styles,
-                    per_style=(
-                        max(2, quality_loop.top_k)
-                        if quality_loop is not None and quality_loop.enabled
-                        else 1
-                    ),
-                    force=True,
-                    tempo_policy=tempo_policy,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    stems_available=stems_available,
-                    evidence_matrix=matrix,
-                )
-            except (DifficultTransitionError, RuntimeError, ValueError):
-                candidate_plans = []
-            for plan in candidate_plans:
-                plan.stem_paths_a = dict(stem_maps[from_index])
-                plan.stem_paths_b = dict(stem_maps[to_index])
-                plan.metadata = {
-                    **plan.metadata,
-                    "sequence_position": global_position,
-                    "source_cursor_before_body": round(source_cursor, 6),
-                    "minimum_source_body": round(required_source, 6),
-                    "preferred_exit_time": round(target_exit, 6),
-                    "soft_latest_exit_time": round(soft_latest_exit, 6),
-                    "selected_entry_pool": [round(item.time_seconds, 6) for item in selected_entries],
-                    "sequence_evidence_reused": sequence_evidence_reused,
-                    "sequence_matrix_size": matrix.compatibility_evaluations,
-                    "stem_rendering": bool(
-                        stems_available
-                        and plan.technique
-                        in {"eq_bass_swap", "filter_build", "double_drop", "stem_vocal_overlay", "stem_choreography"}
-                    ),
-                    "performance_layer_rendering": plan.technique
-                    in {
-                        "layer_vocal_bridge",
-                        "layer_incoming_vocal_handoff",
-                        "layer_instrumental_handoff",
-                    },
-                }
-                # Stem paths may change the executable program from master to
-                # stem buses. Recompile before any rehearsal or execution.
-                attach_performance_program(plan)
-                seal_execution_plan(plan)
-                all_plans.append(plan)
+        all_plans = list(candidate_pool.plans)
+        matrix = candidate_pool.matrix
+        sequence_evidence_reused = candidate_pool.sequence_evidence_reused
+        stems_available = candidate_pool.stems_available
 
         if not all_plans:
             if automatic_delivery and replan_on_review and not allow_emergency_escape:
@@ -2195,120 +1499,50 @@ def _compile_sequence_edges(
             }
             all_plans = [emergency]
 
-        all_plans = _dedupe_plans(all_plans)
-        for candidate in all_plans:
-            candidate.metadata = {
-                **candidate.metadata,
-                "selection_utility": round(
-                    _edge_objective(
-                        candidate,
-                        track_a,
-                        track_b,
-                        journey=journey,
-                        listener_profile=listener_profile,
-                    ),
-                    8,
-                ),
-            }
-
-        all_plans = rank_transition_plans_as_moves(
-            track_a,
-            track_b,
-            all_plans,
-            state=dj_state,
-        )
-
         preferred_complete_decision = (
             preferred_complete_moves.get((from_index, to_index))
             if preferred_complete_moves is not None
             else None
         )
-        if preferred_complete_decision is not None:
-            for candidate in all_plans:
-                match = _complete_move_preference_score(candidate, preferred_complete_decision)
-                previous = float(candidate.metadata.get("selection_utility", candidate.score))
-                # Exact/near-exact complete moves own selection unless a later
-                # rehearsal or deterministic safety gate rejects them. Looser
-                # matches receive a bounded preference rather than a hard lock.
-                preferred_utility = (
-                    max(previous, 0.985)
-                    if match >= 0.94
-                    else 0.78 * previous + 0.22 * match
-                )
-                candidate.metadata = {
-                    **candidate.metadata,
-                    "selection_utility": round(preferred_utility, 8),
-                    "complete_move_preference": {
-                        "version": COMPLETE_MOVE_VERSION,
-                        "match": round(match, 6),
-                        "target": preferred_complete_decision.winner.move.to_dict(),
-                        "generator_score": preferred_complete_decision.winner.selection_score,
-                        "safety_may_override": True,
-                    },
-                    "dj_state_taste": (
-                        state_taste_payload(preferred_complete_decision.winner.state)
-                        if preferred_complete_decision.winner.state is not None
-                        else None
-                    ),
-                    "dj_move_taste": move_taste_payload(preferred_complete_decision.winner.move),
-                    "state_context_id": (
-                        state_context_id(preferred_complete_decision.winner.state)
-                        if preferred_complete_decision.winner.state is not None
-                        else None
-                    ),
-                    "state_move_taste_shadow": preferred_complete_decision.winner.taste_shadow,
-                    "crate_memory": preferred_complete_decision.winner.crate_memory,
-                    "adaptive_thinking": (
-                        preferred_complete_decision.thinking_budget.to_dict()
-                        if preferred_complete_decision.thinking_budget is not None
-                        else None
-                    ),
-                }
-                if match >= 0.94 and preferred_complete_decision.winner.move.deck_operations:
-                    candidate.metadata = {
-                        **candidate.metadata,
-                        "deck_operations": [
-                            operation.to_dict()
-                            for operation in preferred_complete_decision.winner.move.deck_operations
-                        ],
-                        "structural_operation_authority": {
-                            "version": "1.7.2",
-                            "source": "complete_djmove_exact_match",
-                            "match": round(match, 6),
-                            "deterministic_renderer_authoritative": True,
-                        },
-                    }
-                    # Structural operations are sample-affecting executable IR.
-                    # Recompile and reseal so the program fingerprint and final
-                    # execution signature bind the exact operation payload.
-                    attach_performance_program(candidate)
-                    seal_execution_plan(candidate)
-            all_plans.sort(
-                key=lambda candidate: (
-                    float(candidate.metadata.get("selection_utility", candidate.score)),
-                    float(candidate.score),
-                    candidate.execution_signature,
-                ),
-                reverse=True,
-            )
+        all_plans = _prepare_sequence_candidates(
+            all_plans,
+            track_a=track_a,
+            track_b=track_b,
+            dj_state=dj_state,
+            preferred_complete_decision=preferred_complete_decision,
+            selection_utility=lambda candidate: _edge_objective(
+                candidate,
+                track_a,
+                track_b,
+                journey=journey,
+                listener_profile=listener_profile,
+            ),
+            rank_as_moves=lambda left, right, candidates, state: rank_transition_plans_as_moves(
+                left,
+                right,
+                candidates,
+                state=state,
+            ),
+            state_taste_payload=state_taste_payload,
+            move_taste_payload=move_taste_payload,
+            state_context_id=state_context_id,
+        )
 
-        policy_context = TransitionPolicyContext(
+        policy_context = _apply_sequence_transition_policy(
+            all_plans,
             journey=journey,
             journey_progress=journey_progress,
             tempo_policy=tempo_policy,
-            effective_bpm_a=current_effective_bpm,
-            render_rate_a=current_rate,
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
             stems_available=stems_available,
+            authority=transition_policy_authority,
+            crowd_directive=crowd_directive,
+            apply_bounded_policy=apply_bounded_transition_policy,
         )
-        if transition_policy_authority == "bounded_advisory":
-            apply_bounded_transition_policy(
-                all_plans,
-                context=policy_context,
-                crowd_directive=crowd_directive,
-            )
 
         measurement_summary: dict[str, object] | None = None
-        if quality_loop is not None and quality_loop.enabled:
+        if quality_loop is not None and quality_loop.enabled and automatic_delivery:
             if progress:
                 progress(
                     "measure",
@@ -2316,202 +1550,154 @@ def _compile_sequence_edges(
                     max(1, global_track_count - 1),
                     f"{track_a.title} -> {track_b.title}",
                 )
-            if automatic_delivery:
-                brain_enabled = os.environ.get("DJAI_PROFESSIONAL_BRAIN", "1").strip().lower() not in {"0", "false", "no", "off"}
-                if brain_enabled:
-                    if matrix is None or not matrix.pairs:
-                        if replan_on_review and not allow_emergency_escape:
-                            raise TransitionReplanRequired(
-                                from_index,
-                                to_index,
-                                action="replan_track",
-                                reason="No pair-evidence matrix remained for a rehearsed automatic transition.",
-                                resolution={"action": "replan_track", "reason": "no_evidence_matrix"},
-                                compiled_prefix=list(compiled),
-                            )
-                        chosen = build_last_resort_plan(
-                            track_a,
-                            track_b,
-                            effective_bpm_a=current_effective_bpm,
-                            render_rate_a=current_rate,
-                            source_cursor=source_cursor,
-                            preferred_exit_time=required_exit,
-                            reason="No evidence matrix remained after global replanning; deterministic final escape used.",
-                            render_context=edge_render_context,
-                            verify_audio=True,
+            brain_enabled = os.environ.get("DJAI_PROFESSIONAL_BRAIN", "1").strip().lower() not in {"0", "false", "no", "off"}
+            if brain_enabled:
+                if matrix is None or not matrix.pairs:
+                    if replan_on_review and not allow_emergency_escape:
+                        raise TransitionReplanRequired(
+                            from_index,
+                            to_index,
+                            action="replan_track",
+                            reason="No pair-evidence matrix remained for a rehearsed automatic transition.",
+                            resolution={"action": "replan_track", "reason": "no_evidence_matrix"},
+                            compiled_prefix=list(compiled),
                         )
-                        measurement_summary = {
-                            "action": "emergency_escape",
-                            "fallback_used": True,
-                            "reason": "no_evidence_matrix",
-                        }
-                    else:
-                        from .brain.unified_transition import resolve_emergency_escape, resolve_transition
-
-                        state = move_set_state
-                        thinking_budget = (
-                            preferred_complete_decision.thinking_budget
-                            if preferred_complete_decision is not None
-                            else None
-                        )
-                        brain_cfg = _professional_brain_config_for_transition(
-                            quality_loop, preferred_complete_decision
-                        )
-                        resolution = resolve_transition(
-                            track_a,
-                            track_b,
-                            evidence_matrix=matrix,
-                            professional_config=brain_cfg,
-                            tempo_policy=tempo_policy,
-                            preferred_style=preferred_style,
-                            effective_bpm_a=current_effective_bpm,
-                            render_rate_a=current_rate,
-                            stems_available=stems_available,
-                            set_state=state,
-                            dj_state=dj_state,
-                            journey=journey,
-                            journey_progress=journey_progress,
-                            listener=listener_profile.listener if listener_profile is not None else None,
-                            measurement_log_path=quality_loop.log_path,
-                            transition_policy_context=(
-                                policy_context if transition_policy_authority == "bounded_advisory" else None
-                            ),
-                            crowd_directive=(
-                                crowd_directive if transition_policy_authority == "bounded_advisory" else None
-                            ),
-                            context={
-                                "mode": "set_sequence",
-                                "sequence_position": global_position,
-                                "from_index": from_index,
-                                "to_index": to_index,
-                                "journey": journey,
-                                "preferred_style": preferred_style,
-                                "adaptive_thinking": (
-                                    thinking_budget.to_dict() if thinking_budget is not None else None
-                                ),
-                            },
-                            render_context=edge_render_context,
-                        )
-                        if resolution.accepted:
-                            assert resolution.selected is not None
-                            if (
-                                automatic_delivery
-                                and replan_on_review
-                                and not allow_emergency_escape
-                                and resolution.selected.transition_mode == "emergency_cut"
-                            ):
-                                raise TransitionReplanRequired(
-                                    from_index,
-                                    to_index,
-                                    action="replan_track",
-                                    reason=(
-                                        "Professional rehearsal found only a structural reset for this pair; "
-                                        "offline automatic delivery must route through another track before using emergency escape."
-                                    ),
-                                    resolution={
-                                        **resolution.to_dict(),
-                                        "reason": "emergency_cut_not_production_route",
-                                    },
-                                    compiled_prefix=list(compiled),
-                                )
-                            chosen = resolution.selected
-                            measurement_summary = resolution.to_dict()
-                        elif replan_on_review and not allow_emergency_escape:
-                            raise TransitionReplanRequired(
-                                from_index,
-                                to_index,
-                                action=resolution.action,
-                                reason=(
-                                    resolution.reasons[-1]
-                                    if resolution.reasons
-                                    else "Rendered transition did not clear the professional acceptance gate."
-                                ),
-                                resolution=resolution.to_dict(),
-                                compiled_prefix=list(compiled),
-                            )
-                        else:
-                            emergency = resolve_emergency_escape(
-                                track_a,
-                                track_b,
-                                evidence_matrix=matrix,
-                                professional_config=brain_cfg,
-                                effective_bpm_a=current_effective_bpm,
-                                render_rate_a=current_rate,
-                                stems_available=stems_available,
-                                set_state=state,
-                                journey=journey,
-                                journey_progress=journey_progress,
-                                listener=listener_profile.listener if listener_profile is not None else None,
-                                measurement_log_path=quality_loop.log_path,
-                                context={
-                                    "mode": "set_sequence_final_escape",
-                                    "sequence_position": global_position,
-                                    "from_index": from_index,
-                                    "to_index": to_index,
-                                },
-                                render_context=edge_render_context,
-                            )
-                            if emergency.accepted:
-                                assert emergency.selected is not None
-                                chosen = emergency.selected
-                                measurement_summary = emergency.to_dict()
-                            else:
-                                chosen = build_last_resort_plan(
-                                    track_a,
-                                    track_b,
-                                    effective_bpm_a=current_effective_bpm,
-                                    render_rate_a=current_rate,
-                                    source_cursor=source_cursor,
-                                    preferred_exit_time=required_exit,
-                                    reason=(
-                                        "All alternate track routes and separately rehearsed emergency escapes were exhausted; "
-                                        "deterministic phrase-aligned final escape used to preserve delivery."
-                                    ),
-                                    render_context=edge_render_context,
-                                    verify_audio=True,
-                                )
-                                chosen.metadata = {
-                                    **chosen.metadata,
-                                    "unified_transition_final_escape": True,
-                                    "emergency_resolution": emergency.to_dict(),
-                                }
-                                measurement_summary = {
-                                    **emergency.to_dict(),
-                                    "deterministic_final_escape": True,
-                                }
-                else:
-                    scores = {
-                        plan.execution_signature: float(plan.metadata.get("selection_utility", plan.score))
-                        for plan in all_plans
-                    }
-                    chosen = select_automatic_transition(
-                        track_a, track_b, all_plans, analytical_scores=scores, quality_config=quality_loop,
-                        context={"sequence_position": global_position, "from_index": from_index, "to_index": to_index, "journey": journey, "preferred_style": preferred_style},
+                    chosen = build_last_resort_plan(
+                        track_a,
+                        track_b,
+                        effective_bpm_a=current_effective_bpm,
+                        render_rate_a=current_rate,
+                        source_cursor=source_cursor,
+                        preferred_exit_time=required_exit,
+                        reason="No evidence matrix remained after global replanning; deterministic final escape used.",
                         render_context=edge_render_context,
-                        source_cursor=source_cursor, preferred_exit_time=required_exit, effective_bpm_a=current_effective_bpm, render_rate_a=current_rate,
+                        verify_audio=True,
                     )
                     measurement_summary = {
-                        "automatic_delivery": True, "fallback_level": chosen.fallback_level,
-                        "selected_measured_score": chosen.measured_score, "selected_final_score": chosen.score,
-                        "gate_passed": chosen.measurement_passed,
+                        "action": "emergency_escape",
+                        "fallback_used": True,
+                        "reason": "no_evidence_matrix",
                     }
+                else:
+                    from .brain.unified_transition import resolve_emergency_escape, resolve_transition
+
+                    state = move_set_state
+                    thinking_budget = (
+                        preferred_complete_decision.thinking_budget
+                        if preferred_complete_decision is not None
+                        else None
+                    )
+                    brain_cfg = _professional_brain_config_for_transition(
+                        quality_loop, preferred_complete_decision
+                    )
+                    professional_outcome = _resolve_professional_sequence_transition(
+                        track_a=track_a,
+                        track_b=track_b,
+                        matrix=matrix,
+                        professional_config=brain_cfg,
+                        tempo_policy=tempo_policy,
+                        preferred_style=preferred_style,
+                        current_effective_bpm=current_effective_bpm,
+                        current_rate=current_rate,
+                        stems_available=stems_available,
+                        set_state=state,
+                        dj_state=dj_state,
+                        journey=journey,
+                        journey_progress=journey_progress,
+                        listener=(
+                            listener_profile.listener
+                            if listener_profile is not None
+                            else None
+                        ),
+                        quality_loop=quality_loop,
+                        transition_policy_context=(
+                            policy_context
+                            if transition_policy_authority == "bounded_advisory"
+                            else None
+                        ),
+                        crowd_directive=(
+                            crowd_directive
+                            if transition_policy_authority == "bounded_advisory"
+                            else None
+                        ),
+                        thinking_budget=thinking_budget,
+                        global_position=global_position,
+                        from_index=from_index,
+                        to_index=to_index,
+                        render_context=edge_render_context,
+                        replan_on_review=replan_on_review,
+                        allow_emergency_escape=allow_emergency_escape,
+                        resolve_transition=resolve_transition,
+                    )
+                    if professional_outcome.replan_action is not None:
+                        raise TransitionReplanRequired(
+                            from_index,
+                            to_index,
+                            action=professional_outcome.replan_action,
+                            reason=professional_outcome.replan_reason or "Professional rehearsal requested a replan.",
+                            resolution=dict(professional_outcome.replan_resolution or {}),
+                            compiled_prefix=list(compiled),
+                        )
+                    if professional_outcome.selected is not None:
+                        chosen = professional_outcome.selected
+                        measurement_summary = professional_outcome.measurement_summary
+                    else:
+                        emergency_outcome = _resolve_professional_emergency_escape(
+                            track_a=track_a,
+                            track_b=track_b,
+                            matrix=matrix,
+                            professional_config=brain_cfg,
+                            current_effective_bpm=current_effective_bpm,
+                            current_rate=current_rate,
+                            stems_available=stems_available,
+                            set_state=state,
+                            journey=journey,
+                            journey_progress=journey_progress,
+                            listener=(
+                                listener_profile.listener
+                                if listener_profile is not None
+                                else None
+                            ),
+                            quality_loop=quality_loop,
+                            global_position=global_position,
+                            from_index=from_index,
+                            to_index=to_index,
+                            render_context=edge_render_context,
+                            resolve_emergency_escape=resolve_emergency_escape,
+                        )
+                        if emergency_outcome.selected is not None:
+                            chosen = emergency_outcome.selected
+                            measurement_summary = emergency_outcome.measurement_summary
+                        else:
+                            chosen, measurement_summary = _deterministic_final_escape(
+                                track_a=track_a,
+                                track_b=track_b,
+                                current_effective_bpm=current_effective_bpm,
+                                current_rate=current_rate,
+                                source_cursor=source_cursor,
+                                required_exit=required_exit,
+                                render_context=edge_render_context,
+                                emergency_resolution=emergency_outcome.emergency_resolution,
+                                build_last_resort=build_last_resort_plan,
+                            )
             else:
-                measured = measure_and_select_transition(
-                    track_a,
-                    track_b,
-                    all_plans,
-                    config=quality_loop,
-                    context={
-                        "sequence_position": global_position,
-                        "from_index": from_index,
-                        "to_index": to_index,
-                        "journey": journey,
-                        "preferred_style": preferred_style,
-                    },
+                chosen, measurement_summary = _select_automatic_without_professional_brain(
+                    track_a=track_a,
+                    track_b=track_b,
+                    plans=all_plans,
+                    quality_loop=quality_loop,
+                    global_position=global_position,
+                    from_index=from_index,
+                    to_index=to_index,
+                    journey=journey,
+                    preferred_style=preferred_style,
                     render_context=edge_render_context,
+                    source_cursor=source_cursor,
+                    required_exit=required_exit,
+                    current_effective_bpm=current_effective_bpm,
+                    current_rate=current_rate,
+                    select_automatic=select_automatic_transition,
                 )
-                chosen = measured.selected
-                measurement_summary = measured.to_dict()
             chosen.metadata = {
                 **chosen.metadata,
                 "sequence_position": global_position,
@@ -2532,145 +1718,62 @@ def _compile_sequence_edges(
                     f"{track_a.title} -> {track_b.title}: {chosen.measured_score or 0.0:.0%}",
                 )
         else:
-            if preferred_complete_decision is not None:
-                chosen = max(
-                    all_plans,
-                    key=lambda candidate: (
-                        float(candidate.metadata.get("selection_utility", candidate.score)),
-                        float(candidate.score),
-                        candidate.execution_signature,
-                    ),
-                )
-            else:
-                chosen, _ = _select_alternative(
-                    all_plans,
-                    track_a,
-                    track_b,
-                    preferred_style=preferred_style,
-                    journey=journey,
-                    listener_profile=listener_profile,
-                )
+            chosen, measurement_summary = _select_nonautomatic_sequence_transition(
+                track_a=track_a,
+                track_b=track_b,
+                plans=all_plans,
+                quality_loop=quality_loop,
+                preferred_complete_decision=preferred_complete_decision,
+                preferred_style=preferred_style,
+                journey=journey,
+                listener_profile=listener_profile,
+                from_index=from_index,
+                to_index=to_index,
+                global_position=global_position,
+                global_track_count=global_track_count,
+                source_cursor=source_cursor,
+                required_source=required_source,
+                target_exit=target_exit,
+                soft_latest_exit=soft_latest_exit,
+                selected_entries=selected_entries,
+                sequence_evidence_reused=sequence_evidence_reused,
+                matrix=matrix,
+                render_context=edge_render_context,
+                progress=progress,
+                measure_and_select=measure_and_select_transition,
+                select_alternative=_select_alternative,
+            )
 
-        if "dj_move" not in chosen.metadata:
-            chosen = rank_transition_plans_as_moves(
-                track_a, track_b, [chosen], state=dj_state
-            )[0]
-        chosen.metadata = {
-            **chosen.metadata,
-            "dj_state_before_move": dj_state.to_dict(),
-        }
-
-        if automatic_delivery:
-            allow_hard_cuts = os.environ.get("DJAI_ALLOW_HARD_CUTS", "0").strip().lower() in {"1", "true", "yes", "on"}
-            deck_performance = dict(chosen.metadata.get("deck_performance", {}) or {})
-            phase_integrity = dict(deck_performance.get("phase_integrity", {}) or {})
-            if chosen.beatmatched and phase_integrity and not bool(phase_integrity.get("safe", True)):
-                rejected_signature = chosen.execution_signature
-                previous_move = chosen.metadata.get("dj_move")
-                previous_state = chosen.metadata.get("dj_state_before_move")
-                chosen = build_last_resort_plan(
-                    track_a,
-                    track_b,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    source_cursor=source_cursor,
-                    preferred_exit_time=required_exit,
-                    reason=(
-                        "Beat Integrity rejected the selected rhythmic overlap because "
-                        "bounded continuous phase correction could not hold lock."
-                    ),
-                    render_context=edge_render_context,
-                    verify_audio=bool(quality_loop is not None and quality_loop.enabled),
-                )
-                chosen.metadata = {
-                    **chosen.metadata,
-                    "beat_integrity_replanned": True,
-                    "rejected_phase_integrity_signature": rejected_signature,
-                    **({"dj_move": previous_move} if previous_move is not None else {}),
-                    **({"dj_state_before_move": previous_state} if previous_state is not None else {}),
-                }
-            if not allow_hard_cuts and chosen.technique in {"quick_cut", "backspin"}:
-                rejected_technique = chosen.technique
-                chosen = build_last_resort_plan(
-                    track_a,
-                    track_b,
-                    effective_bpm_a=current_effective_bpm,
-                    render_rate_a=current_rate,
-                    source_cursor=source_cursor,
-                    preferred_exit_time=required_exit,
-                    reason=(
-                        f"Automatic policy re-evaluated {rejected_technique} through the compatibility-aware rescue hierarchy."
-                    ),
-                    render_context=edge_render_context,
-                    verify_audio=bool(quality_loop is not None and quality_loop.enabled),
-                )
-                rescue_kind = str(chosen.metadata.get("rescue_transition_kind", "unknown"))
-                chosen.metadata = {
-                    **chosen.metadata,
-                    "replaced_automatic_cut": rejected_technique,
-                    "continuous_mix_policy": rescue_kind == "filtered_overlap",
-                    "automatic_rescue_policy": "compatibility_aware",
-                }
-            chosen.requires_confirmation = False
-            chosen.auto_approved = True
-            chosen.metadata = {**chosen.metadata, "automatic_delivery": True}
-
-        # A deterministic rescue may replace the candidate after graph evidence
-        # informed sequence compilation. Preserve that provenance on the final
-        # executable plan instead of making the replacement look evidence-free.
-        chosen.metadata = {
-            **chosen.metadata,
-            "sequence_evidence_reused": sequence_evidence_reused,
-            "sequence_matrix_size": (
-                matrix.compatibility_evaluations
-                if matrix is not None
-                else int(chosen.metadata.get("sequence_matrix_size", 0) or 0)
-            ),
-        }
-
-        # V6 connects the formal transition-policy boundary without changing
-        # candidate ranking in this behavior-preserving migration. The
-        # Executive owns when this policy is consulted; the selected program
-        # remains the exact program already chosen by the current brain.
-        annotate_transition_policy(
-            [chosen],
-            context=policy_context,
-            authority=transition_policy_authority,
-        )
-
-        alternatives: list[TransitionPlan] = []
-        for style in ("safe", "creative", "emergency"):
-            candidates = [plan for plan in all_plans if plan.style == style]
-            if candidates:
-                alternatives.append(
-                    max(
-                        candidates,
-                        key=lambda value: _edge_objective(
-                            value,
-                            track_a,
-                            track_b,
-                            journey=journey,
-                            listener_profile=listener_profile,
-                        ),
-                    )
-                )
-        edge = _edge_from_plan(
-            from_index,
-            to_index,
-            chosen,
-            alternatives,
-            analyses,
+        edge, source_cursor, current_rate, current_effective_bpm = _finalize_sequence_edge(
+            chosen=chosen,
+            plans=all_plans,
+            track_a=track_a,
+            track_b=track_b,
+            analyses=analyses,
+            from_index=from_index,
+            to_index=to_index,
+            dj_state=dj_state,
+            automatic_delivery=automatic_delivery,
+            quality_loop_enabled=bool(quality_loop is not None and quality_loop.enabled),
+            current_effective_bpm=current_effective_bpm,
+            current_rate=current_rate,
+            source_cursor=source_cursor,
+            required_exit=required_exit,
+            render_context=edge_render_context,
+            sequence_evidence_reused=sequence_evidence_reused,
+            matrix=matrix,
+            policy_context=policy_context,
+            transition_policy_authority=transition_policy_authority,
             journey=journey,
             listener_profile=listener_profile,
-            extra_reason=(
-                "The transition was compiled from the track's actual rendered tempo and consumed source position."
-            ),
+            rank_as_moves=rank_transition_plans_as_moves,
+            build_last_resort=build_last_resort_plan,
+            annotate_policy=annotate_transition_policy,
+            edge_objective=_edge_objective,
+            edge_from_plan=_edge_from_plan,
+            validate_plan=validate_execution_plan,
         )
-        validate_execution_plan(edge.plan)
         compiled.append(edge)
-        source_cursor = edge.plan.post_transition_source_end_b
-        current_rate = edge.plan.post_transition_rate_b
-        current_effective_bpm = edge.plan.post_transition_bpm_b or (track_b.bpm * current_rate)
     return compiled
 
 
@@ -3181,9 +2284,7 @@ def make_set_plan(
     journey = normalize_journey(journey)
     listener_profile = get_listener_profile(listener)
     session = planning_session if planning_session is not None else PlanningSession()
-    measurement_run_offset = measurement_log_offset(
-        quality_loop.log_path if quality_loop is not None and quality_loop.enabled else None
-    )
+    measurement_run_offset = _measurement_run_start_offset(quality_loop)
 
     complete_move_cfg = CompleteMoveConfig.from_environment()
     headphones_cfg = AIHeadphonesConfig.from_environment()
@@ -3605,227 +2706,58 @@ def make_set_plan(
         for edge in transitions
         for warning in edge.warnings
     ]
-    latest_complete_route = complete_move_runs[-1] if complete_move_runs else None
-    complete_route_order = list(latest_complete_route.order) if latest_complete_route and latest_complete_route.completed else []
-    route_divergence = [
-        position
-        for position, (actual, proposed) in enumerate(zip(order, complete_route_order))
-        if actual != proposed
-    ]
-    generated_signatures = (
-        [decision.winner.plan.execution_signature for decision in latest_complete_route.decisions]
-        if latest_complete_route is not None
-        else []
+    estimated_duration_seconds = estimate_set_duration(
+        order,
+        analyses,
+        transitions,
     )
-    compiled_signatures = [edge.plan.execution_signature for edge in transitions]
-    signature_matches = sum(
-        1 for generated, compiled in zip(generated_signatures, compiled_signatures) if generated and generated == compiled
+    complete_move_report = _build_complete_move_report(
+        analyses=analyses,
+        order=order,
+        transitions=transitions,
+        complete_move_runs=complete_move_runs,
+        complete_move_cfg=complete_move_cfg,
+        blocked_pairs=blocked_pairs,
+        graph_pair_count=len(graph),
+        manual=manual,
+        lazy_graph_authority=lazy_graph_authority,
     )
-    final_adjacent_pairs = set(zip(order, order[1:]))
-    training_route_attempts: list[dict[str, Any]] = []
-    for run_index, run in enumerate(complete_move_runs):
-        decision_rows: list[dict[str, Any]] = []
-        for decision_index, decision in enumerate(run.decisions):
-            state = decision.winner.state
-            candidate_by_target: dict[int, Any] = {}
-            for candidate in decision.candidates:
-                previous = candidate_by_target.get(int(candidate.next_index))
-                if previous is None or float(candidate.selection_score) > float(previous.selection_score):
-                    candidate_by_target[int(candidate.next_index)] = candidate
-            decision_rows.append(
-                {
-                    "decision_index": decision_index,
-                    "current_index": int(decision.current_index),
-                    "winner_index": int(decision.winner.next_index),
-                    "search_score": round(float(decision.search_score), 6),
-                    "commit_score": round(float(decision.commit_score), 6),
-                    "lookahead_depth": int(decision.lookahead_depth),
-                    "projected_path": [int(value) for value in decision.projected_path],
-                    "state": (
-                        {
-                            "energy": round(float(state.set_energy), 6),
-                            "tension": round(float(state.set_tension), 6),
-                            "groove": round(float(state.set_groove), 6),
-                            "vocal_density": round(float(state.set_vocal_density), 6),
-                            "source_cursor_seconds": round(float(state.source_cursor_seconds), 6),
-                            "source_bar": int(state.source_bar),
-                            "effective_bpm": round(float(state.effective_bpm), 6),
-                        }
-                        if state is not None
-                        else None
-                    ),
-                    "candidates": [
-                        {
-                            "next_index": int(candidate.next_index),
-                            "selection_score": round(float(candidate.selection_score), 6),
-                            "move_score": round(float(candidate.move.score), 6),
-                            "future_optionality": round(float(candidate.move.future_optionality), 6),
-                            "components": {
-                                key: round(float(value), 6)
-                                for key, value in candidate.components.items()
-                            },
-                            "won_attempt": int(candidate.next_index) == int(decision.winner.next_index),
-                            "blocked_by_executive": (
-                                int(decision.current_index),
-                                int(candidate.next_index),
-                            ) in blocked_pairs,
-                            "survived_final_adjacency": (
-                                int(decision.current_index),
-                                int(candidate.next_index),
-                            ) in final_adjacent_pairs,
-                        }
-                        for candidate in sorted(
-                            candidate_by_target.values(),
-                            key=lambda item: (
-                                float(item.selection_score),
-                                float(item.move.future_optionality),
-                                -int(item.next_index),
-                            ),
-                            reverse=True,
-                        )
-                    ],
-                }
-            )
-        training_route_attempts.append(
-            {
-                "attempt_index": run_index,
-                "completed": bool(run.completed),
-                "reason": str(run.reason or ""),
-                "score": round(float(run.score), 6),
-                "order": [int(value) for value in run.order],
-                "decision_count": len(run.decisions),
-                "decisions": decision_rows,
-            }
-        )
-
-    crate_track_fingerprints: list[str] = []
-    for track in analyses:
-        identity_payload = track.to_dict(include_beats=False)
-        identity_payload.pop("path", None)
-        crate_track_fingerprints.append(
-            hashlib.sha256(
-                json.dumps(identity_payload, sort_keys=True, default=str).encode("utf-8")
-            ).hexdigest()
-        )
-    crate_fingerprint = hashlib.sha256(
-        json.dumps(sorted(crate_track_fingerprints)).encode("utf-8")
-    ).hexdigest()[:16]
-
-    complete_move_report = {
-        "version": COMPLETE_MOVE_VERSION,
-        "mode": complete_move_cfg.mode,
-        "active": bool(not manual and complete_move_cfg.mode != "legacy"),
-        "legacy_planner_preserved": True,
-        "audio_safety_compiler_authoritative": True,
-        "route_authoritative": bool(not manual and complete_move_cfg.mode == "move_authoritative" and complete_route_order == order),
-        "shadow_only": bool(not manual and complete_move_cfg.mode == "move_shadow"),
-        "lookahead_moves": complete_move_cfg.lookahead_moves,
-        "adaptive_thinking": adaptive_thinking_status(),
-        "commit_moves": 1,
-        "receding_horizon": True,
-        "structural_deck_operations": True,
-        "true_wait_compiled": True,
-        "advanced_structural_operations_opt_in": True,
-        "ai_headphones": ai_headphones_status(planner_mode=complete_move_cfg.mode),
-        "ai_headphones_authoritative_decisions": (
-            sum(
-                1
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-                if isinstance(decision.headphones, dict) and bool(decision.headphones.get("authoritative"))
-            )
+    metadata = _build_set_plan_metadata(
+        analyses=analyses,
+        order=order,
+        transitions=transitions,
+        timing_intent=timing_intent,
+        estimated_duration_seconds=estimated_duration_seconds,
+        tempo_policy=tempo_policy,
+        preferred_style=preferred_style,
+        journey=journey,
+        listener=listener,
+        listener_profile_confidence=(
+            listener_profile.confidence
+            if listener_profile is not None
+            else 0.0
         ),
-        "ai_headphones_rendered_candidates": (
-            sum(
-                int(decision.headphones.get("rendered_candidates", 0))
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-                if isinstance(decision.headphones, dict)
-            )
-        ),
-        "thinking_budget_levels": {
-            level: sum(
-                1
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-                if decision.thinking_budget is not None
-                and decision.thinking_budget.brittleness.level == level
-            )
-            for level in ("easy", "normal", "brittle")
-        },
-        "thinking_budget_deep_search_escalations": sum(
-            1
-            for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-            if decision.thinking_budget is not None and decision.thinking_budget.lookahead_escalated
-        ),
-        "complete_move_generated_candidates": (
-            sum(
-                len(decision.candidates)
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-            )
-        ),
-        "crate_memory_informed_decisions": (
-            sum(
-                1
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-                if isinstance(decision.winner.crate_memory, dict)
-                and abs(float(decision.winner.crate_memory.get("adjustment", 0.0) or 0.0)) > 1e-9
-            )
-        ),
-        "crate_memory_total_adjustment": round(
-            sum(
-                float(decision.winner.crate_memory.get("adjustment", 0.0) or 0.0)
-                for decision in (latest_complete_route.decisions if latest_complete_route is not None else ())
-                if isinstance(decision.winner.crate_memory, dict)
-            ),
-            6,
-        ),
-        "lazy_candidate_retrieval": True,
-        "lazy_candidate_width": complete_move_cfg.lazy_candidate_width,
-        "lazy_expansion_width": complete_move_cfg.lazy_expansion_width,
-        "search_branch_width": complete_move_cfg.search_branch_width,
-        "opener_candidates": complete_move_cfg.opener_candidates,
-        "sparse_graph_authority": lazy_graph_authority,
-        "materialized_graph_pairs": len(graph),
-        "possible_graph_pairs": len(analyses) * max(0, len(analyses) - 1),
-        "run_count": len(complete_move_runs),
-        "training_evidence": {
-            "version": "1.0",
-            "crate_fingerprint": crate_fingerprint,
-            "attempt_count": len(training_route_attempts),
-            "candidate_decision_count": sum(
-                len(attempt["decisions"]) for attempt in training_route_attempts
-            ),
-            "candidate_target_count": sum(
-                len(decision["candidates"])
-                for attempt in training_route_attempts
-                for decision in attempt["decisions"]
-            ),
-            "attempts": training_route_attempts,
-            "final_adjacent_pairs": [
-                [int(left), int(right)] for left, right in sorted(final_adjacent_pairs)
-            ],
-            "blocked_pairs": [
-                [int(left), int(right)] for left, right in sorted(blocked_pairs)
-            ],
-            "training_only": True,
-            "execution_authority": False,
-        },
-        "proposed_order": complete_route_order,
-        "final_order": list(order),
-        "order_matches": bool(complete_route_order and complete_route_order == list(order)),
-        "divergence_positions": route_divergence,
-        "generated_transition_signature_matches": signature_matches,
-        "compiled_transition_count": len(compiled_signatures),
-        "latest_route": (
-            latest_complete_route.to_dict(top_k=complete_move_cfg.report_top_k)
-            if latest_complete_route is not None
-            else None
-        ),
-    }
-    final_timing_state = build_timing_state(
-        [analyses[index] for index in order],
-        [edge.plan for edge in transitions],
-        intent=timing_intent,
-        projected_total_seconds=estimate_set_duration(order, analyses, transitions),
-        fallback_progress=1.0,
+        automatic_delivery=automatic_delivery,
+        complete_move_report=complete_move_report,
+        dj_executive_report=dj_executive_report,
+        baseline_score=baseline_score,
+        optimized_score=optimized_score,
+        compiled_transition_score=compiled_transition_score,
+        minimum_body_seconds=minimum_body_seconds,
+        minimum_body_fraction=minimum_body_fraction,
+        graph_pair_count=len(graph),
+        session=session,
+        route_search_seconds=route_search_seconds,
+        route_search_calls=route_search_calls,
+        compile_seconds=compile_seconds,
+        compile_calls=compile_calls,
+        executive_seconds=executive_seconds,
+        complete_move_runs=complete_move_runs,
+        broad_graph_materialized=broad_graph_materialized,
+        max_replans=max_replans,
+        quality_loop=quality_loop,
+        blocked_pairs=blocked_pairs,
+        replan_trace=replan_trace,
     )
     plan = SetPlan(
         plan_id=plan_id,
@@ -3835,140 +2767,21 @@ def make_set_plan(
         baseline_order=baseline_order,
         baseline_score=baseline_score,
         optimized_score=optimized_score,
-        estimated_duration_seconds=estimate_set_duration(order, analyses, transitions),
+        estimated_duration_seconds=estimated_duration_seconds,
         source=source,
         algorithm=algorithm,
         manual=manual,
         warnings=list(dict.fromkeys(warnings)),
         automatic_delivery=automatic_delivery,
         listener=listener,
-        metadata={
-            "tempo_policy": tempo_policy,
-            "preferred_style": preferred_style,
-            "journey": journey,
-            "timing": {
-                "intent": (timing_intent or SetTimingIntent()).normalized().to_dict(),
-                "state": final_timing_state.to_dict(),
-                "time_aware_progress": timing_intent is not None and timing_intent.target_duration_seconds is not None,
-            },
-            "journey_arc": journey_metadata(order, analyses, journey=journey),
-            "professional_story": set_story_report(order, analyses, journey=journey),
-            "set_director_story": set_director_report(order, analyses, transitions, journey=journey),
-            "dj_memory": build_dj_memory([analyses[index] for index in order], [edge.plan for edge in transitions]).to_dict(),
-            "listener": listener,
-            "listener_profile_confidence": (
-                listener_profile.confidence if listener_profile is not None else 0.0
-            ),
-            "automatic_delivery": automatic_delivery,
-            "complete_move_planner": complete_move_report,
-            "dj_executive": dj_executive_report,
-            "canonical_set_score": {
-                "baseline": round(baseline_score, 6),
-                "optimized": round(optimized_score, 6),
-                "compiled_transition_objective_sum": round(compiled_transition_score, 6),
-                "comparison_basis": "order_score",
-            },
-            "fallback_transition_count": sum(
-                1 for edge in transitions if edge.plan.fallback_level > 0
-            ),
-            "minimum_body_seconds": minimum_body_seconds,
-            "minimum_body_fraction": minimum_body_fraction,
-            "directed_edge_count": len(graph),
-            "performance": {
-                "planning": {
-                    **session.to_dict(),
-                    "route_search_seconds": round(route_search_seconds, 6),
-                    "route_search_calls": route_search_calls,
-                    "compile_rehearsal_seconds": round(compile_seconds, 6),
-                    "compile_rehearsal_calls": compile_calls,
-                    "executive_seconds": round(executive_seconds, 6),
-                }
-            },
-            "large_crate_planning": {
-                "enabled": len(analyses) >= _large_set_threshold(),
-                "track_count": len(analyses),
-                "threshold": _large_set_threshold(),
-                "graph_mode": session.graph_mode,
-                "graph_pair_count": session.graph_pair_count,
-                "graph_scout_cues": session.graph_scout_cues,
-                "graph_build_calls": session.graph_build_calls,
-                "graph_cache_hits": session.graph_cache_hits,
-                "graph_cache_misses": session.graph_cache_misses,
-                "graph_cache_hit_rate": round(
-                    session.graph_cache_hits
-                    / max(1, session.graph_cache_hits + session.graph_cache_misses),
-                    6,
-                ),
-                "effective_sparse_attempts": len(complete_move_runs),
-                "best_sparse_partial_tracks": max(
-                    (len(item.order) for item in complete_move_runs),
-                    default=0,
-                ),
-                "completed_sparse_attempts": sum(
-                    1 for item in complete_move_runs if item.completed
-                ),
-                "broad_graph_materialized": broad_graph_materialized,
-                "policy_start_limit": (
-                    _env_int("DJAI_LARGE_SET_POLICY_STARTS", 4, minimum=2, maximum=8)
-                    if len(analyses) >= _large_set_threshold()
-                    else len(analyses)
-                ),
-                "local_improve_passes": (
-                    _env_int("DJAI_LARGE_SET_LOCAL_PASSES", 2, minimum=1, maximum=4)
-                    if len(analyses) >= _large_set_threshold()
-                    else 8
-                ),
-                "maximum_replans": max_replans,
-                "final_edges_restore_full_cues": True,
-            },
-            "quality_loop": {
-                "enabled": bool(quality_loop is not None and quality_loop.enabled),
-                "top_k": quality_loop.top_k if quality_loop is not None else 0,
-                "sample_rate": quality_loop.sample_rate if quality_loop is not None else None,
-                "checked_transitions": sum(1 for edge in transitions if edge.plan.quality_checked),
-                "passed_transitions": sum(
-                    1
-                    for edge in transitions
-                    if bool(
-                        dict(edge.plan.metadata.get("quality_loop", {})).get(
-                            "selection_gate_passed",
-                            dict(edge.plan.metadata.get("quality_loop", {})).get("gate_passed", False),
-                        )
-                    )
-                ),
-                "measurement_version": MEASUREMENT_VERSION if quality_loop is not None else None,
-            },
-            "compiled_execution": True,
-            "unified_transition_intelligence": {
-                "enabled": True,
-                "simple_pro_shared_brain": True,
-                "review_needed_is_replan": True,
-                "blocked_edges": [list(pair) for pair in sorted(blocked_pairs)],
-                "replan_count": len(replan_trace),
-                "replan_trace": replan_trace,
-                "maximum_replans": max_replans,
-            },
-            "saund_ai_1": {
-                "unified_planner_version": UNIFIED_PLANNER_VERSION,
-                "full_set_benchmark_version": FULL_SET_BENCHMARK_VERSION,
-                "learned_authority_policy": "bounded_and_safety_gated",
-            },
-        },
+        metadata=metadata,
     )
     plan.metadata["full_set_benchmark"] = evaluate_full_set(plan).to_dict()
-    if quality_loop is not None and quality_loop.enabled and quality_loop.log_path:
-        finalize_measurement_run(
-            quality_loop.log_path,
-            start_offset=measurement_run_offset,
-            accepted_signatures=[
-                edge.plan.execution_signature
-                for edge in transitions
-                if edge.plan.measurement is not None
-            ],
-            accepted_plans=[
-                edge.plan for edge in transitions if edge.plan.measurement is not None
-            ],
-        )
+    _finalize_quality_measurement_run(
+        quality_loop,
+        start_offset=measurement_run_offset,
+        transitions=transitions,
+    )
     if plan.requires_confirmation:
         plan.confirmation_token = create_confirmation_token(
             confirmation_payload(plan_id, order, transitions)

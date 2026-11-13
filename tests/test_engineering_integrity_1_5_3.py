@@ -116,8 +116,22 @@ def test_engineering_integrity_source_contracts() -> None:
     frontend = (ROOT / "frontend" / "components" / "JobProgress.tsx").read_text(encoding="utf-8")
     release_gate = (ROOT / "scripts" / "release-gate.sh").read_text(encoding="utf-8")
     assert '"engineering_integrity_1_5_3": True' in api
-    assert '@app.get("/api/runtime/status")' in api
-    assert '@app.post("/api/jobs/{job_id}/cancel")' in api
+    # Router extraction moves registration out of api.py. Check the real
+    # FastAPI routing table and handler identity rather than decorator text.
+    from djai.api import app, cancel_job, runtime_status
+
+    def registered_endpoint(path: str, method: str):
+        matches = [
+            route
+            for route in app.routes
+            if getattr(route, "path", None) == path
+            and method in getattr(route, "methods", set())
+        ]
+        assert len(matches) == 1, f"{method} {path} must have exactly one route"
+        return matches[0].endpoint
+
+    assert registered_endpoint("/api/runtime/status", "GET") is runtime_status
+    assert registered_endpoint("/api/jobs/{job_id}/cancel", "POST") is cancel_job
     assert "SAUND_IMAGE_TAG:-local" in compose
     assert "saund-ai-engine:1.5.0" not in compose
     assert "onCancel" in frontend and "No stage progress" in frontend

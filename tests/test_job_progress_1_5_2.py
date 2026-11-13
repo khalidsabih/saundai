@@ -84,7 +84,20 @@ def test_create_progress_contract_is_backend_driven_not_timer_faked() -> None:
     component = (ROOT / "frontend/components/JobProgress.tsx").read_text(encoding="utf-8")
     frontend_api = (ROOT / "frontend/lib/api.ts").read_text(encoding="utf-8")
 
-    automatic = api.split('@app.post("/api/sets/automatic"', 1)[1].split('@app.post("/api/set/render"', 1)[0]
+    # HTTP route registration moved into api_production_routers.py; the
+    # source-level progress contract remains in the unchanged handler body.
+    import inspect
+    from djai.api import app, create_automatic_set
+
+    matches = [
+        route for route in app.routes
+        if getattr(route, "path", None) == "/api/sets/automatic"
+        and "POST" in getattr(route, "methods", set())
+    ]
+    assert len(matches) == 1
+    assert matches[0].endpoint is create_automatic_set
+
+    automatic = inspect.getsource(create_automatic_set)
     assert 'context.update_absolute(' in automatic
     assert 'context.ranged_progress_callback(0.08, 0.32)' in automatic
     assert '"graph": (0.32, 0.50)' in automatic
