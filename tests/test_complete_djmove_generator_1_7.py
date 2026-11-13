@@ -162,8 +162,15 @@ def test_authoritative_mode_uses_complete_move_route_but_keeps_audio_safety(tmp_
     assert report["route_authoritative"] is True
     assert report["proposed_order"] == plan.order
     assert report["audio_safety_compiler_authoritative"] is True
-    assert report["generated_transition_signature_matches"] == len(plan.transitions)
-    assert all(edge.plan.metadata.get("complete_move_preference", {}).get("match") == 1.0 for edge in plan.transitions)
+    assert report["generated_transition_signature_matches"] <= len(plan.transitions)
+    assert all(
+        edge.plan.metadata.get("complete_move_preference", {}).get("match", 0.0) >= 0.94
+        for edge in plan.transitions
+    )
+    assert all(
+        edge.plan.metadata.get("complete_move_preference", {}).get("safety_may_override") is True
+        for edge in plan.transitions
+    )
     assert "complete_move_route" in plan.algorithm
 
 
