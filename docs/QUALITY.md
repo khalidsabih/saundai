@@ -1,4 +1,6 @@
-# DJAI 5.1.0 quality system
+# SAUND.AI quality system
+
+Current quality and authority boundaries are defined in [CANONICAL_ARCHITECTURE.md](CANONICAL_ARCHITECTURE.md).
 
 Quality is evaluated after rendering finalist transition audio, not only from formulas or neural predictions over source tracks.
 
@@ -12,15 +14,15 @@ The technical gate includes loudness/spectral/bass/stem continuity, phase safety
 
 ## Neural policy cannot bypass the gate
 
-5.0 can use learned heads to rank transition family, duration, stem choreography and next-track value before rendering. Those predictions do not count as proof of quality.
+SAUND.AI can use learned heads to rank transition family, duration, stem choreography and next-track value before rendering. Those predictions do not count as proof of quality.
 
 The rendered DJ Judge may also receive a learned preference residual. Its authority is capped and a hard failure always rejects the candidate regardless of learned confidence.
 
 ## Acceptance and retry
 
-`review_needed` is not a final automatic quality class. In prepared automatic construction only an accepted `TransitionResolution` may be committed.
+`review_needed` is not a final automatic quality class. In prepared automatic construction only a candidate that survives the current rendered-rehearsal, professional-judgement and deterministic safety path may be committed.
 
-A rejected family causes the solver to try another bounded musical family. If no family clears the rendered-audio gate, the directed edge is blocked and the Set Brain replans track order. A separately rendered/judged emergency escape is permitted only after normal edge/order search is exhausted.
+A rejected family causes the solver to try another bounded musical family. If no family clears the rendered-audio gate, the directed edge is blocked and the Executive owns route repair/replanning. A separately rendered/judged emergency escape is permitted only after normal edge/order search is exhausted.
 
 ## Model authority
 
