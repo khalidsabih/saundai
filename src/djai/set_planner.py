@@ -746,7 +746,7 @@ def build_transition_graph(
     requested_selection = resolve_worker_selection("graph", total, requested=workers)
     active_session.graph_workers = max(
         active_session.graph_workers,
-        requested_execution_selection.workers,
+        requested_selection.workers,
     )
     execution_selection = resolve_worker_selection(
         "graph",
