@@ -40,6 +40,7 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
     unified = dict(metadata.get("unified_transition_intelligence", {}) or {})
     timing = dict(metadata.get("timing", {}) or {})
     timing_state = dict(timing.get("state", {}) or {})
+    large_crate = dict(metadata.get("large_crate_planning", {}) or {})
 
     hard_failures: list[dict[str, Any]] = []
     measured_scores: list[float] = []
@@ -117,6 +118,7 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
             if isinstance(full_set_benchmark, dict)
             else None
         ),
+        "large_crate_planning": large_crate,
         "planning_ready": planning_ready,
     }
 
