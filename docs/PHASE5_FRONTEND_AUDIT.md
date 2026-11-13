@@ -311,3 +311,71 @@ before calling Phase 5.4 green.
 ## Phase 5.4 operator verification (2026-11-13)
 
 The operator reports that the full requested Phase 5.4 verification sequence **passed** after pulling the standalone-server harness and explicit Next.js root configuration changes. The requested gate included production npm audit, TypeScript typecheck, 9 focused job lifecycle tests, optimized build, and 36 Playwright browser tests. Detailed command output and updated warning text were **not** supplied for this run, so exact test counts and warning disappearance are not independently confirmed from this checkpoint. Treat the infrastructure change as operator-verified, while retaining the next full command output for warning review. No app-side runtime or DJ audio policy change was made in this slice.
+
+## Phase 5.5 coordinated frontend consolidation (2026-11-13)
+
+This change set prepares the remaining Phase 5 frontend work as one operator-
+verifiable gate. It is **committed but not yet locally tested**.
+
+### Source ownership and safe extraction
+
+The old ~223 KB `frontend/app/globals.css` has been separated, without
+rewriting or reordering any CSS declarations, into seven consecutive sections:
+`globals.css` (foundational styles), `legacy-simple.css`,
+`create-cinematic.css`, `legacy-instrument.css`,
+`training-lab.css`, `account-foundation.css` and
+`legacy-experiences.css`. All seven retain their original order in
+`app/layout.tsx`, ahead of the pre-existing design-tokens,
+autonomous, Studio intelligence and product-system layers.
+Some legacy feature style rules still overlap later cascade layers.
+Preserving those overlaps is intentional: further selector deduplication
+without pixel review risks changing Create/Studio/Live responsive behavior.
+The new `npm run test:css` compares the concatenated split exactly
+against `a4469d3:frontend/app/globals.css` and asserts the root layout
+import sequence, providing a deterministic CSS-ownership guard.
+
+A frontend TypeScript import/reference survey found eight **zero-byte**
+placeholders with no source/test references. Those empty files were deleted:
+`AIActivityFeed.tsx`, `AIMemory.tsx`,
+`AIPlanningStage.tsx`, `AIPresence.tsx`,
+`HeadphonesAudition.tsx`, `TrackUnderstanding.tsx`,
+`TransitionExplanation.tsx`, and `lib/ai-experience.ts`.
+Nonempty components and files with uncertain runtime ownership were
+intentionally retained.
+
+Create (`SimpleExperience`) and Studio (`ProWorkspace`) now call the
+existing shared `useTrackReadinessPolling` hook instead of maintaining
+identical per-screen polling effects. The same two-second refresh cadence,
+audio-folder query, readiness terminal states, transient error handling,
+and effect cleanup are retained. Authentication, planned job lifecycle,
+Executive and Live telemetry remain separately authoritative and unchanged.
+
+A new Playwright scenario asserts keyboard Space and Enter track selection
+on both desktop and mobile projects, including truthful
+`aria-pressed` state. It adds four project-level checks to the
+previous 36-test baseline, so the expected suite size is **40 tests**.
+
+### Phase 5.5 acceptance gate — OPERATOR VERIFICATION REQUIRED
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+cd frontend
+npm run test:css
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+npm audit --omit=dev
+```
+
+In addition to all command exits being clean, visually inspect desktop and
+mobile Create, Studio, Lab, Brain, Ready and Live for changed layout,
+visibility, overflow, and keyboard focus. The CSS reconstruction test
+proves source contents and global import order, but **not** browser-level
+computed style equivalence if the bundler changes CSS ordering.
+
+The passing 36-browser/9-job baseline and Phase 5.4 operator report are
+**pre-change evidence**, not proof this change set passed. Until the
+operator runs the new gate and inspects visuals, Phase 5 is **pending
+sign-off**. No rendered-music quality or venue safety gate is waived.
