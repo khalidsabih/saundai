@@ -42,4 +42,5 @@ jobs:
             tests/test_independent_overlap_audio_tempo.py \
             tests/test_tempo_consistency.py \
             tests/test_cue_onset_precision_audit.py \
+            tests/test_beat_sequence_counterfactual.py \
             tests/test_phase_lock_trace_summary.py
