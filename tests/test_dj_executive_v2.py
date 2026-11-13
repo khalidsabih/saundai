@@ -108,7 +108,7 @@ def test_v2_transactions_are_exact_program_commits_and_chain_state(tmp_path: Pat
         assert transaction["validation_passed"] is True
         assert transaction["phase_history"] == [
             "proposed", "brittleness_assessed", "thinking_budget_allocated",
-            "intent_created", "prepared", "intent_bound", "validated", "committed"
+            "intent_created", "prepared", "intent_bound", "backup_prepared", "validated", "committed"
         ]
         assert transaction["thinking_budget"]
         assert "execution_contract_valid" in transaction["validation_checks"]
