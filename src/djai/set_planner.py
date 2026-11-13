@@ -758,6 +758,7 @@ def _build_filtered_beam_route(
     config: CompleteMoveConfig,
     ensure_pairs: Callable[[Iterable[tuple[int, int]]], None] | None,
     timing_intent: SetTimingIntent | None = None,
+    adaptive_widths: Sequence[int] | None = None,
 ) -> _CompleteMoveRoute:
     """Search several model-filtered partial routes instead of greedily committing.
 
@@ -807,7 +808,28 @@ def _build_filtered_beam_route(
             )
         )
 
-    for _step in range(1, len(analyses)):
+    # In crate-aware mode retain real prefix states and widen only when the
+    # active frontier stalls. Bounded backtracking revisits a previous frontier
+    # rather than restarting three entire route searches from fresh openers.
+    widths = tuple(dict.fromkeys(
+        max(1, min(int(width), len(analyses) - 1))
+        for width in (adaptive_widths or (config.lazy_candidate_width,))
+    ))
+    width_levels = tuple(sorted(widths))
+    depth = 0
+    frontiers: list[list[_BeamRouteState]] = [list(beam)]
+    stages = [0] * len(analyses)
+    backtracks = 0
+    max_backtracks = max(0, min(24, int(os.environ.get("DJAI_ROUTE_BACKTRACK_BUDGET", "8"))))
+    best_partial = max(beam, key=lambda item: (len(item.order), item.score_total))
+    while depth < len(analyses) - 1:
+        beam = frontiers[depth]
+        candidate_width = width_levels[stages[depth]]
+        active_branch_width = (
+            min(6, max(branch_width, candidate_width - 1))
+            if adaptive_widths is not None
+            else branch_width
+        )
         expanded: list[_BeamRouteState] = []
         prepared_states: list[tuple[Any, ...]] = []
         pair_batch: set[tuple[int, int]] = set()
@@ -846,7 +868,7 @@ def _build_filtered_beam_route(
                 set_state=set_state,
                 journey=journey,
                 progress=timing_state.progress,
-                width=min(len(available), config.lazy_candidate_width),
+                width=min(len(available), candidate_width),
             )
             shortlisted = list(retrieval.selected)
             prepared_states.append(
@@ -897,7 +919,7 @@ def _build_filtered_beam_route(
                     -int(item[1].next_index),
                 ),
                 reverse=True,
-            )[:branch_width]
+            )[:active_branch_width]
 
             for route_score, candidate in branch:
                 retrieved = retrieval_by_index.get(candidate.next_index)
@@ -962,7 +984,21 @@ def _build_filtered_beam_route(
                 )
 
         if not expanded:
-            break
+            # No new candidate passed the *unchanged* exact move filters.
+            # Recover the same prefix at a broader shortlist, or backtrack
+            # to the nearest earlier frontier that has untried capacity.
+            retry_depth = depth
+            while retry_depth >= 0 and stages[retry_depth] + 1 >= len(width_levels):
+                retry_depth -= 1
+            if retry_depth < 0 or backtracks >= max_backtracks:
+                break
+            stages[retry_depth] += 1
+            backtracks += 1
+            depth = retry_depth
+            frontiers = frontiers[:depth + 1]
+            for later in range(depth + 1, len(stages)):
+                stages[later] = 0
+            continue
         expanded.sort(
             key=lambda item: (
                 len(item.order),
@@ -972,7 +1008,18 @@ def _build_filtered_beam_route(
             ),
             reverse=True,
         )
+        # Preserve the whole selected frontier at this depth; no completed
+        # prefix is rebuilt when the next depth needs a wider retrieval pass.
         beam = expanded[:beam_width]
+        next_best = max(beam, key=lambda item: (len(item.order), item.score_total))
+        if len(next_best.order) > len(best_partial.order) or (
+            len(next_best.order) == len(best_partial.order)
+            and next_best.score_total > best_partial.score_total
+        ):
+            best_partial = next_best
+        depth += 1
+        frontiers = frontiers[:depth]
+        frontiers.append(beam)
 
     completed = [
         state for state in beam
@@ -980,13 +1027,6 @@ def _build_filtered_beam_route(
         and (end_index is None or state.order[-1] == end_index)
     ]
     if not completed:
-        best_partial = max(
-            beam,
-            key=lambda item: (
-                len(item.order),
-                item.score_total / max(1, len(item.decisions)),
-            ),
-        )
         return _CompleteMoveRoute(
             order=best_partial.order,
             decisions=best_partial.decisions,
