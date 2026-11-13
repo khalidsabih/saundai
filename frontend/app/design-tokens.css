@@ -1,0 +1,88 @@
+/*
+ * SAUND production design tokens.
+ * Semantic names are intentional: product surfaces consume meaning, not raw colors.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Color */
+  --saund-color-bg: #0a0b0c;
+  --saund-color-surface: #101214;
+  --saund-color-surface-raised: #15181b;
+  --saund-color-text: #efede5;
+  --saund-color-text-muted: #96999c;
+  --saund-color-line: rgba(239, 236, 226, 0.1);
+  --saund-color-line-strong: rgba(239, 236, 226, 0.17);
+
+  /* Product semantics */
+  --saund-color-analysis: #7da8d8;
+  --saund-color-analysis-soft: rgba(125, 168, 216, 0.13);
+  --saund-color-commit: #e9ad58;
+  --saund-color-commit-soft: rgba(233, 173, 88, 0.14);
+  --saund-color-safe: #7eb794;
+  --saund-color-failure: #d47e77;
+
+  /* Typography */
+  --saund-font-size-xs: 10px;
+  --saund-font-size-sm: 12px;
+  --saund-font-size-md: 14px;
+  --saund-font-size-lg: 18px;
+  --saund-letter-label: 0.12em;
+  --saund-letter-display: -0.055em;
+
+  /* Space */
+  --saund-space-1: 4px;
+  --saund-space-2: 8px;
+  --saund-space-3: 12px;
+  --saund-space-4: 16px;
+  --saund-space-5: 20px;
+  --saund-space-6: 24px;
+  --saund-space-8: 32px;
+  --saund-space-10: 40px;
+  --saund-space-12: 48px;
+
+  /* Shape */
+  --saund-radius-sm: 10px;
+  --saund-radius-md: 14px;
+  --saund-radius-lg: 18px;
+  --saund-radius-pill: 999px;
+
+  /* Layout */
+  --saund-rail-width: 224px;
+  --saund-content-max: 1500px;
+
+  /* Motion */
+  --saund-motion-fast: 160ms;
+  --saund-motion-standard: 240ms;
+  --saund-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Compatibility aliases while legacy surfaces migrate. */
+  --saund-bg: var(--saund-color-bg);
+  --saund-panel: var(--saund-color-surface);
+  --saund-panel-raised: var(--saund-color-surface-raised);
+  --saund-line: var(--saund-color-line);
+  --saund-line-strong: var(--saund-color-line-strong);
+  --saund-ivory: var(--saund-color-text);
+  --saund-muted: var(--saund-color-text-muted);
+  --saund-blue: var(--saund-color-analysis);
+  --saund-blue-soft: var(--saund-color-analysis-soft);
+  --saund-amber: var(--saund-color-commit);
+  --saund-amber-soft: var(--saund-color-commit-soft);
+  --saund-green: var(--saund-color-safe);
+  --saund-red: var(--saund-color-failure);
+  --saund-rail: var(--saund-rail-width);
+  --saund-radius: var(--saund-radius-lg);
+}
+
+@media (max-width: 1050px) {
+  :root {
+    --saund-rail-width: 82px;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --saund-rail-width: 0px;
+  }
+}
