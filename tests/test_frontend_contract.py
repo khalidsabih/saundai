@@ -69,13 +69,13 @@ def test_opening_gate_has_mutable_soundtrack_and_click_handoff() -> None:
     enter_block = simple.split("function enterCreate()", 1)[1].split("async function ingest", 1)[0]
     assert "soundtrackRef.current?.start()" not in enter_block
     assert "setSoundtrackActive(false)" in enter_block
-    assert 'className={`saund-intro ${introExiting ? "is-exiting" : ""}`}' in simple
-    assert 'Enter SAUND.AI' in simple
+    assert 'className={`saund-intro autonomous-intro ${introExiting ? "is-exiting" : ""}`}' in simple
+    assert 'Start a session' in simple
     assert 'disabled={!introReady || introExiting}' in simple
     assert 'introProgressRef.current < 1' in simple
     assert 'ref={introProgressBarRef}' in simple
     assert 'onAnimationEnd={() => setIntroReady(true)}' not in simple
-    assert '{introReady ? "Begin" : "Opening"}' in simple
+    assert '{introReady ? "Enter the system" : "Opening"}' in simple
     assert 'saund-intro-locked' in simple
     assert 'height: 100dvh' in css
     assert 'overflow: hidden' in css
@@ -107,12 +107,14 @@ def test_frontend_uses_no_store_and_same_origin_api() -> None:
 def test_frontend_defaults_to_create_upload_and_playback() -> None:
     page = (FRONTEND / "app/page.tsx").read_text(encoding="utf-8")
     simple = (FRONTEND / "components/SimpleExperience.tsx").read_text(encoding="utf-8")
+    intent = (FRONTEND / "components/set/SetIntentPanel.tsx").read_text(encoding="utf-8")
+    finished = (FRONTEND / "components/FinishedSetPlayer.tsx").read_text(encoding="utf-8")
     api = (FRONTEND / "lib/api.ts").read_text(encoding="utf-8")
     assert 'useState<"create" | "studio">("create")' in page
     assert "createAutomaticSet" in simple
-    assert "Build set" in simple
-    assert "SAUND.AI" in simple
-    assert "Hear ahead." in simple
+    assert "Build my set" in intent
+    assert "Tell SAUND how the night should feel." in simple
+    assert "Perform Live" in finished
     assert "/api/sets/automatic" in api
     assert "/api/auth/me" in api
     assert "/api/auth/login" in api
@@ -125,15 +127,16 @@ def test_frontend_defaults_to_create_upload_and_playback() -> None:
 
 def test_create_allows_guest_setup_but_gates_build_on_account() -> None:
     simple = (FRONTEND / "components/SimpleExperience.tsx").read_text(encoding="utf-8")
+    crate = (FRONTEND / "components/music/CrateSelector.tsx").read_text(encoding="utf-8")
+    intent = (FRONTEND / "components/set/SetIntentPanel.tsx").read_text(encoding="utf-8")
     account_dialog = (FRONTEND / "components/AccountDialog.tsx").read_text(encoding="utf-8")
     session = (FRONTEND / "lib/session.tsx").read_text(encoding="utf-8")
-    assert 'create-dropzone create-dropzone--focus' in simple
+    assert 'className={`session-dropzone ${dragging ? "is-dragging" : ""}`}' in crate
     assert 'if (!account)' in simple
     assert 'setAccountDialogReason("build")' in simple
-    assert '"Build set"' in simple
-    assert 'Log in to build.' in account_dialog
+    assert '"Build my set"' in intent
+    assert 'Log in to start.' in account_dialog
     assert 'Your tracks and direction stay exactly as they are.' in account_dialog
-    assert 'You can keep choosing music without an account.' in account_dialog
     assert 'getAuthSession' in session
     assert 'signIn' in session and 'createAccount' in session and 'signOut' in session
 
@@ -148,7 +151,8 @@ def test_create_and_studio_share_session_and_brain_contract() -> None:
     assert "useSaundSession" in studio
     assert "createAutomaticSet" in simple
     assert "automatic_delivery: false" in studio
-    assert "Studio exposes the plan; it does not use a different planning brain." in studio
+    assert "Current Studio state" in studio
+    assert "Move brain" in studio
 
 
 def test_frontend_exposes_real_autonomous_dj_performance_state() -> None:
@@ -159,7 +163,7 @@ def test_frontend_exposes_real_autonomous_dj_performance_state() -> None:
     lab = (FRONTEND / "components/TrainingLab.tsx").read_text(encoding="utf-8")
     create = (FRONTEND / "components/SimpleExperience.tsx").read_text(encoding="utf-8")
 
-    assert "Studio / SAUND explains" in studio
+    assert "Current Studio state" in studio
     assert "Performance timeline" in plan
     assert "SAUND is performing the handoff" in inspector
     assert "Tempo handoff" in inspector
@@ -174,7 +178,7 @@ def test_frontend_exposes_real_autonomous_dj_performance_state() -> None:
     assert "Move brain" in studio
     assert "dj_move_brain" in (FRONTEND / "lib/types.ts").read_text(encoding="utf-8")
     assert "saund.ai.intro.seen.v1" in create
-    assert "DECK / STEM / LEARN" in create
+    assert "rehearses the hard moments" in create
 
 
 def test_release_ui_hides_engine_dashboard_details() -> None:
@@ -191,10 +195,10 @@ def test_release_ui_hides_engine_dashboard_details() -> None:
 
 
 def test_release_ui_has_accessible_selection_and_reorder_controls() -> None:
-    simple = (FRONTEND / "components/SimpleExperience.tsx").read_text(encoding="utf-8")
+    crate = (FRONTEND / "components/music/CrateSelector.tsx").read_text(encoding="utf-8")
     library = (FRONTEND / "components/TrackLibrary.tsx").read_text(encoding="utf-8")
     builder = (FRONTEND / "components/SetBuilder.tsx").read_text(encoding="utf-8")
-    assert "aria-pressed={selected}" in simple
+    assert "aria-pressed={selected}" in crate
     assert "aria-pressed={active}" in library
     assert "Move ${track.name} up" in builder
     assert "Move ${track.name} down" in builder
@@ -247,7 +251,7 @@ def test_account_foundation_two_exposes_private_project_history_and_studio_gate(
     assert 'credentials: "include"' in api
     assert 'withCredentials: true' in api
     assert '/api/account/projects' in api
-    assert 'Recent sets' in account
+    assert 'Recent sessions' in account
     assert 'getAccountProjects' in account
     assert 'requestProtectedAction' in studio
     assert 'setAccountDialogReason("build")' in studio
@@ -271,6 +275,8 @@ def test_release_candidate_status_is_visible_but_non_blocking_in_studio() -> Non
     types = (FRONTEND / "lib/types.ts").read_text(encoding="utf-8")
     assert "getReleaseReadiness" in studio
     assert 'getReleaseReadiness().catch(() => null)' in studio
-    assert "RC${release.candidate_number}" in studio
+    assert 'release.authority.planner_mode === "move_authoritative"' in studio
+    assert "Executive route" in studio
+    assert "Shadow route" in studio
     assert '"/api/release/readiness"' in api
     assert "ReleaseReadiness" in types
