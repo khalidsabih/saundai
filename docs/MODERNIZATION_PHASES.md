@@ -1,6 +1,6 @@
 # SAUND.AI modernization phases
 
-Status: **Phase 1 in progress**. This plan governs engineering consolidation on top of
+Status: **Phase 2 complete; Phase 3 in progress**. This plan governs engineering consolidation on top of
 the existing Phase 13–15 implementation; it does not replace the product feature
 roadmap in [ROADMAP.md](ROADMAP.md).
 
