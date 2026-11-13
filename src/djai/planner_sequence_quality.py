@@ -125,3 +125,58 @@ def select_nonautomatic_sequence_transition(
         listener_profile=listener_profile,
     )
     return chosen, None
+
+
+def select_automatic_without_professional_brain(
+    *,
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    plans: list[TransitionPlan],
+    quality_loop: QualityLoopConfig,
+    global_position: int,
+    from_index: int,
+    to_index: int,
+    journey: JourneyMode,
+    preferred_style: str,
+    render_context: TransitionRenderContext | None,
+    source_cursor: float,
+    required_exit: float,
+    current_effective_bpm: float,
+    current_rate: float,
+    select_automatic: Callable[..., TransitionPlan],
+) -> tuple[TransitionPlan, dict[str, object]]:
+    scores = {
+        plan.execution_signature: float(
+            plan.metadata.get(
+                "selection_utility",
+                plan.score,
+            )
+        )
+        for plan in plans
+    }
+    chosen = select_automatic(
+        track_a,
+        track_b,
+        plans,
+        analytical_scores=scores,
+        quality_config=quality_loop,
+        context={
+            "sequence_position": global_position,
+            "from_index": from_index,
+            "to_index": to_index,
+            "journey": journey,
+            "preferred_style": preferred_style,
+        },
+        render_context=render_context,
+        source_cursor=source_cursor,
+        preferred_exit_time=required_exit,
+        effective_bpm_a=current_effective_bpm,
+        render_rate_a=current_rate,
+    )
+    return chosen, {
+        "automatic_delivery": True,
+        "fallback_level": chosen.fallback_level,
+        "selected_measured_score": chosen.measured_score,
+        "selected_final_score": chosen.score,
+        "gate_passed": chosen.measurement_passed,
+    }
