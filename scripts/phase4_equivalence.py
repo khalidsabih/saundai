@@ -286,7 +286,63 @@ def capture(args: argparse.Namespace) -> int:
     render_seconds = None
     render_status = "not_requested"
     render_failure = None
+    render_diagnostics: list[dict[str, object]] = []
     if args.render:
+        # Instrument the existing verifier's measurement call. We do not
+        # override the verdict, mutate samples, or weaken any hard threshold.
+        import math
+        import numpy as np
+        import djai.set_renderer as renderer_module
+
+        original_measure = renderer_module.measure_transition_audio
+
+        def measured_with_diagnostics(*, pre, transition, post, sample_rate, plan, **kwargs):
+            measured = original_measure(
+                pre=pre, transition=transition, post=post,
+                sample_rate=sample_rate, plan=plan, **kwargs,
+            )
+            frames = max(256, int(round(sample_rate * 1.5)))
+            edge_frames = max(256, min(frames, max(1, transition.shape[-1] // 3)))
+
+            def rms_db(audio):
+                mono = np.asarray(audio, dtype=np.float64).mean(axis=0) if audio.ndim == 2 else np.asarray(audio, dtype=np.float64)
+                if mono.size == 0:
+                    return -120.0
+                return round(float(20 * math.log10(max(float(np.sqrt(np.mean(mono * mono) + 1e-12)), 1e-9))), 5)
+
+            pre_db = rms_db(pre[..., -frames:])
+            head_db = rms_db(transition[..., :edge_frames])
+            tail_db = rms_db(transition[..., -edge_frames:])
+            post_db = rms_db(post[..., :frames])
+            start_jump = round(abs(head_db - pre_db), 5)
+            end_jump = round(abs(post_db - tail_db), 5)
+            render_diagnostics.append({
+                "edge_index": len(render_diagnostics),
+                "from_track": plan.track_a,
+                "to_track": plan.track_b,
+                "execution_signature": plan.execution_signature,
+                "technique": plan.technique,
+                "transition_mode": plan.transition_mode,
+                "exit_time_a": plan.exit_time_a,
+                "entry_time_b": plan.entry_time_b,
+                "sample_rate": sample_rate,
+                "rms_db": {
+                    "pre_tail": pre_db,
+                    "transition_head": head_db,
+                    "transition_tail": tail_db,
+                    "post_head": post_db,
+                },
+                "rms_jump_db": {
+                    "start": start_jump,
+                    "end": end_jump,
+                },
+                "failure_boundary": "start" if start_jump >= end_jump else "end",
+                "hard_failures": list(measured.hard_failures),
+                "warnings": list(measured.warnings),
+            })
+            return measured
+
+        renderer_module.measure_transition_audio = measured_with_diagnostics
         started = time.perf_counter()
         try:
             render_path, _report_path = render_set(
@@ -314,6 +370,7 @@ def capture(args: argparse.Namespace) -> int:
         "rendered_pcm": rendered,
         "render_status": render_status,
         "render_failure": render_failure,
+        "render_diagnostics": render_diagnostics,
         "timing_seconds": {
             "analysis": round(analysis_seconds, 4),
             "planning": round(planning_seconds, 4),
@@ -438,6 +495,19 @@ def compare(args: argparse.Namespace) -> int:
         )
         print(f"  baseline failure: {baseline.get('render_failure')!r}")
         print(f"  current failure:  {current.get('render_failure')!r}")
+        for label, report in (("baseline", baseline), ("current", current)):
+            diagnostics = report.get("render_diagnostics") or []
+            if diagnostics:
+                print(f"  {label} render diagnostics:")
+                for edge in diagnostics:
+                    print(
+                        f"    edge {edge['edge_index'] + 1} "
+                        f"{edge['technique']} at {edge['exit_time_a']:.3f}s: "
+                        f"start={edge['rms_jump_db']['start']:.2f}dB, "
+                        f"end={edge['rms_jump_db']['end']:.2f}dB; "
+                        f"worst={edge['failure_boundary']}"
+                    )
+                    print(f"      RMS levels: {edge['rms_db']}")
         return 2
     if baseline_render_status != current_render_status:
         print("FAILED: differing render statuses.", file=sys.stderr)
