@@ -156,7 +156,6 @@ def capture(args: argparse.Namespace) -> int:
         # sealing and final edge selection. The pre-extraction planner imports
         # this callback in set_planner; the refactor imports it in its helper.
         import dataclasses
-        import djai.planner as transition_planner
 
         def evidence_digest(matrix):
             if matrix is None:
@@ -200,13 +199,19 @@ def capture(args: argparse.Namespace) -> int:
                 return candidates
             return traced
 
-        if hasattr(planner_module, "plan_transition_candidate_pool"):
-            original_pool = planner_module.plan_transition_candidate_pool
-            planner_module.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
-        else:
+        # set_planner retains its historical imported symbol after extraction,
+        # but its current compiler calls the private helper's imported symbol.
+        # Only wrap the symbol used by the active compiler to avoid duplicates.
+        if getattr(planner_module._compile_sequence_edges, "__code__", None) is not None and (
+            "_build_sequence_candidate_pool"
+            in planner_module._compile_sequence_edges.__code__.co_names
+        ):
             import djai.planner_sequence_candidates as sequence_candidates
             original_pool = sequence_candidates.plan_transition_candidate_pool
             sequence_candidates.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
+        else:
+            original_pool = planner_module.plan_transition_candidate_pool
+            planner_module.plan_transition_candidate_pool = trace_candidate_pool(original_pool)
 
     started = time.perf_counter()
     plan = make_set_plan(
