@@ -18,6 +18,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from . import __version__
+from .api_training_routers import register_training_routers
 from .accounts import AccountExistsError, AccountStore
 from .hosting import HostingConfig, SlidingWindowRateLimiter, invite_code_allowed
 from .object_store import ObjectStore, remove_materialized_tree
@@ -2259,19 +2260,16 @@ def release_benchmark_status() -> dict[str, Any]:
     return benchmark_runtime_status(WORKSPACE)
 
 
-@app.get("/api/dataset-builder/sources")
 def get_dataset_builder_sources() -> dict[str, Any]:
     _require_training_lab()
     return source_catalog()
 
 
-@app.get("/api/dataset-builder/status")
 def get_dataset_builder_status() -> dict[str, Any]:
     _require_training_lab()
     return dataset_builder_status(WORKSPACE)
 
 
-@app.post("/api/dataset-builder/build")
 def build_dataset_builder_corpus(
     name: str = Query(default="bootstrap-v1", min_length=1, max_length=80),
     production: bool = Query(default=False),
@@ -2285,7 +2283,6 @@ def build_dataset_builder_corpus(
     return {"corpus_id": manifest.get("corpus_id", corpus.name), "corpus_path": _relative(corpus), "manifest": manifest}
 
 
-@app.post("/api/dataset-builder/train")
 def train_dataset_builder_shadows(
     corpus_id: str | None = Query(default=None, min_length=1, max_length=160),
 ) -> dict[str, Any]:
@@ -2299,19 +2296,16 @@ def train_dataset_builder_shadows(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.get("/api/training-lab/status")
 def get_training_lab_status() -> dict[str, Any]:
     _require_training_lab()
     return training_lab_status(WORKSPACE)
 
 
-@app.get("/api/training-lab/sessions")
 def get_training_lab_sessions(limit: int = Query(default=30, ge=1, le=200)) -> dict[str, Any]:
     _require_training_lab()
     return {"sessions": list_training_sessions(WORKSPACE, limit=limit)}
 
 
-@app.post("/api/training-lab/snapshot")
 def snapshot_training_lab_dataset(request: TrainingSnapshotRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2326,7 +2320,6 @@ def snapshot_training_lab_dataset(request: TrainingSnapshotRequest) -> dict[str,
     }
 
 
-@app.post("/api/training-lab/train")
 def train_training_lab_shadow_model(request: TrainingLabTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     snapshot_id = request.snapshot_id
@@ -2342,13 +2335,11 @@ def train_training_lab_shadow_model(request: TrainingLabTrainRequest) -> dict[st
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.get("/api/training-lab/taste-status")
 def get_taste_learning_status() -> dict[str, Any]:
     _require_training_lab()
     return taste_learning_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/real-taste/train")
 def train_real_taste(request: TrainingLabTrainRequest) -> dict[str, Any]:
     _require_training_lab()
     return train_real_taste_from_snapshot(
@@ -2358,13 +2349,11 @@ def train_real_taste(request: TrainingLabTrainRequest) -> dict[str, Any]:
     )
 
 
-@app.get("/api/training-lab/real-taste/status")
 def get_real_taste_status() -> dict[str, Any]:
     _require_training_lab()
     return real_taste_status(WORKSPACE)
 
 
-@app.post("/api/training-lab/human-release/lock")
 def lock_training_lab_human_release(request: HumanReleaseLockRequest) -> dict[str, Any]:
     _require_training_lab()
     output = Path(request.output_path).expanduser() if request.output_path else WORKSPACE / HUMAN_RELEASE_DEFAULT_MANIFEST
@@ -2388,7 +2377,6 @@ def lock_training_lab_human_release(request: HumanReleaseLockRequest) -> dict[st
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.post("/api/training-lab/human-release/session")
 def create_training_lab_human_release_session(request: HumanReleaseSessionRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2408,7 +2396,6 @@ def create_training_lab_human_release_session(request: HumanReleaseSessionReques
     }
 
 
-@app.post("/api/training-lab/human-release/vote")
 def save_training_lab_human_release_vote(request: HumanReleaseVoteRequest) -> dict[str, Any]:
     _require_training_lab()
     try:
@@ -2428,13 +2415,34 @@ def save_training_lab_human_release_vote(request: HumanReleaseVoteRequest) -> di
     }
 
 
-@app.get("/api/training-lab/human-release/report")
 def get_training_lab_human_release_report() -> dict[str, Any]:
     _require_training_lab()
     try:
         return human_release_report(WORKSPACE)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+register_training_routers(
+    app,
+    {
+        "get_dataset_builder_sources": get_dataset_builder_sources,
+        "get_dataset_builder_status": get_dataset_builder_status,
+        "build_dataset_builder_corpus": build_dataset_builder_corpus,
+        "train_dataset_builder_shadows": train_dataset_builder_shadows,
+        "get_training_lab_status": get_training_lab_status,
+        "get_training_lab_sessions": get_training_lab_sessions,
+        "snapshot_training_lab_dataset": snapshot_training_lab_dataset,
+        "train_training_lab_shadow_model": train_training_lab_shadow_model,
+        "get_taste_learning_status": get_taste_learning_status,
+        "train_real_taste": train_real_taste,
+        "get_real_taste_status": get_real_taste_status,
+        "lock_training_lab_human_release": lock_training_lab_human_release,
+        "create_training_lab_human_release_session": create_training_lab_human_release_session,
+        "save_training_lab_human_release_vote": save_training_lab_human_release_vote,
+        "get_training_lab_human_release_report": get_training_lab_human_release_report,
+    },
+)
 
 
 @app.get("/api/live/manifest")
