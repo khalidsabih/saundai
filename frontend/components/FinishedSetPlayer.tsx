@@ -7,6 +7,7 @@ import { PerformanceRibbon, type TransitionFeedback } from "./set/PerformanceRib
 import { SetSummary } from "./set/SetSummary";
 import { FeedbackButtons } from "./FeedbackButtons";
 import { Icon } from "./Icon";
+import { AppShell } from "./product/AppShell";
 
 export function FinishedSetPlayer({
   result,
@@ -27,16 +28,9 @@ export function FinishedSetPlayer({
   const [transitionFeedback, setTransitionFeedback] = useState<Record<number, TransitionFeedback>>({});
 
   return (
-    <main className="session-ready-shell">
-      <header className="autonomous-topbar autonomous-topbar--ready">
-        <a className="autonomous-brand" href="#top" aria-label="SAUND.AI">
-          <span className="saund-wordmark"><strong>SAUND</strong><i>.</i><strong>AI</strong></span>
-          <small>Autonomous DJ</small>
-        </a>
-        <div className="session-ready__state"><i /> SET READY</div>
-      </header>
-
-      <section className="session-ready">
+    <AppShell active="create" onOpenBrain={onOpenBrain}>
+      <main className="session-ready-shell">
+        <section className="session-ready">
         <div className="session-ready__hero">
           <span className="autonomous-kicker">READY</span>
           <h1>Your set is ready.</h1>
@@ -123,7 +117,8 @@ export function FinishedSetPlayer({
           <button type="button" onClick={onReset}>New session</button>
           <span>Brain imagines · Executive commits · Executor performs</span>
         </footer>
-      </section>
-    </main>
+        </section>
+      </main>
+    </AppShell>
   );
 }
