@@ -3928,18 +3928,17 @@ def make_set_plan(
         nonlocal route_search_calls
         started = time.perf_counter()
         route_search_calls += 1
+        sparse_failure = False
         try:
             return _choose_automatic_order_impl(active_blocked)
         except SparseRouteExhaustedError as exc:
+            sparse_failure = True
             route_search_seconds += time.perf_counter() - started
             exc.diagnostics["route_search_seconds"] = round(route_search_seconds, 6)
             exc.diagnostics["route_search_calls"] = route_search_calls
             raise
         finally:
-            if not (
-                "exc" in locals()
-                and isinstance(locals().get("exc"), SparseRouteExhaustedError)
-            ):
+            if not sparse_failure:
                 route_search_seconds += time.perf_counter() - started
 
     def _complete_move_preferences(selected_order: list[int]) -> dict[tuple[int, int], CompleteMoveDecision] | None:
