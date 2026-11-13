@@ -10,6 +10,7 @@ from ..measurement_store import append_measurement_records, measurement_record
 from ..planning_context import PairEvidenceMatrix
 from ..planner import DifficultTransitionError, rank_transition_candidates
 from .candidate_generator import diversify_transition_candidates
+from .crate_topk import crate_aware_topk_enabled
 from .crowd_state import CrowdDirective
 from .professional import BrainSelection, ProfessionalBrainConfig, rehearse_candidate_pool
 from .proposal import attach_transition_proposal
@@ -249,7 +250,13 @@ def _candidate_pool(
     )
     if not ranked:
         return [], durations
-    # Preserve genuinely different musical programs before the expensive render.
+    # Give the authorized, previously trained taste ranker first choice of the
+    # rehearsal pilot. Without validated model authority, its existing helper
+    # returns the deterministic ordering unchanged. Audio gates remain final.
+    if crate_aware_topk_enabled():
+        from ..intelligence.transition_ranker import rank_transition_plans
+
+        ranked = rank_transition_plans(ranked)
     count = min(len(ranked), max(1, int(finalist_budget)))
     return diversify_transition_candidates(ranked, count=count, diversity_weight=0.30), durations
 
