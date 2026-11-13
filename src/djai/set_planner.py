@@ -3754,8 +3754,12 @@ def make_set_plan(
     default_replans = max(3, min(8, (len(analyses) + 1) // 2))
     max_replans = max(1, min(48, int(os.environ.get("DJAI_MAX_SET_REPLANS", str(default_replans)))))
     complete_move_runs: list[_CompleteMoveRoute] = []
+    route_search_seconds = 0.0
+    route_search_calls = 0
+    compile_seconds = 0.0
+    compile_calls = 0
 
-    def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
+    def _choose_automatic_order_impl(active_blocked: set[tuple[int, int]]) -> list[int]:
         route: _CompleteMoveRoute | None = None
         if broad_graph_materialized:
             return optimize_order(
@@ -3888,6 +3892,16 @@ def make_set_plan(
             blocked_pairs=active_blocked,
         )
 
+    def _choose_automatic_order(active_blocked: set[tuple[int, int]]) -> list[int]:
+        nonlocal route_search_seconds
+        nonlocal route_search_calls
+        started = time.perf_counter()
+        route_search_calls += 1
+        try:
+            return _choose_automatic_order_impl(active_blocked)
+        finally:
+            route_search_seconds += time.perf_counter() - started
+
     def _complete_move_preferences(selected_order: list[int]) -> dict[tuple[int, int], CompleteMoveDecision] | None:
         if complete_move_cfg.mode != "move_authoritative" or not complete_move_runs:
             return None
@@ -3919,7 +3933,7 @@ def make_set_plan(
             key = tuple(order_value[: count + 1])
             prepared_prefix_cache[key] = list(edges[:count])
 
-    def _compile_for_executive(
+    def _compile_for_executive_impl(
         selected_order: list[int],
         replan_on_review: bool,
         allow_emergency_escape: bool,
@@ -3992,6 +4006,24 @@ def make_set_plan(
                 resolution=exc.resolution,
             ) from exc
 
+    def _compile_for_executive(
+        selected_order: list[int],
+        replan_on_review: bool,
+        allow_emergency_escape: bool,
+    ) -> list[TransitionEdge]:
+        nonlocal compile_seconds
+        nonlocal compile_calls
+        started = time.perf_counter()
+        compile_calls += 1
+        try:
+            return _compile_for_executive_impl(
+                selected_order,
+                replan_on_review,
+                allow_emergency_escape,
+            )
+        finally:
+            compile_seconds += time.perf_counter() - started
+
     def _latest_complete_move_decisions() -> tuple[CompleteMoveDecision, ...]:
         if not complete_move_runs:
             return ()
@@ -4006,6 +4038,7 @@ def make_set_plan(
         max_replans=max_replans,
         progress=progress,
     )
+    executive_started = time.perf_counter()
     executive_result = executive_orchestrator.run_prepared_set(
         manual_order=(list(manual_order) if manual_order is not None else None),
         choose_order=_choose_automatic_order,
@@ -4013,6 +4046,7 @@ def make_set_plan(
         decisions=_latest_complete_move_decisions,
         top_alternatives=complete_move_cfg.report_top_k,
     )
+    executive_seconds = time.perf_counter() - executive_started
     order = list(executive_result.order)
     transitions = list(executive_result.transitions)
     blocked_pairs = set(executive_result.blocked_pairs)
@@ -4323,7 +4357,16 @@ def make_set_plan(
             "minimum_body_seconds": minimum_body_seconds,
             "minimum_body_fraction": minimum_body_fraction,
             "directed_edge_count": len(graph),
-            "performance": {"planning": session.to_dict()},
+            "performance": {
+                "planning": {
+                    **session.to_dict(),
+                    "route_search_seconds": round(route_search_seconds, 6),
+                    "route_search_calls": route_search_calls,
+                    "compile_rehearsal_seconds": round(compile_seconds, 6),
+                    "compile_rehearsal_calls": compile_calls,
+                    "executive_seconds": round(executive_seconds, 6),
+                }
+            },
             "large_crate_planning": {
                 "enabled": len(analyses) >= _large_set_threshold(),
                 "track_count": len(analyses),
