@@ -31,6 +31,48 @@ from djai.renderer import _render_transition_window
 from djai.version import DJAI_VERSION, PLAN_SCHEMA_VERSION
 
 
+def test_emergency_entry_prefers_audible_continuous_cue(tmp_path) -> None:
+    import soundfile as sf
+
+    from conftest import candidate
+    from djai.fallback import _loudness_aware_emergency_entry
+
+    sample_rate = 8_000
+    seconds = 80
+    samples = np.zeros(seconds * sample_rate, dtype=np.float32)
+    t = np.arange(samples.size, dtype=np.float32) / sample_rate
+    # First structurally stronger cue is nearly silent; later cue is audible.
+    samples[16 * sample_rate:20 * sample_rate] = 0.001 * np.sin(
+        2 * np.pi * 220 * t[16 * sample_rate:20 * sample_rate]
+    )
+    samples[32 * sample_rate:37 * sample_rate] = 0.18 * np.sin(
+        2 * np.pi * 220 * t[32 * sample_rate:37 * sample_rate]
+    )
+    path = tmp_path / "entry.wav"
+    sf.write(path, samples, sample_rate)
+
+    track = analysis(path, bpm=120.0)
+    quiet = candidate("entry", 16.0, 8, "groove", bpm=120.0, score=0.95)
+    audible = candidate("entry", 32.0, 16, "groove", bpm=120.0, score=0.8)
+    track.duration_seconds = float(seconds)
+    track.entry_candidates = [quiet, audible]
+
+    chosen = _loudness_aware_emergency_entry(
+        track, transition_seconds=1.8, original=quiet
+    )
+    assert chosen is audible
+
+
+def test_emergency_entry_preserves_original_when_audio_missing(track_pair) -> None:
+    from djai.fallback import _loudness_aware_emergency_entry
+
+    _, track = track_pair
+    original = track.entry_candidates[0]
+    assert _loudness_aware_emergency_entry(
+        track, transition_seconds=1.8, original=original
+    ) is original
+
+
 def test_6_versions_and_executable_program(track_pair) -> None:
     track_a, track_b = track_pair
     plan = plan_transition(track_a, track_b, force=True, style="safe")
