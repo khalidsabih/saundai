@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,13 @@ def main() -> None:
         shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True)
 
+    # Keep graph-pair results inside the benchmark's own cold/warm cache root.
+    # Previously the benchmark reset only its analysis cache, while the graph
+    # builder used DJAI_CACHE_DIR (or the worktree's global .djai-cache).
+    # That made every nominally cold graph run a 100%-cache-hit run.
+    graph_cache_root = root / "graph-runtime"
+    os.environ["DJAI_CACHE_DIR"] = str(graph_cache_root)
+
     parallel_analyses, parallel_analysis_stats = analyze_once(
         tracks,
         cache_dir=root / "parallel-analysis",
@@ -137,6 +145,8 @@ def main() -> None:
         "unique_cue_pair_count": evaluated_cue_pairs,
         "one_compatibility_evaluation_per_cue_pair": True,
         "graph_mode": parallel_session.graph_mode,
+        "graph_cache_isolated": True,
+        "graph_cache_root": str(graph_cache_root),
         "parallel": {
             "analysis": parallel_analysis_stats.to_dict(),
             "graph": parallel_session.to_dict(),
