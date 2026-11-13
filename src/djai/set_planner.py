@@ -1180,6 +1180,7 @@ def build_complete_move_route(
                 listener=listener,
                 ensure_pairs=ensure_pairs,
                 timing_intent=timing_intent,
+                listen_to_moves=listen_to_complete_moves,
             )
             for opener in openers
         ]
@@ -1228,6 +1229,7 @@ def build_complete_move_route(
         listener=listener,
         ensure_pairs=ensure_pairs,
         timing_intent=timing_intent,
+        listen_to_moves=listen_to_complete_moves,
     )
     return committed if committed.completed else best_scout
 
