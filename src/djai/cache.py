@@ -79,6 +79,10 @@ def discover_tracks(folder: str | Path, *, recursive: bool = False) -> list[Path
     return sorted(primary, key=lambda path: path.name.casefold())
 
 
+def _tempo_consistency_enabled() -> bool:
+    return os.environ.get("DJAI_TEMPO_CONSISTENCY", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def fingerprint_file(
     path: str | Path,
     *,
@@ -98,6 +102,7 @@ def fingerprint_file(
     digest = hashlib.sha256()
     digest.update(cache_schema_version.encode("utf-8"))
     digest.update(analysis_version.encode("utf-8"))
+    digest.update(b"tempo-consistency-on" if _tempo_consistency_enabled() else b"tempo-consistency-off")
     digest.update(str(resolved).encode("utf-8"))
     digest.update(str(stat.st_size).encode("ascii"))
     digest.update(str(stat.st_mtime_ns).encode("ascii"))
@@ -135,6 +140,8 @@ def _load_cached_analysis(
         if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
             return None
         if payload.get("analysis_version") != ANALYSIS_VERSION:
+            return None
+        if bool(payload.get("tempo_consistency_enabled", False)) != _tempo_consistency_enabled():
             return None
         if payload.get("fingerprint") != fingerprint:
             return None
@@ -178,10 +185,11 @@ def analyze_track_cached(
         )
         if analysis is not None:
             # Transparently migrate legacy warm caches into the modular store.
-            _sync_feature_store(analysis, cache_dir=cache_root)
+            if not _tempo_consistency_enabled():
+                _sync_feature_store(analysis, cache_dir=cache_root)
             return CachedAnalysis(analysis, True, fingerprint, cache_path, "legacy")
 
-    if use_cache:
+    if use_cache and not _tempo_consistency_enabled():
         # 1.6.1 can recover a complete current TrackAnalysis from independently
         # versioned projections even when the monolithic cache is absent.
         try:
@@ -209,11 +217,13 @@ def analyze_track_cached(
         "schema_version": CACHE_SCHEMA_VERSION,
         "analysis_version": ANALYSIS_VERSION,
         "fingerprint": fingerprint,
+        "tempo_consistency_enabled": _tempo_consistency_enabled(),
         "path": str(resolved),
         "analysis": analysis.to_dict(include_beats=True),
     }
     _atomic_json_write(cache_path, payload)
-    _sync_feature_store(analysis, cache_dir=cache_root)
+    if not _tempo_consistency_enabled():
+        _sync_feature_store(analysis, cache_dir=cache_root)
     return CachedAnalysis(analysis, False, fingerprint, cache_path, "analysis")
 
 
