@@ -32,4 +32,6 @@ jobs:
             tests/test_complete_djmove_generator_1_7.py \
             tests/test_phases_13_15_reliability.py \
             tests/test_dj_executive_v5_prepared_recovery.py \
-            tests/test_full_set_benchmark_1_0.py
+            tests/test_full_set_benchmark_1_0.py \
+            tests/test_milestone1_four_track.py \
+            tests/test_phase_lock_trace_summary.py
