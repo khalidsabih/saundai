@@ -12,6 +12,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The frontend owns its own lockfile; do not infer a parent workspace root.
+  outputFileTracingRoot: process.cwd(),
+  turbopack: { root: process.cwd() },
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
