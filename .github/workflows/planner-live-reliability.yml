@@ -36,4 +36,5 @@ jobs:
             tests/test_milestone1_four_track.py \
             tests/test_ai_knowledge_audit.py \
             tests/test_world_model_utilization_audit.py \
+            tests/test_decision_trace.py \
             tests/test_phase_lock_trace_summary.py
