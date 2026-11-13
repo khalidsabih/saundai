@@ -120,3 +120,20 @@ workflow assertions remain.
 `npm run e2e` after pulling these commits. The current suite is **not
 claimed green** until the operator reports results. Audit dependency
 advisories separately from Playwright failures.
+
+## Third Playwright run (2026-11-13)
+
+Operator reports **28 passed / 8 failed** across Chromium, Firefox, WebKit
+and mobile. The remaining eight are the same two named scenarios on
+all four browser projects:
+
+- `live performance makes NOW, NEXT, FUTURE and the Executive the product surface`
+- `Brain is a first-class autonomous system view and Studio is separate`
+
+The Brain test expected the obsolete heading `Complex underneath` whereas
+the verified `BrainWorkspace.tsx` heading is
+`See what SAUND actually knows.`. The heading assertion was updated;
+the remaining architecture and state tests are untouched. The Live
+scenario's error line was not included in the provided summary. Keep it
+open and inspect one targeted Playwright failure before editing Live
+assertions or runtime behavior. Repeat tests to verify all changes.
