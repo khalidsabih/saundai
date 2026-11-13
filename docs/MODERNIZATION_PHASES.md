@@ -71,6 +71,9 @@ including repairs to source-text tests that incorrectly required decorators
 to remain in `api.py`. The large-crate test also verifies the extracted
 order optimizer respects injectable legacy planning hooks.
 
+For exact operator commands and the fixed pre-extraction commit, see
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
 **Not yet certified for Phase 4 exit:** a recorded before/after fixed-fixture
 execution-signature and exact-render comparison, plus comparable planner
 latency/resource benchmark evidence. Existing regression tests cover individual
