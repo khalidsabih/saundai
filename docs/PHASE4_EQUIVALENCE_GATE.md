@@ -196,8 +196,45 @@ on both paths and therefore tests determinism rather than parallel scaling.
 After this measurement, `scripts/benchmark.py` was updated to point
 `DJAI_CACHE_DIR` at the benchmark-controlled graph cache root, so a
 nominally cold run cannot accidentally reuse a worktree's preexisting
-graph-pair cache. The operator must repeat at least the cold graph
-measurements with the updated script. Expected cold evidence has 0/156
-graph-pair cache hits (for the first graph build) and 156/156 on the warm
-run. Before calling Phase 4 finished, review those timings and any
-larger-crate end-to-end planner timing/resource regressions separately.
+graph-pair cache. The operator subsequently repeated the cold graph measurements with the
+updated script and confirmed 0/156 graph hits during the first graph build,
+followed by 156/156 hits for the serial comparison. See the uncached
+results below. Broader end-to-end planner timing/resource measurements and
+the final Phase 4 benchmark exit decision remain separate.
+
+## 13-track isolated cold graph — PASS (November 13, 2026)
+
+The operator reran the same 13-track fixture with isolated
+`DJAI_CACHE_DIR` and `DJAI_CONFIG_DIR="$SAUND_MAIN/config"`, one
+graph worker, and the same scoring-model fingerprint
+`d98eaf8cd7af928d` in both worktrees.
+
+| First cold stage | Baseline | Refactored current |
+| --- | ---: | ---: |
+| Analysis time | 177.637488 s | 176.457204 s |
+| Analysis cache hits | 0/13 | 0/13 |
+| Graph computation time | 19.948242 s | 20.068013 s |
+| Graph cache hits/misses | 0/156; 156 misses | 0/156; 156 misses |
+| Graph scout cue pairs | 3,900 | 3,900 |
+| Serial graph cache replay | 1.256977 s | 1.241686 s |
+| Serial graph cache hits | 156/156 | 156/156 |
+| Deterministic signature match | true | true |
+
+Evidence: `output/phase4-evidence/benchmark-baseline-cold-graph.json`
+and `output/phase4-evidence/benchmark-current-cold-graph.json`.
+
+The observed cold graph delta is +0.119771 s (+0.60%) for the refactor,
+and cold analysis is -1.180284 s (-0.66%). Neither is evidence of a
+meaningful regression or statistically proven improvement without
+repeated measurements. Note that `--graph-workers 1 --compare-serial`
+does not measure multiprocessing scaling: the second serial graph
+execution is a warm-cache replay.
+
+**Checkpoint decision:** the Phase 4 graph extraction has reproducible
+cold-graph and warm-graph evidence with no observed material regression,
+in addition to the previously passed fixed-fixture decoded-PCM equivalence
+and supported Python suite. The broader 13-track *end-to-end* set planner
+latency and process resource profile (including route, sequence compile,
+rehearsal, fallbacks) have not been captured as controlled before/after
+benchmark evidence. Do not imply that the graph-only benchmark covers these
+stages or conclude a production-quality release gate from it.
