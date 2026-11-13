@@ -1601,6 +1601,14 @@ def _compile_sequence_edges(
             state_context_id=state_context_id,
         )
 
+        # Opt-in evidence only: this is the sequence pool presented before
+        # professional rehearsal, not the professional solver's full search tree.
+        if os.environ.get("DJAI_DECISION_TRACE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            from .decision_trace import candidate_pool_trace
+            sequence_candidate_trace = candidate_pool_trace(all_plans)
+        else:
+            sequence_candidate_trace = None
+
         policy_context = _apply_sequence_transition_policy(
             all_plans,
             journey=journey,
@@ -1855,6 +1863,11 @@ def _compile_sequence_edges(
             edge_from_plan=_edge_from_plan,
             validate_plan=validate_execution_plan,
         )
+        if sequence_candidate_trace is not None:
+            edge.plan.metadata = {
+                **edge.plan.metadata,
+                "decision_trace_sequence_candidates": sequence_candidate_trace,
+            }
         compiled.append(edge)
     return compiled
 
