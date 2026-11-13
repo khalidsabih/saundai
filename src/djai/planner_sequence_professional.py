@@ -133,3 +133,67 @@ def resolve_professional_sequence_transition(
         measurement_summary=None,
         needs_emergency_escape=True,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class EmergencyResolutionOutcome:
+    selected: TransitionPlan | None
+    measurement_summary: dict[str, object] | None
+    emergency_resolution: dict[str, object]
+
+
+def resolve_professional_emergency_escape(
+    *,
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    matrix: PairEvidenceMatrix,
+    professional_config: Any,
+    current_effective_bpm: float,
+    current_rate: float,
+    stems_available: bool,
+    set_state: Any,
+    journey: JourneyMode,
+    journey_progress: float,
+    listener: str | None,
+    quality_loop: QualityLoopConfig,
+    global_position: int,
+    from_index: int,
+    to_index: int,
+    render_context: TransitionRenderContext | None,
+    resolve_emergency_escape: Callable[..., Any],
+) -> EmergencyResolutionOutcome:
+    emergency = resolve_emergency_escape(
+        track_a,
+        track_b,
+        evidence_matrix=matrix,
+        professional_config=professional_config,
+        effective_bpm_a=current_effective_bpm,
+        render_rate_a=current_rate,
+        stems_available=stems_available,
+        set_state=set_state,
+        journey=journey,
+        journey_progress=journey_progress,
+        listener=listener,
+        measurement_log_path=quality_loop.log_path,
+        context={
+            "mode": "set_sequence_final_escape",
+            "sequence_position": global_position,
+            "from_index": from_index,
+            "to_index": to_index,
+        },
+        render_context=render_context,
+    )
+    payload = emergency.to_dict()
+    return EmergencyResolutionOutcome(
+        selected=(
+            emergency.selected
+            if emergency.accepted
+            else None
+        ),
+        measurement_summary=(
+            payload
+            if emergency.accepted
+            else None
+        ),
+        emergency_resolution=payload,
+    )
