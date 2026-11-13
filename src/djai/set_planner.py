@@ -900,8 +900,8 @@ def _order_score(
         total -= 0.015 * sum(max(0.0, abs(b - a) - 8.0) / 8.0 for a, b in zip(bpms, bpms[1:]))
     total += 0.55 * curve_fit_score(order, analyses, journey=journey)
 
-    # Professional Set Brain: evaluate each candidate in the context of the
-    # musical history, not only as an isolated A->B edge.  This adds a bounded
+    # Set-state contextual scoring: evaluate each candidate in the context of
+    # musical history, not only as an isolated A->B edge. This adds a bounded
     # multi-dimensional story score (energy/tension/groove/vocals/brightness/
     # novelty) while the directed edge graph remains the hard local backbone.
     prefix: list[TrackAnalysis] = []
@@ -2426,7 +2426,7 @@ def _dedupe_plans(plans: list[TransitionPlan]) -> list[TransitionPlan]:
 
 
 def _complete_move_preference_score(plan: TransitionPlan, decision: CompleteMoveDecision) -> float:
-    """Measure how closely a path-dependent plan preserves a generated 1.7 move.
+    """Measure how closely a path-dependent plan preserves the complete-move proposal.
 
     The final compiler is allowed to substitute a safer/rehearsed plan, but in
     move_authoritative mode it should preserve the generator's concrete timing
@@ -3736,7 +3736,7 @@ def make_set_plan(
     headphones_cfg = AIHeadphonesConfig.from_environment()
     lazy_graph_authority = complete_move_cfg.mode == "move_authoritative" and manual_order is None
     if lazy_graph_authority:
-        # 1.7.1 materializes graph edges only as the move search reaches them.
+        # Authoritative complete-move search materializes graph edges only as needed.
         graph: dict[tuple[int, int], TransitionEdge] = {}
         session.graph_mode = "lazy"
     else:
@@ -4118,7 +4118,7 @@ def make_set_plan(
     dj_executive_report = dict(executive_result.executive_report)
     if lazy_graph_authority:
         # Scoring diagnostics need only the adjacent baseline/final edges, not
-        # the full N*(N-1) graph. Keep 1.7.1 sparse even for reporting.
+        # the full N*(N-1) graph. Keep authoritative search sparse even for reporting.
         _ensure_graph_pairs(
             list(zip(baseline_order, baseline_order[1:])) + list(zip(order, order[1:]))
         )
