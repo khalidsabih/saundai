@@ -122,6 +122,9 @@ from .planner_sequence_cues import (
 from .planner_sequence_candidates import (
     build_sequence_candidate_pool as _build_sequence_candidate_pool,
 )
+from .planner_sequence_ranking import (
+    prepare_sequence_candidates as _prepare_sequence_candidates,
+)
 from .planner import (
     DifficultTransitionError,
     plan_transition,
@@ -1275,52 +1278,6 @@ def _sequence_entry_candidates(
         candidate_diverse_by_bar=_candidate_diverse_by_bar,
     )
 
-def _dedupe_plans(plans: list[TransitionPlan]) -> list[TransitionPlan]:
-    unique: dict[tuple[str, str, float, float, int, str], TransitionPlan] = {}
-    for plan in plans:
-        key = (
-            plan.style,
-            plan.technique,
-            round(plan.exit_time_a, 4),
-            round(plan.entry_time_b, 4),
-            plan.transition_bars,
-            plan.execution_signature,
-        )
-        unique[key] = plan
-    return list(unique.values())
-
-
-
-def _complete_move_preference_score(plan: TransitionPlan, decision: CompleteMoveDecision) -> float:
-    """Measure how closely a path-dependent plan preserves the complete-move proposal.
-
-    The final compiler is allowed to substitute a safer/rehearsed plan, but in
-    move_authoritative mode it should preserve the generator's concrete timing
-    and technique whenever those choices remain executable.
-    """
-    target = decision.winner.move
-    exit_bar = int(plan.metadata.get("exit_bar_index", -10_000))
-    entry_bar = int(plan.metadata.get("entry_bar_index", -10_000))
-    exit_fit = max(0.0, 1.0 - abs(exit_bar - int(target.exit_bar)) / 16.0)
-    entry_fit = max(0.0, 1.0 - abs(entry_bar - int(target.entry_bar)) / 16.0)
-    duration_fit = max(0.0, 1.0 - abs(int(plan.transition_bars) - int(target.transition_bars)) / 16.0)
-    technique_fit = 1.0 if str(plan.technique) == str(target.technique) else 0.0
-    intent_fit = 1.0 if str(plan.intent) == str(target.intent) else 0.0
-    tempo_fit = 1.0 if str(plan.tempo_strategy) == str(target.tempo_strategy) else 0.35
-    return max(
-        0.0,
-        min(
-            1.0,
-            0.22 * exit_fit
-            + 0.18 * entry_fit
-            + 0.15 * duration_fit
-            + 0.20 * technique_fit
-            + 0.12 * intent_fit
-            + 0.13 * tempo_fit,
-        ),
-    )
-
-
 def _compile_sequence_edges(
     order: list[int],
     analyses: list[TrackAnalysis],
@@ -1514,102 +1471,34 @@ def _compile_sequence_edges(
             }
             all_plans = [emergency]
 
-        all_plans = _dedupe_plans(all_plans)
-        for candidate in all_plans:
-            candidate.metadata = {
-                **candidate.metadata,
-                "selection_utility": round(
-                    _edge_objective(
-                        candidate,
-                        track_a,
-                        track_b,
-                        journey=journey,
-                        listener_profile=listener_profile,
-                    ),
-                    8,
-                ),
-            }
-
-        all_plans = rank_transition_plans_as_moves(
-            track_a,
-            track_b,
-            all_plans,
-            state=dj_state,
-        )
-
         preferred_complete_decision = (
             preferred_complete_moves.get((from_index, to_index))
             if preferred_complete_moves is not None
             else None
         )
-        if preferred_complete_decision is not None:
-            for candidate in all_plans:
-                match = _complete_move_preference_score(candidate, preferred_complete_decision)
-                previous = float(candidate.metadata.get("selection_utility", candidate.score))
-                # Exact/near-exact complete moves own selection unless a later
-                # rehearsal or deterministic safety gate rejects them. Looser
-                # matches receive a bounded preference rather than a hard lock.
-                preferred_utility = (
-                    max(previous, 0.985)
-                    if match >= 0.94
-                    else 0.78 * previous + 0.22 * match
-                )
-                candidate.metadata = {
-                    **candidate.metadata,
-                    "selection_utility": round(preferred_utility, 8),
-                    "complete_move_preference": {
-                        "version": COMPLETE_MOVE_VERSION,
-                        "match": round(match, 6),
-                        "target": preferred_complete_decision.winner.move.to_dict(),
-                        "generator_score": preferred_complete_decision.winner.selection_score,
-                        "safety_may_override": True,
-                    },
-                    "dj_state_taste": (
-                        state_taste_payload(preferred_complete_decision.winner.state)
-                        if preferred_complete_decision.winner.state is not None
-                        else None
-                    ),
-                    "dj_move_taste": move_taste_payload(preferred_complete_decision.winner.move),
-                    "state_context_id": (
-                        state_context_id(preferred_complete_decision.winner.state)
-                        if preferred_complete_decision.winner.state is not None
-                        else None
-                    ),
-                    "state_move_taste_shadow": preferred_complete_decision.winner.taste_shadow,
-                    "crate_memory": preferred_complete_decision.winner.crate_memory,
-                    "adaptive_thinking": (
-                        preferred_complete_decision.thinking_budget.to_dict()
-                        if preferred_complete_decision.thinking_budget is not None
-                        else None
-                    ),
-                }
-                if match >= 0.94 and preferred_complete_decision.winner.move.deck_operations:
-                    candidate.metadata = {
-                        **candidate.metadata,
-                        "deck_operations": [
-                            operation.to_dict()
-                            for operation in preferred_complete_decision.winner.move.deck_operations
-                        ],
-                        "structural_operation_authority": {
-                            "version": "1.7.2",
-                            "source": "complete_djmove_exact_match",
-                            "match": round(match, 6),
-                            "deterministic_renderer_authoritative": True,
-                        },
-                    }
-                    # Structural operations are sample-affecting executable IR.
-                    # Recompile and reseal so the program fingerprint and final
-                    # execution signature bind the exact operation payload.
-                    attach_performance_program(candidate)
-                    seal_execution_plan(candidate)
-            all_plans.sort(
-                key=lambda candidate: (
-                    float(candidate.metadata.get("selection_utility", candidate.score)),
-                    float(candidate.score),
-                    candidate.execution_signature,
-                ),
-                reverse=True,
-            )
+        all_plans = _prepare_sequence_candidates(
+            all_plans,
+            track_a=track_a,
+            track_b=track_b,
+            dj_state=dj_state,
+            preferred_complete_decision=preferred_complete_decision,
+            selection_utility=lambda candidate: _edge_objective(
+                candidate,
+                track_a,
+                track_b,
+                journey=journey,
+                listener_profile=listener_profile,
+            ),
+            rank_as_moves=lambda left, right, candidates, state: rank_transition_plans_as_moves(
+                left,
+                right,
+                candidates,
+                state=state,
+            ),
+            state_taste_payload=state_taste_payload,
+            move_taste_payload=move_taste_payload,
+            state_context_id=state_context_id,
+        )
 
         policy_context = TransitionPolicyContext(
             journey=journey,
