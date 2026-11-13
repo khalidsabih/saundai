@@ -187,3 +187,24 @@ This is a code-organization change, not a performance optimization.
 and `npm run e2e`. Do not mark the extraction verified until these
 commands pass on the updated branch. The 3 npm dependency advisories
 previously reported remain a separate triage item.
+
+## Verified post-extraction gate (2026-11-13)
+
+Operator pulled the API transport extraction and reported all of:
+- `npm run typecheck` **passed**;
+- `SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build` **passed**;
+- `npm run e2e` **36/36 passed in 37.4 s** across four browser projects.
+
+The first code-organization slice is therefore verified within the
+existing test coverage. Next candidate review identified `waitForJob`
+(and its SSE/diagnostic polling/fallback transitions) as shared
+between Create and Studio; the event lifecycle and cancellation/error
+semantics are safety- and state-sensitive. Do **not** move or simplify
+job progress handling until focused tests assert completed, failed,
+cancelled, SSE disconnect, and HTTP polling fallback outcomes.
+The same caution applies to Live telemetry. No such follow-on
+job lifecycle extraction has been performed yet.
+
+Known outstanding tasks include package audit advisories,
+Next.js standalone/tracing-root warnings, CSS ownership inventory,
+and the additional frontend modules. Phase 5 remains in progress.
