@@ -41,6 +41,8 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
     timing = dict(metadata.get("timing", {}) or {})
     timing_state = dict(timing.get("state", {}) or {})
     large_crate = dict(metadata.get("large_crate_planning", {}) or {})
+    performance = dict(metadata.get("performance", {}) or {})
+    planning_performance = dict(performance.get("planning", {}) or {})
 
     hard_failures: list[dict[str, Any]] = []
     measured_scores: list[float] = []
@@ -119,6 +121,7 @@ def summarize_real_set_plan(plan: Any) -> dict[str, Any]:
             else None
         ),
         "large_crate_planning": large_crate,
+        "planning_performance": planning_performance,
         "planning_ready": planning_ready,
     }
 
