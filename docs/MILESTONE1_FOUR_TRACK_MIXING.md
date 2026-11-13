@@ -303,3 +303,29 @@ default feature-store projections. Analyze the new plan's
 each track's decision and evidence. Do not promote this policy to
 default without audio-level and phase-lock regression validation.
 All Beat Integrity limits and emergency fallback paths remain unchanged.
+
+## Read-only fine-resolution cue-onset audit
+
+After the opt-in tempo-consistency run, compare the **original cached
+beat positions** with the independent 128-hop (~5.8 ms) audio onset
+strength peaks near the two rejected rhythmic overlap windows:
+
+```bash
+python scripts/audit_cue_onset_precision.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/cue-onset-precision.json
+```
+
+If the saved plan's source files were moved, add
+`--source-dir output/milestone1-tempo-consistency/crate`.
+
+For each rejected candidate, the JSON gives every supported local
+peak observation within ±75 ms of an existing cached beat and
+reports shifts in milliseconds, support coverage and distributions.
+No candidate/beat timestamp/downbeat is modified. **Onset peaks can
+come from hi-hats or other percussion and are not verified beat
+ground truth**, so a measured shift is a diagnostic observation,
+not evidence that replacing the beat would improve rendered mixing.
+The earlier 25 ms phase-integrity gate is unchanged. Share
+`cue-onset-precision.json` for a review of the two remaining failures.
