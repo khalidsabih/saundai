@@ -38,6 +38,7 @@ def _pcm_digest(path: Path) -> dict[str, object]:
 
 def capture(args: argparse.Namespace) -> int:
     from djai.cache import analyze_tracks, discover_tracks
+    from djai.candidate_renderer import QualityGateConfig
     from djai.decision import validate_execution_plan
     from djai.set_planner import make_set_plan
     from djai.set_renderer import render_set
@@ -256,7 +257,13 @@ def capture(args: argparse.Namespace) -> int:
         minimum_body_fraction=0.10,
         graph_workers=1,
         planning_session=planning_session,
-        quality_loop=None,
+        quality_loop=(
+            QualityGateConfig.from_environment(
+                enabled=True,
+                top_k=4,
+                log_path=None,
+            ) if args.rehearse else None
+        ),
         automatic_delivery=False,
     )
     planning_seconds = time.perf_counter() - started
@@ -380,7 +387,7 @@ def capture(args: argparse.Namespace) -> int:
             "python": sys.version.split()[0],
             "platform": sys.platform,
             "graph_workers": 1,
-            "quality_loop": False,
+            "quality_loop": bool(args.rehearse),
             "automatic_delivery": False,
             "manual_order": args.manual_order,
             "analysis_cache_dir": args.analysis_cache_dir,
@@ -525,6 +532,11 @@ def main() -> int:
     capture_parser.add_argument("--audio-dir", required=True)
     capture_parser.add_argument("--output", required=True)
     capture_parser.add_argument("--render", action="store_true")
+    capture_parser.add_argument(
+        "--rehearse", action="store_true",
+        help="Opt in to existing measured candidate selection before rendering; "
+             "does not override final renderer safety validation",
+    )
     capture_parser.add_argument("--trace-selection", action="store_true")
     capture_parser.add_argument(
         "--manual-order",
