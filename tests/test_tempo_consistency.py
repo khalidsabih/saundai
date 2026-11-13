@@ -16,9 +16,12 @@ def _pulse_track(bpm: float, *, seconds: float = 180.0, fps: float = 43.06640625
     return x
 
 
-def test_reconciles_when_three_audio_windows_and_beat_span_agree():
+def test_reconciles_when_three_audio_windows_and_beat_span_agree(monkeypatch):
     fps = 22050 / 512
     envelope = _pulse_track(120.0, fps=fps)
+    # Isolate policy behavior from an idealized click envelope's ACF strength.
+    # Real audio windows are evaluated by the unmocked integration benchmark.
+    monkeypatch.setattr("djai.music.tempo_consistency._acf_tempo", lambda *args, **kwargs: (120.0, 0.8))
     beats = np.arange(0, 177, 0.5, dtype=float)
     selected, trace = reconcile_bpm(
         117.4538, beats, envelope, sample_rate=22050, hop_length=512,
