@@ -150,3 +150,17 @@ live-telemetry, execution-authority and safety logic were not modified.
 
 Run the targeted scenarios, then the complete four-project suite.
 Neither a clean Live test nor an all-browser pass is claimed yet.
+
+## Fourth full Playwright run (2026-11-13)
+
+Operator-reported result: **35 passed / 1 failed** across the four projects,
+with supported TypeScript check passing. The sole remaining failure was the
+mobile Live test at the `Afterglow` next-track assertion. The unscoped
+`getByText("Afterglow", { exact: true }).first()` selected a hidden compact
+label in the responsive Live UI. The component also renders the authoritative
+next-track title as `<h2>` inside the labelled `Next and future horizon`
+section. The assertion was changed to target that heading within the
+horizon, retaining a meaningful visible-mobile check rather than allowing
+a hidden label to satisfy it.
+
+**Verification remains pending** until the next complete Playwright run.
