@@ -89,8 +89,8 @@ def test_authorized_model_rank_is_kept_at_rehearsal_boundary(tmp_path: Path, mon
     monkeypatch.setattr(professional, "_rehearse", no_audio)
     with pytest.raises(StopBeforeAudio):
         professional.rehearse_candidate_pool(
-            analysis(tmp_path / "left.wav"),
-            analysis(tmp_path / "right.wav"),
+            analysis(tmp_path / "left.wav", bpm=124),
+            analysis(tmp_path / "right.wav", bpm=124),
             [plan],
             config=professional.ProfessionalBrainConfig(adaptive_rehearsal=False),
             context={"unified_transition": True},
@@ -119,8 +119,8 @@ def test_zero_authority_cannot_control_rehearsal_shortlist(tmp_path: Path, monke
     monkeypatch.setattr(professional, "_rehearse", lambda *args, **kwargs: (_ for _ in ()).throw(StopBeforeAudio()))
     with pytest.raises(StopBeforeAudio):
         professional.rehearse_candidate_pool(
-            analysis(tmp_path / "left-shadow.wav"),
-            analysis(tmp_path / "right-shadow.wav"),
+            analysis(tmp_path / "left-shadow.wav", bpm=124),
+            analysis(tmp_path / "right-shadow.wav", bpm=124),
             [plan],
             config=professional.ProfessionalBrainConfig(adaptive_rehearsal=False),
             context={"unified_transition": True},
