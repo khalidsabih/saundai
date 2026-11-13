@@ -329,3 +329,33 @@ ground truth**, so a measured shift is a diagnostic observation,
 not evidence that replacing the beat would improve rendered mixing.
 The earlier 25 ms phase-integrity gate is unchanged. Share
 `cue-onset-precision.json` for a review of the two remaining failures.
+
+## Read-only beat-sequence counterfactual after cue-onset audit
+
+Given the saved beat-grid caches and the independent onset-alignment audit,
+test a hypothetical **conservative** change to individual beat timestamps
+without modifying any source analysis, cache, real set plan, or renderer:
+
+```bash
+python scripts/counterfactual_beat_sequence.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --cue-audit output/milestone1-tempo-consistency/cue-onset-precision.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/beat-sequence-counterfactual.json
+```
+
+The tool uses existing onset observations within 75 ms of the saved beat
+positions but only *proposes* shifts of up to 30 ms with onset support
+ratio at least 2.0 and both neighboring intervals within ±10% of the
+original transition's expected source-beat period. It never inserts or
+removes beat indices. At least 90% cue-onset observation coverage is
+required to evaluate a transition. It reports baseline and hypothetical
+**uncorrected** phase drift, not a new safety determination. The original
+25 ms phase-integrity envelope is unchanged.
+
+Use this report to decide whether small onset-local refinements could
+plausibly help, or whether larger interval/indexing anomalies require
+independent beat-sequence validation. Onset peaks can belong to hats or
+other instruments rather than beats; even a reduced hypothetical drift
+is not proof of audio quality or justification to enable production
+grid rewriting.
