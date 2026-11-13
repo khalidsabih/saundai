@@ -6,7 +6,7 @@ Run from the repository root:
         audio/uploads/one.wav audio/uploads/two.wav \
         audio/uploads/three.wav audio/uploads/four.wav
 
-Runs the existing Phase 16 planner and renderer unchanged. Generates a
+Stages stable source paths in the output directory, then runs the existing\nPhase 16 planner and renderer unchanged. Generates a
 separate musical-performance diagnostic; a safe render is NOT automatically
 certified as a professional mix.
 """
@@ -17,7 +17,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -174,18 +173,18 @@ def main(argv: list[str] | None = None) -> int:
     from djai.phase16_validation import validate_real_music_library
 
     try:
-        audio_dir = root / "audio"
-        audio_dir.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="milestone1-crate-", dir=audio_dir) as staged:
-            prepare_four_track_crate(args.tracks, Path(staged))
-            phase = validate_real_music_library(
-                root, staged,
-                output_dir=output,
-                journeys=(args.journey,),
-                render=not args.no_render,
-                analysis_workers=1,
-                graph_workers=1,
-            )
+        staged = output / "crate"
+        if staged.exists():
+            shutil.rmtree(staged)
+        prepare_four_track_crate(args.tracks, staged)
+        phase = validate_real_music_library(
+            root, staged,
+            output_dir=output,
+            journeys=(args.journey,),
+            render=not args.no_render,
+            analysis_workers=1,
+            graph_workers=1,
+        )
     finally:
         if previous_trace is None:
             os.environ.pop("DJAI_PHASE_LOCK_TRACE_PATH", None)
