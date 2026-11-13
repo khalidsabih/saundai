@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""SAUND.AI 1.8.0 AI Headphones.
+"""AI Headphones rendered-rehearsal stage (component version 1.8.0).
 
 The complete-move planner stays cheap while exploring the future. Immediately
 before committing the current action, AI Headphones privately renders a small,
