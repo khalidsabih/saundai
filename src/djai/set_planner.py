@@ -3614,17 +3614,27 @@ def make_set_plan(
                 experimental_retrieval = os.environ.get(
                     "DJAI_EXPERIMENTAL_NEURAL_RETRIEVAL", ""
                 ).strip().lower() in {"1", "true", "yes", "on"}
-                expansion_tiers = (
+                requested_tiers = (
                     ((8, 3, 3), (10, 4, 3), (12, 4, 4))
                     if experimental_retrieval
                     else ((8, 4, 3),)
                 )
-                total_tiers = len(expansion_tiers)
-                for tier_index, (candidate_width, opener_count, branch_width) in enumerate(
-                    expansion_tiers,
-                    start=1,
-                ):
-                    expanded_cfg = replace(
+
+                def _route_search_signature(value: CompleteMoveConfig) -> tuple[int, ...]:
+                    effective = _large_crate_complete_move_config(value, len(analyses))
+                    return (
+                        int(effective.lookahead_moves),
+                        int(effective.search_branch_width),
+                        int(effective.lazy_candidate_width),
+                        int(effective.lazy_expansion_width),
+                        int(effective.opener_candidates),
+                        int(effective.candidates_per_track),
+                    )
+
+                expansion_tiers: list[CompleteMoveConfig] = []
+                seen_signatures = {_route_search_signature(complete_move_cfg)}
+                for candidate_width, opener_count, branch_width in requested_tiers:
+                    candidate_cfg = replace(
                         complete_move_cfg,
                         opener_candidates=min(
                             len(analyses),
@@ -3643,6 +3653,14 @@ def make_set_plan(
                             max(complete_move_cfg.lazy_expansion_width, 4),
                         ),
                     )
+                    signature = _route_search_signature(candidate_cfg)
+                    if signature in seen_signatures:
+                        continue
+                    seen_signatures.add(signature)
+                    expansion_tiers.append(candidate_cfg)
+
+                total_tiers = len(expansion_tiers)
+                for tier_index, expanded_cfg in enumerate(expansion_tiers, start=1):
                     if progress:
                         progress(
                             "route-search",
