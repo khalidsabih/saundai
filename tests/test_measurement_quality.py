@@ -69,6 +69,35 @@ def test_measurement_distinguishes_clean_audio_from_silence(track_pair) -> None:
     assert any("silence" in reason.lower() for reason in bad_result.hard_failures)
 
 
+def test_measurement_reports_individual_loudness_boundaries(track_pair) -> None:
+    track_a, track_b = track_pair
+    plan = plan_transition_alternatives(track_a, track_b, force=True, tempo_policy="safe")[0]
+    sample_rate = 8_000
+    pre = _stereo_tone(sample_rate, 2.0, amplitude=0.2)
+    transition = _stereo_tone(sample_rate, 2.0, amplitude=0.05)
+    post = _stereo_tone(sample_rate, 2.0, amplitude=0.05)
+
+    result = measure_transition_audio(
+        pre=pre,
+        transition=transition,
+        post=post,
+        sample_rate=sample_rate,
+        plan=plan,
+    )
+
+    assert result.pre_boundary_lufs is not None
+    assert result.transition_head_lufs is not None
+    assert result.transition_tail_lufs is not None
+    assert result.post_boundary_lufs is not None
+    assert result.entry_loudness_jump_lu is not None
+    assert result.exit_loudness_jump_lu is not None
+    assert result.entry_loudness_jump_lu > result.exit_loudness_jump_lu
+    assert result.loudness_jump_lu == max(
+        result.entry_loudness_jump_lu,
+        result.exit_loudness_jump_lu,
+    )
+
+
 def test_quality_gate_can_rerank_analytical_candidates(
     tmp_path: Path,
     monkeypatch,
