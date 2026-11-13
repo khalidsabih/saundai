@@ -83,7 +83,7 @@ test("SAUND.AI opens as a locked cinematic intro before Create", async ({ page }
   const video = page.locator("video.saund-intro__video");
   await expect(intro).toBeVisible();
   await expect(page.getByRole("heading", { name: "An AI that DJs." })).toBeVisible();
-  await expect(page.getByText("Autonomous DJ system")).toBeVisible();
+  await expect(page.getByText("Autonomous DJ system")).toHaveCount(1);
   await expect(video).toHaveAttribute("poster", "/media/saund-hero-poster.jpg");
   await expect(video.locator('source[src="/media/saund-hero-desktop.mp4"]')).toHaveCount(1);
   await expect(video.locator('source[src="/media/saund-hero-mobile.mp4"]')).toHaveCount(1);
@@ -120,8 +120,8 @@ test("guest can shape a set and is asked to log in only when building", async ({
 
   await page.goto("/");
   await completeIntro(page);
-  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
 
@@ -163,11 +163,11 @@ test("Create turns selected music into a finished set", async ({ page }) => {
   await page.route("**/api/media/**", async (route) => route.fulfill({ status: 204 }));
 
   await page.goto("/");
-  await expect(page.getByText("Autonomous DJ system")).toBeVisible();
+  await expect(page.getByText("Autonomous DJ system")).toHaveCount(1);
   await completeIntro(page);
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
 
@@ -264,8 +264,8 @@ test("live performance makes NOW, NEXT, FUTURE and the Executive the product sur
 
   await page.goto("/");
   await completeIntro(page);
-  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: /Build my set/ }).click();
   await page.getByRole("button", { name: /Perform Live/ }).click();
 
@@ -308,8 +308,8 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   await page.goto("/");
   await completeIntro(page);
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await page.getByRole("listitem", { name: /Aurora\.wav/ }).click();
-  await page.getByRole("listitem", { name: /Afterglow\.wav/ }).click();
+  await page.getByRole("button", { name: /Aurora\.wav/ }).click();
+  await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: "Brain", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: /Complex underneath/ })).toBeVisible();
@@ -322,8 +322,8 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
 
   await page.getByRole("button", { name: "Perform", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
-  await expect(page.getByRole("listitem", { name: /Aurora\.wav/ })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("listitem", { name: /Afterglow\.wav/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /Aurora\.wav/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /Afterglow\.wav/ })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("Studio is the Human × Executive intelligence workbench", async ({ page }) => {
@@ -431,7 +431,7 @@ test("Training Lab collects blind preferences without exposing candidate metadat
 
   await page.goto("/lab");
   await expect(page.getByRole("heading", { name: /Teach the ear/ })).toBeVisible();
-  await expect(page.getByText("INTERNAL / LOCAL")).toBeVisible();
+  await expect(page.getByText("INTERNAL / LOCAL")).toHaveCount(1);
   await page.getByRole("button", { name: /Generate blind pair/ }).click();
   await expect(page.getByRole("heading", { name: "Pair 1 / 2" })).toBeVisible();
   await expect(page.getByLabel("Blind transition candidate A")).toBeVisible();
