@@ -85,12 +85,24 @@ the same hard 16.1 dB RMS transition-boundary defect; no safety limit was
 weakened. The archived operator evidence is identified in
 [PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
 
-**Not yet certified for full Phase 4 exit:** comparable planner
-latency/resource benchmark results on the larger controlled crate. A single
-run's timing ratio is not performance evidence. Phase 4 is **functional
-equivalence verified, benchmark exit-pending**. Do not declare Phase 5
-complete on the strength of Python test results or this limited audio fixture
-alone.
+**Phase 4 controlled benchmark checkpoint (2026-11-13):** all 13-track
+full-planner source hashes, analysis digests, scoring-model fingerprint, track
+order, transition execution signatures, fallback count, and emergency count
+**MATCH** between baseline and refactored code. Isolated cold-graph work
+measured 19.95 s vs 20.07 s, while cold end-to-end planning measured
+518.28 s vs 530.04 s and peak RSS 3.320 GB vs 3.442 GB. These modest
+single-run deltas do not establish a statistically reliable regression or
+speedup. See the evidence and constraints in
+[PHASE4_EQUIVALENCE_GATE.md](PHASE4_EQUIVALENCE_GATE.md).
+
+**Phase 4 refactor exit: fixture-scoped correctness and benchmark evidence
+verified.** The operator's supported Python suite, three-track rehearsed
+render PCM identity, and 13-track full-planner identity/performance checks
+support proceeding to Phase 5 frontend consolidation. **Not a release or
+music-quality approval:** 11 fallback transitions and 9 emergency transitions
+out of 12 large-crate edges remain on both branches; investigate and validate
+them with real music, rendered-audio safety, and listening in Phase 6.
+Do not declare Phase 5 complete on the strength of these Python gates.
 
 ## Phase 5 — Frontend consolidation
 
