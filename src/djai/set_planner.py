@@ -1626,7 +1626,7 @@ def _compile_sequence_edges(
                         topk = crate_topk(global_track_count)
                         brain_cfg = replace(
                             brain_cfg,
-                            adaptive_rehearsal=True,
+                            adaptive_rehearsal=brain_cfg.adaptive_rehearsal,
                             adaptive_pilot_finalists=min(
                                 topk.transition_pilot, brain_cfg.finalists
                             ),
