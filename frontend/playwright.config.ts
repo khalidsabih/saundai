@@ -16,7 +16,8 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: "npm run start",
+    // Match output: standalone; next start is unsupported for this build mode.
+    command: "node scripts/prepare-e2e-standalone.mjs && HOSTNAME=127.0.0.1 PORT=3000 node .next/standalone/server.js",
     url: "http://127.0.0.1:3000",
     reuseExistingServer: false,
     timeout: 120_000,

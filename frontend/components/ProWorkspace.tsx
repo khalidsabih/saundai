@@ -19,6 +19,7 @@ import {
   JobCancelledError,
 } from "@/lib/api";
 import { useSaundSession } from "@/lib/session";
+import { useTrackReadinessPolling } from "@/lib/use-track-readiness-polling";
 import type { BrainStatus, JobRecord, PreviewResult, ReleaseReadiness, RenderResult, SetPlan, StudioTransitionPreviewResult, TrackRecord } from "@/lib/types";
 import { AccountDialog } from "./AccountDialog";
 import { ControlDeck } from "./ControlDeck";
@@ -158,14 +159,7 @@ export function ProWorkspace({ onExit }: { onExit: () => void }) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  useEffect(() => {
-    const preparing = tracks.some((track) => track.readiness && !["ready", "failed", "cancelled"].includes(track.readiness.state));
-    if (!preparing) return;
-    const timer = window.setInterval(() => {
-      void listTracks("audio").then(setTracks).catch(() => undefined);
-    }, 2_000);
-    return () => window.clearInterval(timer);
-  }, [tracks]);
+  useTrackReadinessPolling(tracks, setTracks);
 
   useEffect(() => {
     if (authReady && !account) resetOutput();

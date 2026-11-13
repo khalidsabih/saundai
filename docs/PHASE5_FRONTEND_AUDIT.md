@@ -187,3 +187,195 @@ This is a code-organization change, not a performance optimization.
 and `npm run e2e`. Do not mark the extraction verified until these
 commands pass on the updated branch. The 3 npm dependency advisories
 previously reported remain a separate triage item.
+
+## Verified post-extraction gate (2026-11-13)
+
+Operator pulled the API transport extraction and reported all of:
+- `npm run typecheck` **passed**;
+- `SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build` **passed**;
+- `npm run e2e` **36/36 passed in 37.4 s** across four browser projects.
+
+The first code-organization slice is therefore verified within the
+existing test coverage. Next candidate review identified `waitForJob`
+(and its SSE/diagnostic polling/fallback transitions) as shared
+between Create and Studio; the event lifecycle and cancellation/error
+semantics are safety- and state-sensitive. Do **not** move or simplify
+job progress handling until focused tests assert completed, failed,
+cancelled, SSE disconnect, and HTTP polling fallback outcomes.
+The same caution applies to Live telemetry. No such follow-on
+job lifecycle extraction has been performed yet.
+
+Known outstanding tasks include package audit advisories,
+Next.js standalone/tracing-root warnings, CSS ownership inventory,
+and the additional frontend modules. Phase 5 remains in progress.
+
+## Second implementation slice: shared job lifecycle (2026-11-13)
+
+After operator verification of the previous transport slice (**36/36 E2E,
+production build and typecheck passing**), a small, reversible
+organizational extraction moved the existing `getJob`, `cancelJob`,
+`pollForJob`, `waitForJob`, and `JobCancelledError` implementations
+from `lib/api.ts` into `lib/api-jobs.ts`. `lib/api.ts` re-exports the
+same public names, so Create and Studio imports are unchanged.
+
+The SSE event processing, 10-second diagnostic poll, malformed-event
+handling, final authoritative GET, HTTP fallback on disconnect,
+cancellation behavior, status and errors are intentionally unmodified
+by this extraction. Live telemetry and executive control remain separate
+and untouched.
+
+The focused `npm run test:jobs` regression harness compiles the **real**
+`api-jobs.ts` module in memory with TypeScript, supplies fake transport,
+clock, and EventSource via a VM, and asserts:
+
+- already completed / failed / cancelled initial states;
+- polling completion and cancelled terminal state;
+- SSE progress followed by authoritative final job GET;
+- malformed SSE progress and disconnect fallback to polling;
+- failed terminal SSE job;
+- explicit POST cancellation;
+- diagnostic polling and terminal completion.
+
+**Verification gate OPEN:** after pulling the commits run:
+
+```bash
+cd "$SAUND_MAIN/frontend"
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+```
+
+These changes are not yet claimed passing on the operator's machine.
+The new tests are focused code-level contracts and complement, but do not
+replace, the Playwright browser suite or backend verification.
+
+## Verified post-job-extraction gate (2026-11-13)
+
+Operator pulled the shared job lifecycle extraction and reported:
+- `npm run typecheck`: **passed**;
+- `npm run test:jobs`: **9/9 passed**, no failures or skips;
+- `SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build`: **passed**;
+- `npm run e2e`: **36/36 passed in 36.7 seconds**, across Chromium, Firefox, WebKit and mobile.
+
+The `frontend/lib/api-jobs.ts` extraction is verified under these
+focused code-level and browser regression gates. This does **not**
+independently certify production audio quality, live safety, or every
+job race/disconnect scenario; the existing backend and music-quality
+gates remain authoritative.
+
+Next.js continued reporting the external lockfile /
+`outputFileTracingRoot` warning and the `next start` versus
+`output: standalone` warning. Both are outstanding deployment/test
+harness cleanup, distinct from the passing frontend regression suite.
+Previously reported npm dependency advisories also remain open.
+
+## Dependency security patch and standalone-server harness cleanup (2026-11-13)
+
+The operator reported successfully rebasing and pushing the dedicated
+frontend production dependency patch. The branch advanced to
+`a4469d3` (security patch), following `ff1e921`.
+GitHub's committed lockfile now contains Next.js **16.4.6**,
+sharp **0.35.5**, and source-map-js **1.2.2**. The operator reported
+the local audit and regression verification **PASSED**, but did not
+paste their detailed post-upgrade test counts; do not present them as
+independently observed logs.
+
+The next configuration-only slice explicitly sets both
+`outputFileTracingRoot` and `turbopack.root` to the frontend build
+working directory to avoid inferring an unrelated external lockfile.
+Playwright now uses the generated standalone production server,
+rather than unsupported `next start` with `output: "standalone"`.
+Because standalone output intentionally omits copied static assets,
+`frontend/scripts/prepare-e2e-standalone.mjs` mirrors the same
+`public` and `.next/static` directories the production Dockerfile
+already copies. No UI, service API, job or audio control code changed.
+
+**Infrastructure cleanup verification pending**. Rebuild before E2E
+because the Playwright server now uses `.next/standalone/server.js`:
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+cd frontend
+npm audit --omit=dev
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+```
+
+Review any Next.js diagnostics and compare the complete test results
+before calling Phase 5.4 green.
+
+## Phase 5.4 operator verification (2026-11-13)
+
+The operator reports that the full requested Phase 5.4 verification sequence **passed** after pulling the standalone-server harness and explicit Next.js root configuration changes. The requested gate included production npm audit, TypeScript typecheck, 9 focused job lifecycle tests, optimized build, and 36 Playwright browser tests. Detailed command output and updated warning text were **not** supplied for this run, so exact test counts and warning disappearance are not independently confirmed from this checkpoint. Treat the infrastructure change as operator-verified, while retaining the next full command output for warning review. No app-side runtime or DJ audio policy change was made in this slice.
+
+## Phase 5.5 coordinated frontend consolidation (2026-11-13)
+
+This change set prepares the remaining Phase 5 frontend work as one operator-
+verifiable gate. It is **committed but not yet locally tested**.
+
+### Source ownership and safe extraction
+
+The old ~223 KB `frontend/app/globals.css` has been separated, without
+rewriting or reordering any CSS declarations, into seven consecutive sections:
+`globals.css` (foundational styles), `legacy-simple.css`,
+`create-cinematic.css`, `legacy-instrument.css`,
+`training-lab.css`, `account-foundation.css` and
+`legacy-experiences.css`. All seven retain their original order in
+`app/layout.tsx`, ahead of the pre-existing design-tokens,
+autonomous, Studio intelligence and product-system layers.
+Some legacy feature style rules still overlap later cascade layers.
+Preserving those overlaps is intentional: further selector deduplication
+without pixel review risks changing Create/Studio/Live responsive behavior.
+The new `npm run test:css` compares the concatenated split exactly
+against `a4469d3:frontend/app/globals.css` and asserts the root layout
+import sequence, providing a deterministic CSS-ownership guard.
+
+A frontend TypeScript import/reference survey found eight **zero-byte**
+placeholders with no source/test references. Those empty files were deleted:
+`AIActivityFeed.tsx`, `AIMemory.tsx`,
+`AIPlanningStage.tsx`, `AIPresence.tsx`,
+`HeadphonesAudition.tsx`, `TrackUnderstanding.tsx`,
+`TransitionExplanation.tsx`, and `lib/ai-experience.ts`.
+Nonempty components and files with uncertain runtime ownership were
+intentionally retained.
+
+Create (`SimpleExperience`) and Studio (`ProWorkspace`) now call the
+existing shared `useTrackReadinessPolling` hook instead of maintaining
+identical per-screen polling effects. The same two-second refresh cadence,
+audio-folder query, readiness terminal states, transient error handling,
+and effect cleanup are retained. Authentication, planned job lifecycle,
+Executive and Live telemetry remain separately authoritative and unchanged.
+
+A new Playwright scenario asserts keyboard Space and Enter track selection
+on both desktop and mobile projects, including truthful
+`aria-pressed` state. It adds four project-level checks to the
+previous 36-test baseline, so the expected suite size is **40 tests**.
+
+### Phase 5.5 acceptance gate — OPERATOR VERIFICATION REQUIRED
+
+```bash
+cd "$SAUND_MAIN"
+git pull origin phase-13-15-time-live-venue-hardening
+cd frontend
+npm run test:css
+npm run typecheck
+npm run test:jobs
+SAUND_INTERNAL_API_URL=http://127.0.0.1:8000 npm run build
+npm run e2e
+npm audit --omit=dev
+```
+
+In addition to all command exits being clean, visually inspect desktop and
+mobile Create, Studio, Lab, Brain, Ready and Live for changed layout,
+visibility, overflow, and keyboard focus. The CSS reconstruction test
+proves source contents and global import order, but **not** browser-level
+computed style equivalence if the bundler changes CSS ordering.
+
+The passing 36-browser/9-job baseline and Phase 5.4 operator report are
+**pre-change evidence**, not proof this change set passed. Until the
+operator runs the new gate and inspects visuals, Phase 5 is **pending
+sign-off**. No rendered-music quality or venue safety gate is waived.
