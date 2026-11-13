@@ -172,6 +172,8 @@ test("Create turns selected music into a finished set", async ({ page }) => {
   await page.getByRole("button", { name: /Build my set/ }).click();
 
   await expect(page.getByRole("heading", { name: "Your set is ready." })).toBeVisible();
+  await expect(page.getByText("PERFORMANCE RIBBON", { exact: true })).toBeVisible();
+  await expect(page.getByText(/NEXT · LOCKED/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Perform Live/ })).toBeVisible();
   await expect(page.getByText("2", { exact: true })).toBeVisible();
 });
