@@ -114,6 +114,104 @@ def _fallback_entry_candidate(track: TrackAnalysis) -> TransitionCandidate | Non
     )
 
 
+
+def _loudness_aware_emergency_entry(
+    track: TrackAnalysis,
+    *,
+    transition_seconds: float,
+    original: TransitionCandidate | None,
+) -> TransitionCandidate | None:
+    """Prefer an active, continuous entry when a structural reset needs one.
+
+    Read only short windows from locally accessible audio. This is a
+    non-authoritative cue heuristic: rendered technical validation remains
+    mandatory. If decoding fails, retain the previous structural selection.
+    """
+    if original is None or len(track.entry_candidates) < 2:
+        return original
+
+    import math
+    import numpy as np
+    import soundfile as sf
+
+    bar_duration = max(0.5, float(track.time_signature or 4) * 60.0 / max(float(track.bpm), 1.0))
+    mature_after = min(4.0 * bar_duration, max(2.0, track.duration_seconds * 0.08))
+    preferred_before = min(135.0, track.duration_seconds * 0.48)
+    candidates = [
+        cue for cue in track.entry_candidates
+        if mature_after <= cue.time_seconds <= preferred_before
+        and cue.time_seconds + transition_seconds + 0.6 <= track.duration_seconds
+    ]
+    if not candidates:
+        return original
+
+    # Keep structural quality in contention rather than searching arbitrarily
+    # far into the track for a loud but musically inappropriate passage.
+    candidates = sorted(
+        candidates,
+        key=lambda cue: (
+            cue.score + 0.35 * cue.phrase_strength + 0.25 * cue.boundary_strength,
+            -cue.time_seconds,
+        ),
+        reverse=True,
+    )[:12]
+    if all(abs(cue.time_seconds - original.time_seconds) > 1e-3 for cue in candidates):
+        candidates.append(original)
+
+    def level_db(audio: np.ndarray) -> float:
+        if not audio.size:
+            return -120.0
+        power = float(np.mean(np.square(audio.astype(np.float64))))
+        return 10.0 * math.log10(max(power, 1e-12))
+
+    try:
+        with sf.SoundFile(track.path) as stream:
+            sample_rate = int(stream.samplerate)
+            frames = max(256, int(round(0.6 * sample_rate)))
+
+            def window(start_seconds: float) -> float:
+                offset = max(0, int(round(start_seconds * sample_rate)))
+                if offset + frames > len(stream):
+                    return -120.0
+                stream.seek(offset)
+                data = stream.read(frames, dtype="float32", always_2d=True)
+                if len(data) != frames:
+                    return -120.0
+                return level_db(data)
+
+            observations: list[tuple[TransitionCandidate, float, float]] = []
+            for cue in candidates:
+                start = float(cue.time_seconds)
+                tail = window(start + max(0.0, transition_seconds - 0.6))
+                post = window(start + transition_seconds)
+                observations.append((cue, tail, post))
+    except (OSError, RuntimeError, ValueError):
+        return original
+
+    # The outgoing deck clears before the end of a structural reset. A near-
+    # silent incoming tail followed by a loud post body causes a hard jump.
+    # Require both useful tail activity and continuity across the handoff.
+    viable = [
+        (cue, tail, post) for cue, tail, post in observations
+        if tail >= -32.0 and post >= -32.0 and abs(post - tail) <= 6.0
+    ]
+    if not viable:
+        return original
+
+    selected, _, _ = max(
+        viable,
+        key=lambda item: (
+            0.45 * item[0].score
+            + 0.25 * item[0].phrase_strength
+            + 0.15 * item[0].boundary_strength
+            - 0.02 * abs(item[2] - item[1])
+            + 0.015 * min(item[1] + 32.0, 16.0),
+            -item[0].time_seconds,
+        ),
+    )
+    return selected
+
+
 def _hard_cuts_allowed() -> bool:
     return os.environ.get("DJAI_ALLOW_HARD_CUTS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -379,6 +477,12 @@ def build_last_resort_plan(
     )
 
     entry_template = natural_entry or _fallback_entry_candidate(track_b)
+    if rescue_kind == "structural_reset" and verify_audio:
+        entry_template = _loudness_aware_emergency_entry(
+            track_b,
+            transition_seconds=transition_seconds,
+            original=entry_template,
+        )
     entry_time = float(entry_template.time_seconds if entry_template else 0.0)
     remaining_b = max(0.0, track_b.duration_seconds - entry_time)
     required_source_b = transition_seconds * rescue_rate_b
