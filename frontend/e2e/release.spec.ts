@@ -361,7 +361,22 @@ test("Training Lab collects blind preferences without exposing candidate metadat
   // together. Mock all four to keep the browser contract test independent of
   // a running API or slow network proxy.
   await page.route("**/api/dataset-builder/status", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      schema_version: "1.0",
+      catalog: { schema_version: "1.0", policy: {}, sources: [] },
+      imports: [],
+      counts: { normalized_records: 0, weak_examples: 0, kinds: {}, sources: {}, weak_tasks: {} },
+      corpora: [],
+      bootstrap_models: [],
+      latest_benchmark: null,
+      model_readiness: {},
+      policy: {
+        external_sources_default_research: true,
+        raw_audio_bundled_in_normalized_data: false,
+        synthetic_labels_equal_human_preferences: false,
+        production_default_deny: true,
+      },
+    }) });
   });
   await page.route("**/api/brain/status", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
@@ -376,6 +391,21 @@ test("Training Lab collects blind preferences without exposing candidate metadat
     train_ready: false,
     train_blockers: ["need_24_more_decisive_preferences"],
     live_ranker: { decisive_preferences: 0, unique_track_pairs: 0, ranker_loaded: false, cv_accuracy: null, baseline_accuracy: null, win_margin: null, authority: 0, deployment_ready: false },
+    runtime_evidence: {
+      schema_version: "1.0", path: "", events: 0, candidates: 0, selected: 0,
+      gate_passed: 0, hard_failed: 0, modes: {},
+      raw_audio_stored: false, track_paths_stored: false,
+    },
+    crate_memory: {
+      version: "1", schema_version: 1, available: false,
+      track_records: 0, pair_records: 0, preference_events: 0,
+      maximum_live_adjustment: 0, hard_audio_safety_authoritative: true,
+    },
+    learning_heads: {
+      global_taste_ranker: { human_decisive_examples: 0, minimum_to_train: 24, ready: false, authority: "shadow" },
+      state_move_taste: { human_decisive_examples: 0, state_groups: 0, minimum_to_train: 24, ready: false, authority: "shadow", feature_count: 0, status: { available: false } },
+      rendered_dj_judge: { human_labeled_candidates: 0, synthetic_failures_enabled: true, authority: "shadow" },
+    },
     snapshots: [],
     shadow_models: [],
     rights: { source_rights_confirmed: false, registry_ready: true, production_training_ready: false, blockers: [] },
