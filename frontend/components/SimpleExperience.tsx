@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChangeEvent, CSSProperties, DragEvent, PointerEvent } from "react";
+import type { CSSProperties, PointerEvent } from "react";
 import {
   cancelJob,
   createAutomaticSet,
@@ -21,6 +21,7 @@ import { Icon } from "./Icon";
 import { LivePlayer } from "./LivePlayer";
 import { AppShell } from "./product/AppShell";
 import { BuildProgress } from "./intelligence/BuildProgress";
+import { CrateSelector } from "./music/CrateSelector";
 
 const INTRO_PROGRESS_DELAY_MS = 180;
 const INTRO_PROGRESS_DURATION_MS = 6_800;
@@ -81,7 +82,6 @@ function friendlyError(message: string) {
 
 
 export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const soundtrackRef = useRef<HeroSoundtrackHandle | null>(null);
   const introProgressBarRef = useRef<HTMLSpanElement | null>(null);
@@ -97,7 +97,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
   } = useSaundSession();
 
   const [tracks, setTracks] = useState<TrackRecord[]>([]);
-  const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [result, setResult] = useState<AutomaticSetResult | null>(null);
@@ -250,7 +249,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
@@ -455,77 +453,22 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
             </header>
 
             <div className="session-launch__grid">
-              <section className="session-crate" aria-label="Session crate">
-                <header className="session-section-head">
-                  <div><span>01</span><div><small>CRATE</small><strong>Your music</strong></div></div>
-                  <p>{selectedPaths.length} selected · {readySelectedCount} ready</p>
-                </header>
-
-                <button
-                  className={`session-dropzone ${dragging ? "is-dragging" : ""}`}
-                  type="button"
-                  disabled={uploading || Boolean(job)}
-                  onClick={() => inputRef.current?.click()}
-                  onDragEnter={(event: DragEvent<HTMLButtonElement>) => { event.preventDefault(); setDragging(true); }}
-                  onDragOver={(event: DragEvent<HTMLButtonElement>) => event.preventDefault()}
-                  onDragLeave={() => setDragging(false)}
-                  onDrop={(event: DragEvent<HTMLButtonElement>) => {
-                    event.preventDefault();
-                    setDragging(false);
-                    void ingest(event.dataTransfer.files);
-                  }}
-                >
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    multiple
-                    accept="audio/*,.mp3,.wav,.flac,.m4a,.aiff"
-                    hidden
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => void ingest(event.target.files)}
-                  />
-                  <span className="session-dropzone__icon"><Icon name="upload" /></span>
-                  <span><strong>{uploading ? "Adding music…" : "Add music"}</strong><small>Drop audio or choose files</small></span>
-                  <b>{tracks.length ? `${tracks.length} in crate` : "Empty crate"}</b>
-                </button>
-
-                <div className="session-tracklist scroll-area" role="list" aria-label="Available tracks">
-                  {tracks.length === 0 ? (
-                    <div className="session-tracklist__empty">
-                      <Icon name="waveform" />
-                      <strong>The crate is empty.</strong>
-                      <small>Add at least two tracks to arm a session.</small>
-                    </div>
-                  ) : tracks.map((track, index) => {
-                    const selected = selectedPaths.includes(track.path);
-                    const state = trackAIState(track);
-                    return (
-                      <button
-                        type="button"
-                        role="listitem"
-                        key={track.path}
-                        className={`session-track ${selected ? "is-selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => setSelectedPaths((current) => selected
-                          ? current.filter((path) => path !== track.path)
-                          : [...current, track.path])}
-                      >
-                        <span className="session-track__index">{String(index + 1).padStart(2, "0")}</span>
-                        <span className="session-track__main">
-                          <strong>{track.name}</strong>
-                          <small>{(track.size / 1_048_576).toFixed(1)} MB{track.performance_layers?.complete ? " · performance layers" : ""}</small>
-                        </span>
-                        <span className={`session-track__state is-${state.tone}`}><i />{state.label}</span>
-                        <span className="session-track__select">{selected ? <Icon name="check" /> : "+"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <footer className="session-crate__footer">
-                  <span>{failedSelectedCount > 0 ? `${failedSelectedCount} selected track${failedSelectedCount === 1 ? "" : "s"} need attention` : preparingSelectedCount > 0 ? `${preparingSelectedCount} still being understood in the background` : selectedPaths.length >= 2 ? "Crate ready for the Executive" : "Select at least two tracks"}</span>
-                  {selectedPaths.length > 0 && <b>{Math.round(selectedReadinessProgress * 100)}% understood</b>}
-                </footer>
-              </section>
+              <CrateSelector
+                tracks={tracks}
+                selectedPaths={selectedPaths}
+                uploading={uploading}
+                disabled={Boolean(job)}
+                readyCount={readySelectedCount}
+                preparingCount={preparingSelectedCount}
+                failedCount={failedSelectedCount}
+                readinessProgress={selectedReadinessProgress}
+                onFiles={(files) => void ingest(files)}
+                onToggleTrack={(path) => setSelectedPaths((current) =>
+                  current.includes(path)
+                    ? current.filter((item) => item !== path)
+                    : [...current, path]
+                )}
+              />
 
               <aside className="session-command" aria-label="Session direction">
                 <header className="session-section-head">
@@ -588,13 +531,6 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
                       ? "The selected crate is understood and ready for autonomous planning."
                       : "SAUND can start once the selected crate is usable; background understanding may continue."}</p>
                 </section>
-
-                <div className="session-system" aria-label="Autonomous system state">
-                  <div><span><i className="is-on" />Autonomous Executive</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />AI Headphones</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />Crowd adaptation</span><strong>ON</strong></div>
-                  <div><span><i className="is-on" />Safety Governor</span><strong>ON</strong></div>
-                </div>
 
                 <div className="session-command__summary">
                   <small>SESSION INTENT</small>
