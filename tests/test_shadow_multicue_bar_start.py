@@ -113,3 +113,16 @@ def test_audio_chroma_novelty_uses_adjacent_time_frames(monkeypatch):
     assert np.all(np.isfinite(features))
     assert np.all(features >= 0)
     assert features[1, 1] > 0  # window includes the pitch change at frame 10
+
+
+def test_incomplete_validation_shows_failure_reason_examples():
+    summary = mod.summarize([
+        {"id": "fail-1", "status": "unavailable_or_invalid_data",
+         "reason": "ValueError: diagnostic one"},
+        {"id": "fail-2", "status": "unavailable_or_invalid_data",
+         "reason": "ValueError: diagnostic one"},
+    ])
+    assert summary["evaluated"] == 0
+    assert summary["failed"] == 2
+    assert summary["failure_reasons"]["ValueError: diagnostic one"] == 2
+    assert summary["failed_examples"][0]["id"] == "fail-1"
