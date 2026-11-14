@@ -60,4 +60,5 @@ jobs:
             tests/test_shadow_hop256_validation.py \
             tests/test_meter_downbeat_evidence.py \
             tests/test_shadow_hierarchical_meter.py \
+            tests/test_shadow_downbeat_phase_only.py \
             tests/test_phase_lock_trace_summary.py
