@@ -989,3 +989,44 @@ No production analysis version, beat grids, caches, downbeat selection,
 fallback, bounded warp or 25ms cross-deck integrity limit is modified.
 Any promising result requires fresh independent EDM evaluation before
 an opt-in code change.
+
+## Fixed-meter downbeat-phase shadow (offline)
+
+The uploaded 70-track hierarchical shadow report had 9 accepted tracks,
+7/9 correct reference meters, and full-set downbeat F1 0.26837 vs
+unchanged production 0.25466. The accepted set was heavily biased
+toward four-beat meter and cannot justify production promotion.
+
+The next experiment separates two questions: *what is the bar length?*
+and *which predicted beat starts the bar?* A new independent phase-only
+candidate fixes the **production meter and beat timestamps** and uses
+onset, RMS and bar-to-bar chroma recurrence to select a phase. It
+requires the first and second halves of the recording to independently
+select the same global beat phase; otherwise it abstains. It compares
+against the original hierarchical meter+phase candidate in the same
+single audio/analysis pass. The thresholds are exploratory and were
+not learned from reference downbeat labels.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+python scripts/shadow_downbeat_phase_only.py --limit 3 \
+  --output output/beat-integrity/phase-only-shadow-smoke.json
+
+python scripts/shadow_downbeat_phase_only.py \
+  --output output/beat-integrity/ballroom-phase-only-shadow.json
+```
+
+Inspect the complete-set fallback macro F1, accepted-only scores,
+number of improvements and regressions, and separate metrics for
+reference three- and four-beat tracks. A correct phase under the
+**wrong production meter** is impossible, so interpret such tracks
+separately. The reference labels are read *after* both autonomous
+candidates are computed. Do not treat abstention-fallback simulation
+as a production switch. No inspection of already-used test audio.
+
+The 100ms annotated downbeat matching window is unrelated to the
+protected production 25ms cross-deck phase-integrity residual. There
+are **no** changes to production grids, meter logic, model authority,
+warp, cache, live mixing, audio fallbacks, or safety gating.
