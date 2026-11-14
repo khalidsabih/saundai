@@ -476,3 +476,32 @@ or extra beats, incorrect tempo, or musical timing changes; this
 test cannot distinguish them definitively. No beat timing or index
 changes are authorized. The 25 ms phase integrity limit is
 unchanged, and renderer quality is not evaluated.
+
+## Read-only piecewise beat-phase continuity and half-beat ambiguity
+
+Inspect stable beat runs on either side of anomalous local intervals,
+without treating a constant phase offset as a beat defect:
+
+```bash
+python scripts/diagnose_piecewise_beat_continuity.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --sequence-audit output/milestone1-tempo-consistency/beat-sequence-interpretation.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/piecewise-beat-continuity.json
+```
+
+The diagnostic finds runs of at least three beats whose adjacent
+intervals are within 8% of the candidate's expected source beat period.
+For each bridge between stable runs it reports the *relative* phase
+shift from saved beat indices (no arbitrary absolute origin), each
+irregular interval, and independent audio-onset coverage for the
+cached rhythmic phase versus both half-beat-shifted alternatives.
+
+The audio evidence contains many possible hats and subdivisions;
+half-beat ambiguity remains explicit even when one interpretation
+has greater onset coverage. Audio onsets were captured inside the
+original overlap only, so contextual runs outside the overlap have
+limited support. Scores are descriptive, not musical ground truth.
+No beat index or timestamp is changed; the 25 ms Beat Integrity
+threshold and the production fallback behavior are unchanged.
+Share `piecewise-beat-continuity.json` for interpretation.
