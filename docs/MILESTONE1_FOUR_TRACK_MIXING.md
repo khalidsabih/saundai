@@ -948,3 +948,44 @@ does not modify any production detector, cache, downbeat output,
 bounded warp, fallback or 25ms cross-deck phase gate. Upload the JSON
 for evidence-based design of a future independently validated shadow
 downbeat candidate.
+
+## Hierarchical meter / downbeat shadow candidate (offline only)
+
+The 70-track validation diagnostic showed 37/70 reference-meter agreement,
+with 30 six-beat predictions despite no six-beat *annotations*, and
+baseline downbeat macro F1 0.25466. A reference-assisted best-phase
+oracle reached F1 0.71382; it uses ground truth and is **not deployable**.
+
+The offline hierarchical candidate evaluates 3/4/6 grouping with
+beat-synchronous onset/RMS accents and chroma recurrence across adjacent
+bars. Six-beat hypotheses are penalized when the two three-beat groups
+look alike, and the algorithm abstains on weak or ambiguous evidence.
+These fixed candidate thresholds are exploratory; they are not optimized
+against annotations. Unknown meter leaves existing production
+downbeats unchanged only in the **offline fallback simulation**.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+# Fast smoke on first 3 Ballroom validation recordings
+python scripts/shadow_hierarchical_meter.py --limit 3 \
+  --output output/beat-integrity/hierarchical-meter-smoke.json
+
+# Full validation 70 recordings, original audio and labels stay local
+python scripts/shadow_hierarchical_meter.py \
+  --output output/beat-integrity/ballroom-hierarchical-meter-shadow.json
+```
+
+Review accepted fraction, abstentions, accepted-only meter agreement,
+accepted-only downbeat F1 and complete-set fallback F1, always against
+the unchanged `analyze_track` output. Meter references and F1 labels are
+read **after** inference and only for scoring. No already-inspected test
+recordings are touched, and no output is promoted automatically.
+Chroma recurrence is a simple bar-level harmonic proxy, not a verified
+independent phrase detector; six vs three groupings can be ambiguous.
+
+No production analysis version, beat grids, caches, downbeat selection,
+fallback, bounded warp or 25ms cross-deck integrity limit is modified.
+Any promising result requires fresh independent EDM evaluation before
+an opt-in code change.
