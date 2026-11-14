@@ -565,3 +565,30 @@ offbeats or octave-tempo pulses. Modulo-four bass onset accents are
 cannot safely choose beat-index edits and never modifies the cached
 beat grids, mixer, plans, safety limits or fallback policy. Upload
 `independent-beat-downbeat.json` for the next evidence review.
+
+## Read-only local cached-vs-independent beat disagreement audit
+
+After the independent beat/downbeat report, align individual cached and
+second-method beat events monotonically around saved discontinuities:
+
+```bash
+python scripts/compare_local_beat_disagreements.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --independent output/milestone1-tempo-consistency/independent-beat-downbeat.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/local-beat-disagreements.json
+```
+
+The diagnostic uses dynamic programming to align timestamp sequences
+without changing event indices, retaining unmatched cached and independently
+tracked events. It lists timestamp residuals and event-count differences for
+six beats on either side of each saved junction. It particularly flags
+differences **greater than 25 ms but still within the prior 70 ms agreement
+tolerance**. The 25 ms value here is only a local comparison screen:
+it is NOT the measured cross-deck phase-integrity residual or a proposed
+correction policy. No beat tracker is presumed ground truth, and
+insertion/deletion hypotheses are *not* authorized beat-index edits.
+
+Production grids, audio, cache, cue times, safety limits, fallback
+decisions and renders remain unchanged. Upload
+`local-beat-disagreements.json` for timestamp-level interpretation.
