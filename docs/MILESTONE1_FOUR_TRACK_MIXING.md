@@ -913,3 +913,38 @@ load. No production beat grids, hop constants, cache, fallback, bounded
 warp or 25ms cross-deck limit are modified. A favorable validation result
 is only a candidate for later *independent* EDM and transition-level
 testing, never automatic promotion. Upload the detailed JSON for review.
+
+## Brain-first investigation: meter vs downbeat phase
+
+The Ballroom validation comparison did NOT support promoting 256-hop
+(beat F1 0.71639 vs 0.73807 for 512; downbeat F1 0.23616 vs 0.25466).
+The next milestone is to diagnose meter selection and beat-in-bar phase.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+python scripts/diagnose_meter_downbeat_evidence.py --limit 3 \
+  --output output/beat-integrity/meter-downbeat-evidence-smoke.json
+
+python scripts/diagnose_meter_downbeat_evidence.py \
+  --output output/beat-integrity/ballroom-meter-downbeat-evidence.json
+```
+
+The report separates cases with unreliable pulse-period alignment,
+incorrect bar meter, possible incorrect phase within the correct meter,
+correct downbeat placement and residual unexplained downbeat error.
+It includes per-meter onset-strength periodic-accent scores and phase
+distributions on the *unchanged* predicted beat grid. The accent-based
+suggestion explicitly abstains on weak/close scores; it is a read-only
+hypothesis, not a production candidate.
+
+The reference-meter confusion matrix and best phase F1 use **Ballroom
+annotations** and are therefore *ground-truth-assisted oracles* only:
+they cannot be used for autonomous runtime inference or promotion.
+Like previous benchmarks this only reads the validation split; the
+previously inspected test partition is never accessed. The report
+does not modify any production detector, cache, downbeat output,
+bounded warp, fallback or 25ms cross-deck phase gate. Upload the JSON
+for evidence-based design of a future independently validated shadow
+downbeat candidate.
