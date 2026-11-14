@@ -161,9 +161,9 @@ def prepare(root: Path, output: Path, audio_root: Path | None = None,
         row = candidates[ident]
         beat_path = labels / f"{ident}.beats"
         downbeat_path = labels / f"{ident}.downbeats"
-        beat_path.write_text("".join(f"{t:.9f}\\n" for t in row["_beats"]), encoding="utf-8")
+        beat_path.write_text("".join(f"{t:.9f}\n" for t in row["_beats"]), encoding="utf-8")
         downbeat_path.write_text(
-            "".join(f"{t:.9f}\\n" for t in row["_downbeats"]), encoding="utf-8"
+            "".join(f"{t:.9f}\n" for t in row["_downbeats"]), encoding="utf-8"
         )
         public_candidates.append({k: v for k, v in row.items() if not k.startswith("_")})
     index = {
@@ -176,7 +176,7 @@ def prepare(root: Path, output: Path, audio_root: Path | None = None,
         "tracks": public_candidates,
     }
     index_path = output / "raveform-candidates.json"
-    index_path.write_text(json.dumps(index, indent=2) + "\\n", encoding="utf-8")
+    index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     report = {"candidate_index": str(index_path), "annotated": len(public_candidates),
               "verified_audio": len(verified), "manifest": None}
     if verified:
@@ -205,7 +205,7 @@ def prepare(root: Path, output: Path, audio_root: Path | None = None,
             ],
         }
         manifest_path = output / "raveform-independent-manifest.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\\n", encoding="utf-8")
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         report["manifest"] = str(manifest_path)
     return report
 
