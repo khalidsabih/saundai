@@ -9,7 +9,8 @@ from scripts.validate_beat_sequence_interpretation import (
 
 def test_onset_events_are_independent_of_cached_grid():
     fps = 22050 / 128
-    x = np.zeros(2200)
+    x = np.full(2200, 0.2)
+    x[0] = 0.0
     for t in [1.0, 1.5, 2.0, 2.5]:
         x[int(t * fps)] = 9
     peaks = onset_events(x, window_start=0, fps=fps, beat_period=0.5)
@@ -27,7 +28,7 @@ def test_long_interval_with_midpoint_onset_flags_missing_beat_candidate():
     anomaly = result["anomalies"][0]
     assert anomaly["interpretations"][0]["hypothesis"] == "one_missing_beat_between_cached_events"
     assert anomaly["interpretations"][0]["status"] == "audio_supported_candidate"
-    assert anomaly["index_change_authorized"] if "index_change_authorized" in anomaly else not result["index_change_authorized"]
+    assert not result["index_change_authorized"]
 
 
 def test_missing_middle_audio_remains_unresolved():
