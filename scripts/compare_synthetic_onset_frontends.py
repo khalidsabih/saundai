@@ -217,7 +217,7 @@ def run(*, bpms: tuple[float, ...] = DEFAULT_BPMS,
         "phase_integrity_limit_changed": False,
         "global_offset_correction_authorized": False,
         "limitations": [
-            "center=False uses window-start time coordinates, not an equivalent centered timestamp convention.",
+            "center=False removes librosa onset-envelope frame shifting; it does NOT disable mel-STFT window centering.",
             "Best synthetic timing error alone cannot authorize a production algorithm change.",
             "130ms one-to-one matching window is diagnostic, NOT the production 25ms cross-deck limit.",
             "Synthetic click-kicks do not validate performance on real EDM or phrase/downbeat accuracy.",
