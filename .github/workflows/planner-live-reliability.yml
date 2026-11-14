@@ -58,4 +58,5 @@ jobs:
             tests/test_synthetic_beat_timing_calibration.py \
             tests/test_synthetic_onset_frontend_comparison.py \
             tests/test_shadow_hop256_validation.py \
+            tests/test_meter_downbeat_evidence.py \
             tests/test_phase_lock_trace_summary.py
