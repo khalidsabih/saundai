@@ -788,3 +788,42 @@ limit, bounded correction or emergency fallback. CI tests use synthetic
 fixtures only; actual dataset results must be run locally. Upload
 `ballroom-timing-root-cause.json` for interpretation before considering
 any experimental, non-production timing adjustment.
+
+## Brain-first milestone: sample-accurate synthetic timing calibration
+
+SAUND CORE remains a long-term premium speaker/miniature-DJ product vision,
+but SAUND.AI rhythm intelligence is the immediate engineering priority.
+Before changing any production beat timestamps, execute a controlled
+sample-accurate drum calibration.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+# Fast two-scenario check.
+python scripts/calibrate_synthetic_beat_timing.py --quick \
+  --output output/beat-integrity/synthetic-timing-quick.json
+
+# Nine BPM/frame-phase combinations; original deterministic audio only.
+python scripts/calibrate_synthetic_beat_timing.py \
+  --output output/beat-integrity/synthetic-timing-calibration.json
+```
+
+The harness synthesizes precisely labeled first-nonzero kick samples in
+temporary WAVs (100/124/140 BPM; offsets of 0, 1/3 and 2/3 of a 512-sample
+hop), then passes the WAV to **unmodified** `analyze_track`. It compares
+independently reported onset-envelope peaks and predicted beats with those
+exact sample positions. Temporary WAV files are deleted when completed;
+the requested JSON report is retained.
+
+Signed offset is `detected time - exact kick start`. A scenario may have
+no matched predicted beats or a half/double-pulse interpretation; these
+failures are reported rather than counted as successes. The 130ms
+measurement radius is a diagnostic matching window, **not** the protected
+25ms cross-deck phase-integrity residual.
+
+Results do not authorize a global timing shift or a production detector
+change. Use them to distinguish onset-front-end delay and frame phase
+effects, then corroborate with unexposed external audio and transition
+safety measurements. A green synthetic test is not evidence of reliable
+autonomous DJ performance.
