@@ -89,3 +89,6 @@ datasets/downloads/
 # Local historical engineering notes
 /DJAI_*.md
 /SAUND_AI_*.md
+
+# Locally licensed Ballroom benchmark audio, normalized labels, and manifests
+/data/beat-benchmark/
