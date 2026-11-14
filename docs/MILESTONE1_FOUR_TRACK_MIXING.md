@@ -537,3 +537,31 @@ Missing audio is reported, not replaced by made-up evidence. Nothing
 modifies a beat grid, downbeat, cache, transition, mixer or the
 existing 25 ms Beat Integrity threshold.
 Upload `extended-rhythmic-evidence.json` for evidence review.
+
+## Independent beat tracking and metrical-accent comparison (read-only)
+
+Use a second, independently initialized dynamic-programming beat tracker on
+extended source-audio sections around each saved piecewise discontinuity.
+The diagnostic also computes a separate audio-onset autocorrelation tempo
+and explores four possible modulo-four bass-accent placements. Neither
+method certifies musical downbeat identity. Optional mono excerpts enable
+direct human listening to the *original*, uncorrected audio.
+
+```bash
+python scripts/audit_independent_beat_downbeat.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --piecewise output/milestone1-tempo-consistency/piecewise-beat-continuity.json \
+  --cache-root .djai-cache/tracks \
+  --excerpts-dir output/milestone1-tempo-consistency/listening-excerpts \
+  --output output/milestone1-tempo-consistency/independent-beat-downbeat.json
+```
+
+If saved audio paths have moved, provide `--source-dir` pointing to the
+original WAV files. Excerpts are optional and remain on the local Mac;
+share them only if listening feedback is wanted. They are resampled mono
+extracts, not corrected transition renders. The beat tracker may follow
+offbeats or octave-tempo pulses. Modulo-four bass onset accents are
+*metrical hypotheses*, not validated downbeats or a 4/4 proof. The tool
+cannot safely choose beat-index edits and never modifies the cached
+beat grids, mixer, plans, safety limits or fallback policy. Upload
+`independent-beat-downbeat.json` for the next evidence review.
