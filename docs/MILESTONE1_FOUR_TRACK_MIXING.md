@@ -447,3 +447,32 @@ establish safety, correct musical alignment or rendered audio
 quality. It never authorizes production rewriting and leaves
 all safety policies unchanged. Upload
 `crossdeck-phase-counterfactual.json` for review.
+
+## Read-only beat-grid outlier localization and event-index continuity
+
+To pinpoint the individual timestamps behind the large rejected
+steady-grid movement, inspect original cached beat sequences against
+the existing *independent* audio-onset candidates:
+
+```bash
+python scripts/localize_beat_grid_outliers.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --sequence-audit output/milestone1-tempo-consistency/beat-sequence-interpretation.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/beat-grid-outliers.json
+```
+
+The report flags beats whose fixed-period reference offset exceeds
+45 ms or where adjacent intervals deviate by over 12% from the
+expected source-beat period. For each suspicious beat it includes
+the original and reference timestamps, neighboring intervals,
+median phase offsets on each side, independent onset evidence
+within 55 ms of both interpretations, and conservative *hypotheses*
+for isolated displacement or persistent indexing offset.
+
+The fixed-period reference still comes from planner tempo and
+original beat indices. A persistent offset may indicate missing
+or extra beats, incorrect tempo, or musical timing changes; this
+test cannot distinguish them definitively. No beat timing or index
+changes are authorized. The 25 ms phase integrity limit is
+unchanged, and renderer quality is not evaluated.
