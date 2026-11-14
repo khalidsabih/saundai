@@ -747,3 +747,44 @@ analyses, caches, grids, fallbacks or the 25 ms safety limit.
 Upload `ballroom-validation-decomposition.json` for diagnosis. Do not
 optimize the model to the previously inspected test scores, and use
 a truly untouched evaluation set for final performance claims.
+
+## Validation-only Timing Offset Root-Cause Audit
+
+The Ballroom validation decomposition found frequent positive beat delays
+relative to reference timestamps. Do **not** apply an automatic global
+negative time shift: onset-envelope frame coordinates and reference
+annotation conventions require independent investigation first.
+
+Run a read-only audit on the **validation** partition (70 tracks).
+The previously examined test partition is not read.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+python scripts/audit_beat_timing_root_cause.py \
+  --manifest data/beat-benchmark/manifest.json \
+  --output output/beat-integrity/ballroom-timing-root-cause.json
+```
+
+This re-analyzes the original audio and independently builds librosa
+onset-strength peaks at SAUND's 22,050 Hz and 512-sample hop
+(approximately 23.22 ms/frame). It reports:
+
+- Signed SAUND beat timestamp offset relative to Ballroom reference labels.
+- Frame-lattice proximity; a frame-lattice match by itself does **not**
+  establish half-frame centering or any particular algorithmic latency.
+- Separate reference-vs-onset-peak and prediction-vs-onset-peak proximity;
+  onset peaks are NOT verified musical beats and can match multiple events.
+- A retrospective ground-truth-assisted sweep of uniform timestamp shifts
+  (-80 to +80 ms in 5 ms steps), as a **diagnostic oracle only**. An
+  improved F1 in this oracle does not justify applying a production offset.
+  Conversely, F1 may stay unchanged inside the 70 ms tolerance despite
+  a real systematic timestamp bias.
+
+No audio is exported, no detector parameters or production timing grids
+are edited, and no changes are made to the 25 ms cross-deck safety
+limit, bounded correction or emergency fallback. CI tests use synthetic
+fixtures only; actual dataset results must be run locally. Upload
+`ballroom-timing-root-cause.json` for interpretation before considering
+any experimental, non-production timing adjustment.
