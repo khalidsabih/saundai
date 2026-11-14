@@ -1072,3 +1072,46 @@ relationship to the unchanged **25ms cross-deck phase-integrity
 residual limit**. The benchmark never modifies production beat grids,
 meter/downbeat inference, model authority, fallback, caches, bounded
 warp or live mixing. No automated promotion is authorized.
+
+## Multi-cue audio-grounded bar-start shadow (offline only)
+
+The earlier pulse/meter/phase oracle diagnostic found opportunities
+for phase selection when both the predicted beat pulse and meter
+are correct. This experiment evaluates the **audio evidence** rather
+than using reference labels to pick phases. It does not assume that
+oracle performance is achievable.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+python scripts/shadow_multicue_bar_start.py --limit 3 \
+  --output output/beat-integrity/multicue-bar-start-smoke.json
+
+python scripts/shadow_multicue_bar_start.py \
+  --output output/beat-integrity/ballroom-multicue-bar-start-shadow.json
+```
+
+One STFT supplies beat-synchronous low-frequency onset flux,
+normalized chroma novelty and low-band power. Three separately
+scored cues vote for each possible downbeat phase: bass onset,
+harmonic change and across-bar repetition of low-frequency
+emphasis. **Bar repetition reuses bass evidence and is not a
+third independent physical sensor.** The fixed-meter fusion
+requires at least two strong and stable votes plus a clear fused
+winner. Each cue must have a consistent phase in both halves.
+Otherwise fallback simulation leaves existing downbeats unchanged.
+
+The report compares individual cues and fusion against unchanged
+production; it lists regressions and stratifies by reference meter
+and **label-defined diagnostic cohorts** such as clean phase
+failures/successes. Reference labels and reference-assisted phase
+oracle are read *only after* autonomous inference, never to choose
+its phase. Cohorts and the repeatedly inspected 70 validation
+tracks are for explanation, not unbiased new model selection or
+threshold tuning. An independent EDM set is necessary.
+
+No audio analysis switch is made. The protected 25ms cross-deck
+phase-integrity residual, model authority, bounded warp, cache,
+production beat grid/meter/downbeats and fallback are untouched.
+100ms downbeat F1 label matching is not a production safety gate.
