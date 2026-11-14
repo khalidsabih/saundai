@@ -1030,3 +1030,45 @@ The 100ms annotated downbeat matching window is unrelated to the
 protected production 25ms cross-deck phase-integrity residual. There
 are **no** changes to production grids, meter logic, model authority,
 warp, cache, live mixing, audio fallbacks, or safety gating.
+
+## Pulse–Meter–Phase root-cause counterfactual benchmark
+
+The 70-track phase-only shadow had 14 accepted predictions but no
+downbeat F1 change. The earlier hierarchical shadow improved exactly
+one recording. Neither is approved for production. The next diagnostic
+separates upstream pulse-period interpretation, meter grouping and
+downbeat phase with **label-assisted ceiling estimates**.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+python scripts/benchmark_pulse_meter_phase_roots.py --limit 3 \
+  --output output/beat-integrity/pulse-meter-phase-smoke.json
+
+python scripts/benchmark_pulse_meter_phase_roots.py \
+  --output output/beat-integrity/ballroom-pulse-meter-phase-root-causes.json
+```
+
+Outputs include actual unchanged beat/downbeat F1, rate-class
+distribution, reference/predicted meter, best periodic downbeat phase
+using predicted meter versus **reference-derived meter**, and oracle
+counterfactual grids: unchanged, take every other beat (two parity
+options), or add midpoint events to double the event rate. They also
+report overlapping >=10-percentage-point *opportunity* screens, not
+mutually exclusive causal diagnoses. Half/double candidates are
+artificial diagnostic grids, not validated audio trackers.
+
+For faster fixtures with saved analyses, pass `--precomputed-only`;
+this fails closed on any missing saved prediction and does NOT
+generate or infer annotation labels. The benchmark selects only
+`split=validation`, never the previously inspected test partition.
+Reference annotations are read after SAUND analysis prediction (or
+after loading a saved prediction); no reference-derived choice is
+used by autonomous audio inference.
+
+The 70ms beat and 100ms downbeat label-match tolerances have no
+relationship to the unchanged **25ms cross-deck phase-integrity
+residual limit**. The benchmark never modifies production beat grids,
+meter/downbeat inference, model authority, fallback, caches, bounded
+warp or live mixing. No automated promotion is authorized.
