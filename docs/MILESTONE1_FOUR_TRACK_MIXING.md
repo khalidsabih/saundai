@@ -359,3 +359,33 @@ independent beat-sequence validation. Onset peaks can belong to hats or
 other instruments rather than beats; even a reduced hypothetical drift
 is not proof of audio quality or justification to enable production
 grid rewriting.
+
+## Independent beat-sequence interpretation diagnostic (read-only)
+
+After the experiment, analyze original cached beat interval anomalies against
+independently detected audio onsets. Unlike the nearest-onset audit, onset
+events are extracted from the entire audio overlap and are **not**
+searched only around each cached beat:
+
+```bash
+python scripts/validate_beat_sequence_interpretation.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/beat-sequence-interpretation.json
+```
+
+Add `--source-dir output/milestone1-tempo-consistency/crate` only if
+the plan's stored audio paths have moved.
+
+The report identifies short beat intervals (possible extra/misplaced
+events), intervals near double the expected beat period (possible
+missing beats), and other interval mismatches. Missing-beat hypotheses
+are marked `audio_supported_candidate` only when an independently
+found onset falls within 55 ms of the gap midpoint. These are
+**hypotheses**, not accepted beats: independent onset events can reflect
+hats, subdivisions, or syncopation. No beat index, timestamp,
+downbeat, cached analysis, planner output, or rendering is changed.
+Original 25 ms Beat Integrity limits remain in force.
+
+Share `beat-sequence-interpretation.json` for the next evidence
+review; it is not a new phase-integrity pass/fail test.
