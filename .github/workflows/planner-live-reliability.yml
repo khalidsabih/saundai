@@ -51,4 +51,5 @@ jobs:
             tests/test_extended_rhythmic_context.py \
             tests/test_independent_beat_downbeat_audit.py \
             tests/test_local_beat_disagreements.py \
+            tests/test_beat_integrity_dataset_benchmark.py \
             tests/test_phase_lock_trace_summary.py
