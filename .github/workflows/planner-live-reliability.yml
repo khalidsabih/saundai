@@ -46,4 +46,5 @@ jobs:
             tests/test_beat_sequence_interpretation.py \
             tests/test_continuous_beat_phase.py \
             tests/test_crossdeck_phase_counterfactual.py \
+            tests/test_beat_grid_outlier_localization.py \
             tests/test_phase_lock_trace_summary.py
