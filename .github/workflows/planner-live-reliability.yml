@@ -54,4 +54,5 @@ jobs:
             tests/test_beat_integrity_dataset_benchmark.py \
             tests/test_prepare_ballroom_beat_benchmark.py \
             tests/test_beat_error_decomposition.py \
+            tests/test_beat_timing_root_cause.py \
             tests/test_phase_lock_trace_summary.py
