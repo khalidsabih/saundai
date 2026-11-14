@@ -314,6 +314,14 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return avg([r[field]["f_measure"] for r in group if r[field] is not None])
     out = {
         "evaluated": len(ok),
+        "failed": len(rows)-len(ok),
+        "failure_reasons": dict(sorted(Counter(
+            r.get("reason", r["status"]) for r in rows if r["status"] != "evaluated"
+        ).items())),
+        "failed_examples": [
+            {"id": r["id"], "reason": r.get("reason", r["status"])}
+            for r in rows if r["status"] != "evaluated"
+        ][:10],
         "cohort_counts": dict(sorted(Counter(r["cohort"] for r in ok).items())),
         "baseline_macro_f1": mean_f1("baseline_downbeat", ok),
         "fusion_fallback_macro_f1": mean_f1("fusion_with_fallback", ok),
@@ -423,6 +431,10 @@ def main() -> None:
     print(json.dumps({
         "report": str(args.output.resolve()),
         "selected": report["selected_count"],
+        "evaluated": report["summary"]["evaluated"],
+        "failed": report["summary"]["failed"],
+        "failure_reasons": report["summary"]["failure_reasons"],
+        "failed_examples": report["summary"]["failed_examples"],
         "summary": report["summary"],
     }, indent=2))
     if not report["selected_count"] or report["summary"]["evaluated"] != report["selected_count"]:
