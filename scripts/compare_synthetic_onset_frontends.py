@@ -7,9 +7,9 @@ attack samples*. The default configuration calls the same librosa onset-strength
 and beat-track routines as SAUND's deterministic front end, without modifying
 SAUND analysis, its model registry, beat-grid caches, or safety thresholds.
 
-CAUTION: center=False frames are timestamped by their WINDOW START, so their
-apparent offset may improve artificially. Treat only center=True settings as
-directly comparable timing alternatives. No global offset is authorized.
+CAUTION: center=False disables librosa onset-envelope temporal shifting; it
+does not turn off mel-STFT window centering. Treat this as a timestamp-
+convention experiment and never as an automatic production fix. No global offset is authorized.
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def describe_variant(variant: OnsetVariant) -> dict[str, Any]:
         "window_duration_ms": round(1000*variant.n_fft/ANALYSIS_SAMPLE_RATE, 4),
         "timestamps": ("librosa.frames_to_time frame grid; centered STFT input"
                        if variant.center else
-                       "librosa.frames_to_time anchored to uncentered STFT window START"),
+                       "librosa onset envelope has no n_fft/2 time shift; STFT still centered"),
         "directly_comparable_to_centered_baseline": variant.center,
     }
 
