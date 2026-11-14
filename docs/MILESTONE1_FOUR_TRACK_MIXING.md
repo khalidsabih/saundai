@@ -827,3 +827,49 @@ change. Use them to distinguish onset-front-end delay and frame phase
 effects, then corroborate with unexposed external audio and transition
 safety measurements. A green synthetic test is not evidence of reliable
 autonomous DJ performance.
+
+## Read-only onset front-end parameter comparison
+
+The original nine-scenario sample-accurate calibration found median per-case
+beat offset +19.365 ms, very near onset-peak offset +19.093 ms. This
+is evidence of a reproducible synthetic front-end timing difference, not
+permission to apply a global timestamp shift. The real Ballroom reference
+offset was +37.846 ms and may also reflect annotation conventions,
+content, attack shapes or other factors.
+
+Use the offline comparison harness to separate FFT/window-size effects,
+hop-size effects and librosa onset-envelope *timestamp-shift convention*:
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+# Quick 2 synthetic cases x 5 front-end configurations
+python scripts/compare_synthetic_onset_frontends.py --quick \
+  --output output/beat-integrity/onset-front-end-quick.json
+
+# Full 9 synthetic cases x 5 front-end configurations
+python scripts/compare_synthetic_onset_frontends.py \
+  --output output/beat-integrity/onset-front-end-comparison.json
+```
+
+The unchanged deterministic SAUND reference is
+`librosa.onset.onset_strength(..., hop_length=512, n_fft=2048,
+center=True, aggregate=np.median)`, followed by
+`librosa.beat.beat_track`. The candidates vary n_fft to 1024/4096,
+hop_length to 256, and optionally use `center=False`.
+
+Important: for librosa `onset_strength`, `center=False` disables
+the *onset-envelope timing shift*, NOT the centering of the underlying
+mel-STFT. A lower measured error from `center=False` could simply
+reflect shifted reported timestamps; it is not automatically a better
+music detector. Comparisons must account for this convention.
+
+Each configuration reports exact-sample-reference event coverage,
+precision among predicted events, signed median and median/p95 absolute
+timing offsets, and predicted pulse-period ratio. A comparison only
+provides an offline hypothesis. It does not modify model authority,
+production beat analysis, cached grids, bounded warp, fallback, or the
+hard 25 ms cross-deck phase residual. Real EDM validation and rendered
+cross-deck audio tests are necessary prior to any proposed production
+change. Upload `onset-front-end-comparison.json` for interpretation.
