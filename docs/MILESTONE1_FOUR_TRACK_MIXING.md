@@ -1115,3 +1115,67 @@ No audio analysis switch is made. The protected 25ms cross-deck
 phase-integrity residual, model authority, bounded warp, cache,
 production beat grid/meter/downbeats and fallback are untouched.
 100ms downbeat F1 label matching is not a production safety gate.
+
+## Frozen independent bar-start benchmark (new audio only)
+
+The 70-track Ballroom validation multicue shadow reached macro downbeat
+F1 0.28810 vs unchanged 0.25466, with 7 fusion overrides, three
+improvements and zero measured regressions. These are **exploratory,
+repeatedly inspected validation findings**, not a promotion criterion.
+
+Freeze the existing inference constants and compare five approaches
+without refitting anything: unchanged production; the frozen
+three-cue fusion; bass-onset-only; bar-repetition-only; and
+rhythm consensus (requires strong, matching bass and repetition
+votes). Harmonic novelty is logged by the frozen baseline but cannot
+authorize a rhythm-consensus override. Bass and repetition depend on
+related low-frequency features, so they are not independent sensors.
+
+Obtain new legally usable, independently annotated EDM recordings
+not present in the existing Ballroom corpus or earlier evaluations.
+Create a separate manifest, for example
+`data/independent-edm/manifest.json`:
+
+```json
+{
+  "dataset": "New independently annotated EDM evaluation",
+  "provenance": "Document source, annotation rights, date, annotator and explicit non-overlap",
+  "tracks": [
+    {
+      "id": "independent-001",
+      "split": "independent",
+      "audio": "audio/independent-001.wav",
+      "beats": "labels/independent-001.beats",
+      "downbeats": "labels/independent-001.downbeats"
+    }
+  ]
+}
+```
+
+Times are normalized seconds, one timestamp per line. No new audio
+or third-party rights are bundled. Verify provenance, annotation
+alignment, duplicate recordings and genre diversity externally.
+
+```bash
+python -m pytest -q tests/test_independent_bar_start_comparison.py
+
+python scripts/benchmark_independent_bar_start.py \
+  --manifest data/independent-edm/manifest.json \
+  --output output/beat-integrity/independent-bar-start-comparison.json
+```
+
+The script refuses Ballroom manifest names/paths and any split other
+than `independent`. Missing annotations or audio are reported as
+per-track failures; an incomplete run exits nonzero. It evaluates
+all tracks rather than selectively excluding difficult cases.
+Each method reports macro F1, delta against unchanged production,
+acceptance coverage and all regression track IDs. No annotation
+labels enter autonomous inference.
+
+Do **not** tune any model, fusion weight or gate on this new
+holdout. If performance disappoints, design new development data
+and reserve another independent test for verification. Success in
+downbeat F1 alone is insufficient: require full timing, false-safe
+transition, genre and listening evaluation before any production
+discussion. The 25ms cross-deck phase-integrity safety limit,
+bounded warp, beat grid authority, cache and fallback stay intact.
