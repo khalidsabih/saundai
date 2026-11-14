@@ -49,4 +49,5 @@ jobs:
             tests/test_beat_grid_outlier_localization.py \
             tests/test_piecewise_beat_continuity.py \
             tests/test_extended_rhythmic_context.py \
+            tests/test_independent_beat_downbeat_audit.py \
             tests/test_phase_lock_trace_summary.py
