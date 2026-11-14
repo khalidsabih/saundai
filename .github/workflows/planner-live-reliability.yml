@@ -53,4 +53,5 @@ jobs:
             tests/test_local_beat_disagreements.py \
             tests/test_beat_integrity_dataset_benchmark.py \
             tests/test_prepare_ballroom_beat_benchmark.py \
+            tests/test_prepare_ballroom_beat_benchmark.py \
             tests/test_phase_lock_trace_summary.py
