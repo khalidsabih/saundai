@@ -389,3 +389,27 @@ Original 25 ms Beat Integrity limits remain in force.
 
 Share `beat-sequence-interpretation.json` for the next evidence
 review; it is not a new phase-integrity pass/fail test.
+
+## Read-only continuous beat-phase coherence (competing explanations)
+
+After generating `beat-sequence-interpretation.json`, evaluate whole-overlap
+beat-phase hypotheses against the independently detected audio-onset candidates:
+
+```bash
+python scripts/diagnose_continuous_beat_phase.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --sequence-audit output/milestone1-tempo-consistency/beat-sequence-interpretation.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/continuous-beat-phase.json
+```
+
+The diagnostic scores each deck's original event grid, a steady pulse at
+the expected source tempo, bounded event displacement, and (only when
+interval evidence permits) single missing/extra beat hypotheses. Matching
+is one-to-one against the independently detected onset candidates rather
+than beat-guided peaks, and scores penalize interval errors, displacement
+and index edits. Scores are **uncalibrated heuristic explanations**, not
+probabilities, verified kick positions or professional DJ judgments.
+A preference never authorizes a beat-grid change. No caches, plans,
+renderer, safety limits or beat indices are modified. The output is
+`continuous-beat-phase.json` for technical evidence review.
