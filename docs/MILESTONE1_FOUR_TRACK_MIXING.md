@@ -505,3 +505,35 @@ limited support. Scores are descriptive, not musical ground truth.
 No beat index or timestamp is changed; the 25 ms Beat Integrity
 threshold and the production fallback behavior are unchanged.
 Share `piecewise-beat-continuity.json` for interpretation.
+
+## Extended-context multi-band rhythmic verification (read-only)
+
+After generating `piecewise-beat-continuity.json`, inspect the source
+audio around each stable-run junction for at least four bars on both
+sides, where available. This addresses the missing audio evidence
+outside the previous narrow overlap.
+
+```bash
+python scripts/verify_extended_rhythmic_context.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --piecewise output/milestone1-tempo-consistency/piecewise-beat-continuity.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/extended-rhythmic-evidence.json
+```
+
+The tool decodes the audio around the original cached junction indices
+and extracts independent onset candidates from low-pass (below 180 Hz),
+high-pass (above 1800 Hz) and full-band signals. It compares one-to-one
+onset matches for the original beat positions versus half-beat earlier
+and later alternatives, separately before and after each junction.
+Four bars of context are sought on each side. A frequency band is a
+rough kick- or percussion-weighted proxy, **not** source separation or
+a verified quarter-note beat. Sparse evidence, comparable support for
+two phases, and potential preference flips remain explicitly uncertain.
+
+If the plan stores paths that have moved, supply `--source-dir` pointing
+to the directory containing the original source audio filenames.
+Missing audio is reported, not replaced by made-up evidence. Nothing
+modifies a beat grid, downbeat, cache, transition, mixer or the
+existing 25 ms Beat Integrity threshold.
+Upload `extended-rhythmic-evidence.json` for evidence review.
