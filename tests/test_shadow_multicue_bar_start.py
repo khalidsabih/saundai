@@ -93,3 +93,23 @@ def test_reference_cohort_summaries_do_not_depend_on_inference_labels():
     assert s["by_cohort"]["clean_phase_failure"]["count"] == 1
     assert s["fusion_accepted"] == 0
     assert s["fusion_regressed_tracks"] == 0
+
+
+def test_audio_chroma_novelty_uses_adjacent_time_frames(monkeypatch):
+    """Regression: pitch-bin slicing produced a 20-long vs 19-long mismatch."""
+    import librosa
+    n_frames = 20
+    power = np.ones((1025, n_frames), dtype=float)
+    chroma = np.zeros((12, n_frames), dtype=float)
+    chroma[0, :10] = 1
+    chroma[1, 10:] = 1
+    monkeypatch.setattr(librosa, "stft", lambda *args, **kwargs: power)
+    monkeypatch.setattr(librosa.feature, "chroma_stft",
+                        lambda *args, **kwargs: chroma.copy())
+    features = mod.audio_cues(
+        np.zeros(4096), sr=22050, beat_times=[.10, .22, .35]
+    )
+    assert features.shape == (3, 3)
+    assert np.all(np.isfinite(features))
+    assert np.all(features >= 0)
+    assert features[1, 1] > 0  # window includes the pitch change at frame 10
