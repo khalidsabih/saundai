@@ -248,6 +248,14 @@ def main() -> None:
                    help="Only evaluate paths with saved SAUND analysis JSON; no audio processing")
     p.add_argument("--output", type=Path, default=Path("output/beat-integrity/dataset-report.json"))
     args = p.parse_args()
+    if not args.manifest.is_file():
+        p.error(
+            f"Manifest not found: {args.manifest}. "
+            "First prepare legally accessible audio and beat annotations with "
+            "'python scripts/prepare_ballroom_beat_benchmark.py "
+            "--acknowledge-noncommercial-restrictions --download', "
+            "then rerun the benchmark."
+        )
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     root = args.root or args.manifest.parent
     report = benchmark(manifest, root, selected_split=args.split,
