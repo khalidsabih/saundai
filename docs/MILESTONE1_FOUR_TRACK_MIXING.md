@@ -655,3 +655,53 @@ single-track metrics alone cannot establish transition safety or
 rendered mix quality. Never tune to the held-out test split, inspect
 licenses before commercial reuse, and avoid committing/repackaging
 third-party audio.
+
+## Prepare a real benchmark manifest automatically (Ballroom)
+
+The earlier `FileNotFoundError: data/beat-benchmark/manifest.json`
+means no dataset was installed; **it is not a beat-analysis failure**.
+The optional importer `scripts/prepare_ballroom_beat_benchmark.py`
+generates the missing manifest from *real audio and beat-in-bar
+annotations* paired by the public `mirdata` Ballroom dataset index.
+
+Ballroom is a **non-EDM transfer benchmark**, not a substitute for
+later EDM-specific verification. The dataset annotations are listed
+by mirdata as **CC BY-NC-SA 4.0**, and underlying music/audio rights
+must also be checked. This integration is not a license to use
+research music commercially or redistribute it. Review those
+restrictions before choosing to download.
+
+```bash
+python -m pip install 'mirdata>=0.3.8,<2'
+# Download upstream files (large, about 1.5 GB of audio) ONLY after
+# reviewing and accepting applicable rights and noncommercial terms.
+python scripts/prepare_ballroom_beat_benchmark.py \
+  --download --acknowledge-noncommercial-restrictions
+
+# Inspect the printed summary and check that the test split is populated.
+python scripts/benchmark_beat_integrity_dataset.py \
+  --manifest data/beat-benchmark/manifest.json \
+  --split test \
+  --output output/beat-integrity/ballroom-baseline.json
+```
+
+To prepare already obtained files without downloading, omit
+`--download` and `--acknowledge-noncommercial-restrictions`
+and point `--data-home` at the local mirrored mirdata structure.
+The script checks the existence of actual audio/annotations and
+parses beat-in-bar ID 1 as a downbeat. It writes normalized
+timestamps and a deterministic 80/10/10 split based on original
+audio SHA256. Exact duplicate bytes cannot cross split boundaries;
+different encodings of the same recording may still leak and need
+additional de-duplication before publication. For faster setup,
+`--limit 50` caps included tracks, but this may leave the test
+split empty, and **no score should be claimed from an empty split**.
+
+The entire `data/beat-benchmark/` directory is ignored by Git.
+The CI suite uses synthetic fixtures without accessing the real
+dataset; a green CI check does not validate real music accuracy.
+The importer returns a failure rather than inventing benchmark
+success if no audio+annotation pairs can be found. If the optional
+network download fails or upstream URLs have changed, seek
+authorized copies; do not silently substitute test fixtures for
+a measured dataset baseline.
