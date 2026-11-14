@@ -154,7 +154,7 @@ def prepare(root: Path, output: Path, audio_root: Path | None = None,
             seen.add(ident)
             verified.append((ident, path, item))
 
-    labels = output / "labels"
+    # A previous verified run must never leave a misleading runnable manifest\n    # behind when a later labels-only preparation has no verified audio.\n    stale_manifest = output / "raveform-independent-manifest.json"\n    if not verified and stale_manifest.exists():\n        stale_manifest.unlink()\n\n    labels = output / "labels"
     labels.mkdir(parents=True, exist_ok=True)
     public_candidates = []
     for ident in sorted(candidates):
