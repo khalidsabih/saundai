@@ -75,7 +75,9 @@ def audio_cues(y: np.ndarray, sr: int, beat_times: list[float]) -> np.ndarray:
     chroma /= np.maximum(np.linalg.norm(chroma, axis=0, keepdims=True), 1e-8)
     novelty = np.zeros(chroma.shape[1], dtype=float)
     if len(novelty) > 1:
-        novelty[1:] = np.maximum(0, 1-np.sum(chroma[1:]*chroma[:-1], axis=0))
+        # Temporal chroma novelty: compare adjacent FRAMES (axis 1), not pitch bins.
+        # The result must contain T-1 values for novelty[1:].
+        novelty[1:] = np.maximum(0, 1-np.sum(chroma[:, 1:]*chroma[:, :-1], axis=0))
     frames = librosa.time_to_frames(np.asarray(times), sr=sr, hop_length=HOP_LENGTH)
     out = np.zeros((len(times), 3), dtype=float)
     for i, frame in enumerate(frames):
