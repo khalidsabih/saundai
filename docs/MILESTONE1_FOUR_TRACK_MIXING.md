@@ -413,3 +413,37 @@ probabilities, verified kick positions or professional DJ judgments.
 A preference never authorizes a beat-grid change. No caches, plans,
 renderer, safety limits or beat indices are modified. The output is
 `continuous-beat-phase.json` for technical evidence review.
+
+## Read-only cross-deck bounded-phase counterfactual
+
+After `continuous-beat-phase.json` is available, test whether a
+steady incoming-deck timing reference can reduce the **actual bounded
+cross-deck phase residual** under the same saved cue times, nudge,
+overlap duration, playback rates and sample count:
+
+```bash
+python scripts/counterfactual_crossdeck_phase.py \
+  --set-plan output/milestone1-tempo-consistency/balanced/set-plan.json \
+  --coherence output/milestone1-tempo-consistency/continuous-beat-phase.json \
+  --cache-root .djai-cache/tracks \
+  --output output/milestone1-tempo-consistency/crossdeck-phase-counterfactual.json
+```
+
+The script replays the production-default 45 ms maximum phase warp,
+18 ms maximum per-sample step, and 25 ms residual threshold. It
+checks that the winning *incoming* steady hypothesis has at least
+0.10 score advantage over the original grid and at least 0.55
+independent onset-support score. For a numerical grid alternative,
+**every beat** within its overlap context must move no more than
+30 ms, new join intervals must stay within 10% of expected, and
+original downbeat anchors must remain within 25 ms. Failed checks
+are reported as rejections; no alternative grid is applied.
+
+Note: despite its earlier label, the steady-pulse candidate uses
+the **planner's tempo** to fit an original beat-index sequence, not
+an independently measured absolute audio beat grid. Even if a
+candidate yields a numerical residual below 25 ms, that does not
+establish safety, correct musical alignment or rendered audio
+quality. It never authorizes production rewriting and leaves
+all safety policies unchanged. Upload
+`crossdeck-phase-counterfactual.json` for review.
