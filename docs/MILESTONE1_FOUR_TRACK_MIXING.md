@@ -873,3 +873,43 @@ production beat analysis, cached grids, bounded warp, fallback, or the
 hard 25 ms cross-deck phase residual. Real EDM validation and rendered
 cross-deck audio tests are necessary prior to any proposed production
 change. Upload `onset-front-end-comparison.json` for interpretation.
+
+## Real-audio validation-only shadow: 512-hop versus 256-hop
+
+Synthetic timing comparisons favored the 2048 FFT / 256-sample hop candidate
+(252/252 drum beats within 130ms; median absolute event error 15.283ms)
+over the current 2048 / 512-sample deterministic baseline
+(244/252; median absolute event error 19.365ms). These figures **do not**
+establish better downbeats, real-music alignment or transition safety.
+
+The new read-only Ballroom validation experiment records:
+
+* Unchanged `analyze_track` results, including neural influence if enabled,
+  as `production`.
+* Like-for-like deterministic replays with hop=512 and hop=256, using
+  SAUND's actual private meter and downbeat front-end helpers.
+* Beat/downbeat F-measures, one-to-one signed timing offsets, possible
+  half/double pulse-rate classes, inferred reference meter, and predicted
+  meter counts, plus wall-clock runtime and Python-traced peak allocations.
+* Explicit paired 256-minus-512 F-measure differences, avoiding a false
+  comparison between neural-enabled production and deterministic shadow.
+
+```bash
+git fetch origin
+git merge --no-edit origin/main
+
+# Smoke: only first three VALIDATION tracks
+python scripts/benchmark_shadow_hop256_validation.py --limit 3 \
+  --output output/beat-integrity/ballroom-shadow-hop256-smoke.json
+
+# Full comparison: ALL validation tracks; no previously inspected test audio.
+python scripts/benchmark_shadow_hop256_validation.py \
+  --output output/beat-integrity/ballroom-shadow-hop256-validation.json
+```
+
+The reported memory metric comes from `tracemalloc` and is **not** total
+native-process RSS. Timing measurements can vary with warmup and machine
+load. No production beat grids, hop constants, cache, fallback, bounded
+warp or 25ms cross-deck limit are modified. A favorable validation result
+is only a candidate for later *independent* EDM and transition-level
+testing, never automatic promotion. Upload the detailed JSON for review.
