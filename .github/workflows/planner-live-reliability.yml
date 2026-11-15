@@ -42,6 +42,7 @@ jobs:
             tests/test_neural_bpm_reference_benchmark.py \
             tests/test_neural_tempo_arbitration.py \
             tests/test_neural_tempo_validation.py \
+            tests/test_neural_tempo_reference_workflow.py \
             tests/test_phase_drift_decomposition.py \
             tests/test_independent_overlap_audio_tempo.py \
             tests/test_tempo_consistency.py \
