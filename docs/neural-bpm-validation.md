@@ -255,3 +255,73 @@ rates require independently labeled musical beat/downbeat annotations.
 A pass means only that an *unvalidated provisional screen* was satisfied,
 not that the neural grid was correct or should be used by the live DJ.
 There is no automatic adoption or change to the existing inference gate.
+
+## Independently annotated beat and downbeat comparison (read-only)
+
+SAUND already includes a one-to-one beat timestamp matcher in
+`scripts/benchmark_beat_integrity_dataset.py`. The paired
+`scripts/benchmark_neural_beat_downbeat.py` workflow reuses that matcher
+to score both **Librosa deterministic pre-neural beats** and
+**Beat This! beats/downbeats** against the same manually annotated audio.
+It never invokes `analyze_track`, replaces a grid or changes playback.
+
+First prepare a local manifest from the same 17 approximate BPM-reference
+tracks. **No timestamp labels are generated or inferred**:
+
+```sh
+cd /tmp/saund-brain-test
+export DJAI_WORKSPACE="/Users/khalidsabih/Downloads/lab/SAUND_AI"
+export DJAI_BEAT_THIS_CHECKPOINT="$DJAI_WORKSPACE/.djai-cache/neural/beat-this-final0.ckpt"
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m scripts.benchmark_neural_beat_downbeat prepare \
+  --audio-root "$DJAI_WORKSPACE/audio" \
+  --references /tmp/saund-bpm-17-references.json \
+  --output /tmp/saund-beat-phase-manifest-v1.json
+```
+
+For every selected manifest entry, create **separate human-verified**
+timestamp files in `/tmp/labels/` (the `labels/` paths are relative
+to the manifest). For example, `/tmp/labels/track-01.beats.txt` holds
+one beat time in seconds per line, and
+`/tmp/labels/track-01.downbeats.txt` holds one verified musical bar-one
+time per line:
+
+```text
+0.500
+1.000
+1.500
+2.000
+```
+
+These numbers are **format examples only**, never assertions about any
+real SAUND track. Use a DAW or careful listening with an independent beat
+grid; inspect kick/percussive attacks, meter and bar-one musical accents.
+Do **not** copy Librosa or Beat This! model predictions to reference files.
+Record the independent annotation process in the manifest's
+`annotation_method` field for each track. Keep timestamps strictly
+increasing, nonnegative and expressed relative to the original audio start.
+An incomplete track is reported as missing labels, not scored as a success.
+
+Run the read-only paired benchmark after annotation:
+
+```sh
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m scripts.benchmark_neural_beat_downbeat evaluate \
+  --manifest /tmp/saund-beat-phase-manifest-v1.json \
+  --split validation \
+  --output /tmp/saund-beat-phase-paired-v1.json
+```
+
+The report gives each model's one-to-one timestamp precision, recall,
+F-measure and timing error, separately for beat markers (70 ms tolerance)
+and downbeat markers (100 ms tolerance). The results are observational.
+A track without both annotation files and a documented method cannot
+count toward measured accuracy, and an empty evaluation reports null
+aggregate scores. The first manifest is explicitly a **validation**
+sample, not a statistically untouched test holdout; freeze separate
+test tracks before changing detector thresholds. Do not publish
+copyrighted audio or local annotation files without consent.
+
+The source timestamp matcher and this workflow are not a direct test
+of phase-safe DJ transitions or time-signature correctness. Musical
+bar-one labeling and annotation quality still require human review.
