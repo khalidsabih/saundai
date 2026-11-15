@@ -100,12 +100,22 @@ def summarize(rows: list[dict]) -> dict:
         "deterministic_wins": sum(r["comparison"]["winner"] == "deterministic" for r in paired),
         "neural_wins": sum(r["comparison"]["winner"] == "neural" for r in paired),
         "ties": sum(r["comparison"]["winner"] == "tie_within_0_01_bpm" for r in paired),
+        "arbitration_review_candidates": sum(
+            r.get("arbitration", {}).get("decision") == "review_candidate" for r in rows
+        ),
+        "arbitration_retain": sum(
+            r.get("arbitration", {}).get("decision") == "retain" for r in rows
+        ),
+        "arbitration_abstentions": sum(
+            r.get("arbitration", {}).get("decision") == "abstain" for r in rows
+        ),
         "calibration_proven": False,
     }
 
 
 def evaluate(audio_root: Path, references: list[dict]) -> dict:
     from .neural_ears import predict_beats
+    from .tempo_arbitration import arbitrate_tempo, onset_tempo_windows
 
     if not audio_root.is_dir():
         raise ValueError(f"Audio directory not found: {audio_root}")
@@ -151,6 +161,21 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
             except Exception as exc:
                 failures["neural"] = f"{type(exc).__name__}: {exc}"
             row["comparison"] = compare_estimators(reference, deterministic, neural)
+            try:
+                windows = onset_tempo_windows(path) if deterministic is not None and neural is not None else ()
+                arbitration = arbitrate_tempo(deterministic, neural, windows).to_dict()
+                if arbitration["suggested_bpm"] is not None:
+                    arbitration["reference_error_if_adopted_bpm"] = compare_bpm(
+                        reference, arbitration["suggested_bpm"]
+                    )["absolute_error_bpm"]
+                row["arbitration"] = arbitration
+            except Exception as exc:
+                row["arbitration"] = {
+                    "decision": "abstain",
+                    "suggested_bpm": None,
+                    "reason": f"arbitration evidence unavailable: {type(exc).__name__}",
+                    "changes_dj_decisions": False,
+                }
             row["status"] = ("ok" if neural is not None else
                              "partial" if deterministic is not None else "unavailable")
             if failures:
@@ -167,6 +192,8 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
             "Paired winners are descriptive, not statistically significant",
             "Tempo stability is not verified BPM accuracy",
             "Beat phase and musical downbeat accuracy are not measured",
+            "Arbitration recommendations are for human review, never automatic tempo adoption",
+            "Onset ACF window evidence can share signal-processing biases with the deterministic estimator",
             "No threshold or DJ Brain decision is modified",
         ],
     }
