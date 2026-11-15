@@ -63,6 +63,7 @@ def deterministic_fallback_grid(path: Path) -> dict:
 def audit_grid_gate(path: Path) -> dict:
     """Read-only comparison, never applying neural results to DJ structures."""
     from .neural_ears import predict_beats, tempo_only_adoption
+    from .neural_grid_safety_screen import screen_full_grid_candidate
 
     baseline = deterministic_fallback_grid(path)
     # This is the actual live call signature, but not a live DJ analysis run.
@@ -77,6 +78,17 @@ def audit_grid_gate(path: Path) -> dict:
     drift = (
         round(abs(bpm - fallback_bpm), 4)
         if bpm is not None else None
+    )
+    safety_screen = screen_full_grid_candidate(
+        baseline_bpm=fallback_bpm,
+        neural_bpm=bpm,
+        fallback_beat_count=len(baseline["beat_times"]),
+        fallback_downbeat_count=len(baseline["downbeat_times"]),
+        neural_beat_count=len(neural.beats_seconds),
+        neural_downbeat_count=len(neural.downbeats_seconds),
+        fallback_beat_agreement=neural.agreement if neural.available else None,
+        neural_available=bool(neural.available),
+        existing_gate_would_pass=bool(neural.used),
     )
     return {
         "filename": path.name,
@@ -96,6 +108,7 @@ def audit_grid_gate(path: Path) -> dict:
         "neural_grid_confidence": neural.confidence,
         "neural_fallback_beat_agreement": neural.agreement,
         "neural_grid_gate_would_pass": bool(neural.used),
+        "counterfactual_safety_screen": safety_screen,
         "neural_gate_reason": neural.reason,
         "tempo_only_gate_would_pass": bool(tempo_allowed),
         "tempo_only_gate_reason": tempo_reason,
@@ -136,6 +149,7 @@ def main() -> None:
             "This invokes the same neural gate with the same fallback arguments as live analysis, not the running application.",
             "Neither BPM correctness nor beat/downbeat alignment can be established without independent annotations.",
             "A gate passing is a risk flag for review, not permission to apply it.",
+            "Counterfactual safety-screen thresholds are provisional, not calibrated on independently labeled audio.",
         ],
     }
     rendered = json.dumps(report, indent=2, ensure_ascii=False)
