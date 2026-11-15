@@ -296,7 +296,9 @@ def arbitrate_tempo(
             return outcome("retain", "strong audio windows corroborate existing deterministic BPM; retain without selecting octave")
         # Both detectors are hypotheses, not the reference by which we decide
         # whether measured audio windows contradict one another.
-        if coverage["deterministic_supports_dominant_family"] and not coverage["neural_supports_dominant_family"]:
+        if (coverage["deterministic_supports_dominant_family"]
+            and not coverage["neural_supports_dominant_family"]
+            and _relative_error(float(deterministic_bpm), float(coverage["dominant_family_anchor_bpm"])) <= agreement_tolerance):
             return outcome("retain", "strong audio-window family supports deterministic tempo; neural estimator disagrees")
         if not coverage["neural_supports_dominant_family"]:
             return outcome("abstain", "neither estimator supplies sufficient neural corroboration of audio family")
@@ -320,6 +322,13 @@ def arbitrate_tempo(
     ]
     if not supported:
         return outcome("abstain", "no candidate is supported by all onset windows and neural tempo")
+    # Family membership also allows half/double-time, which is NOT proof
+    # that the existing deterministic metrical level is correct. Require
+    # direct same-level evidence before a research-only retain decision.
+    same_level_deterministic_support = any(
+        _relative_error(float(deterministic_bpm), value) <= agreement_tolerance
+        for value in values
+    )
     # Two octave-related candidates can be equally supported. This is a pulse-
     # family finding, not enough evidence to select a metrical level.
     families = sorted(supported, key=lambda v: (abs(v - neural_bpm), v))
@@ -329,14 +338,17 @@ def arbitrate_tempo(
             <= agreement_tolerance
         for v in families[1:]
     ):
-        if any(_relative_error(v, deterministic_bpm) <= agreement_tolerance for v in supported):
+        if (same_level_deterministic_support and any(
+            _relative_error(v, deterministic_bpm) <= agreement_tolerance for v in supported
+        )):
             return outcome("retain", "octave family corroborated but musical pulse level ambiguous; retain deterministic")
         return outcome("abstain", "octave family corroborated but musical pulse level ambiguous")
     best = families[0]
 
     # Never 'correct' an already agreeing deterministic BPM. Selecting an
     # octave changes perceived metrical pulse; human review still required.
-    if _relative_error(deterministic_bpm, best) <= agreement_tolerance:
+    if (same_level_deterministic_support and
+        _relative_error(deterministic_bpm, best) <= agreement_tolerance):
         return outcome("retain", "deterministic tempo corroborated; no change suggested")
     return outcome(
         "review_candidate",
