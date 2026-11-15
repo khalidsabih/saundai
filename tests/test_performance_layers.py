@@ -214,3 +214,47 @@ def test_supplied_acapella_enriches_local_vocal_evidence(tmp_path: Path, monkeyp
     assert track.performance_layer_analysis["source_quality"] == "supplied_original"
     assert track.performance_layer_analysis["vocal_activity_fraction"] > 0.0
     assert any(candidate.vocal_probability > 0.0 for candidate in track.entry_candidates)
+
+
+def test_discovery_of_incompatible_layers_does_not_recurse(tmp_path: Path, monkeypatch) -> None:
+    """An invalid alternate must remain available without a recursive 500."""
+    from djai.cache import discover_tracks
+
+    monkeypatch.chdir(tmp_path)
+    full, instrumental, vocals = _write_bundle(tmp_path, "Incompatible Song", duration=16.0)
+    sf.write(vocals, np.zeros(int(22_050 * 8.0), dtype=np.float32), 22_050)
+
+    # Both direct lookup and repeated library discovery must terminate.
+    assert find_performance_layers(full) is None
+    assert find_performance_layers(full) is None
+    discovered = discover_tracks(tmp_path)
+    assert full.resolve() in discovered
+    assert vocals.resolve() in discovered
+    assert instrumental.resolve() in discovered
+
+
+def test_concurrent_registry_updates_preserve_bundles(tmp_path: Path, monkeypatch) -> None:
+    """Independent library requests must not race for one .tmp filename."""
+    from concurrent.futures import ThreadPoolExecutor
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    registry = tmp_path / "performance-layers.json"
+    originals = []
+    for i in range(12):
+        full = tmp_path / f"Song {i}.wav"
+        instrumental = tmp_path / f"Song {i} Instrumental.wav"
+        full.touch()
+        instrumental.touch()
+        originals.append((full, instrumental))
+
+    def register(pair: tuple[Path, Path]):
+        return register_performance_layers(pair, registry_path=registry, validate=False)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(register, originals))
+
+    bundles = json.loads(registry.read_text(encoding="utf-8"))["bundles"]
+    assert len(bundles) == len(originals)
+    for full, _ in originals:
+        assert find_performance_layers(full, registry_path=registry) is not None
