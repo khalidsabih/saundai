@@ -118,3 +118,31 @@ def test_deterministic_bpm_mirrors_saund_initial_beat_track(
     assert received["strength"]["aggregate"] is np.median
     assert received["beat_track"]["units"] == "frames"
     assert received["beat_track"]["sparse"] is True
+
+
+def test_benchmark_grid_gate_is_not_claimed_as_observed_live_adoption(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    audio = tmp_path / "Toc Toc.wav"
+    audio.write_bytes(b"benchmark inference mocked")
+
+    def fake_predict(path):
+        return SimpleNamespace(
+            available=True, bpm=88.2353, confidence=0.7677,
+            tempo_confidence=0.6324, used=True,
+            reason="benchmark model gate passed",
+        )
+
+    monkeypatch.setattr("djai.intelligence.neural_ears.predict_beats", fake_predict)
+    monkeypatch.setattr("djai.intelligence.tempo_benchmark.deterministic_bpm",
+                        lambda path: 86.1328)
+    monkeypatch.setattr("djai.intelligence.tempo_arbitration.onset_window_diagnostics",
+                        lambda path: {"status": "insufficient_duration", "windows": []})
+    result = evaluate(tmp_path, [{"filename": "Toc Toc.wav", "reference_bpm": 116}])
+    row = result["rows"][0]
+    assert row["full_grid_adopted"] is True  # legacy benchmark field
+    assert row["benchmark_has_fallback_beat_grid"] is False
+    assert row["full_grid_adopted_in_live_analysis"] is None
+    assert row["grid_adoption_risk"]["requires_live_reproduction"] is True
+    assert row["grid_adoption_risk"]["live_grid_adoption_observed"] is False
+    assert row["arbitration"]["changes_dj_decisions"] is False
