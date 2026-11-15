@@ -132,44 +132,85 @@ def onset_window_diagnostics(path: Path) -> dict:
     }
 
 
+def _in_family(bpm: float, anchor: float, tolerance: float) -> bool:
+    """Check measured pulse-family similarity; no meter-level inference."""
+    return min(
+        _relative_error(bpm, anchor * scale)
+        for scale in (0.5, 1.0, 2.0)
+    ) <= tolerance
+
+
 def evidence_coverage(
     diagnostics: tuple[dict, ...],
     neural_bpm: float | None,
-    *, minimum_strength: float = 0.35,
+    *,
+    deterministic_bpm: float | None = None,
+    minimum_strength: float = 0.35,
     tolerance: float = 0.015,
 ) -> dict:
-    """Measure evidence coverage, conflicts and octave-family support.
+    """Classify strong *audio* windows into a dominant octave family.
 
-    Missing peaks count against coverage. Only strong peaks count as support.
-    This reports an observed family; it does not determine musical meter.
+    Detector agreement is recorded separately. Neither model defines which
+    measured windows count as conflicts, and octave agreement cannot establish
+    the musically intended metrical level.
     """
     total = len(diagnostics)
-    valid = [w for w in diagnostics if w.get("status") == "ok"
-             and _valid(w.get("bpm")) and w.get("strength") is not None
-             and math.isfinite(w["strength"]) and w["strength"] >= 0]
+    valid = [
+        w for w in diagnostics
+        if w.get("status") == "ok" and _valid(w.get("bpm"))
+        and isinstance(w.get("strength"), (int, float))
+        and math.isfinite(w["strength"]) and w["strength"] >= 0
+    ]
     strong = [w for w in valid if w["strength"] >= minimum_strength]
     weak = [w for w in valid if w["strength"] < minimum_strength]
+    anchor = None
     family = []
-    conflicting = []
-    if _valid(neural_bpm):
-        for w in strong:
-            if min(_relative_error(w["bpm"], neural_bpm * scale)
-                   for scale in (0.5, 1.0, 2.0)) <= tolerance:
-                family.append(w)
-            else:
-                conflicting.append(w)
+    if strong:
+        # Choose family from measured strong windows only; model estimates
+        # must not influence which audio peaks are called contradictory.
+        # Report ties explicitly rather than silently choosing a winner.
+        rankings = []
+        for seed in strong:
+            members = [w for w in strong if _in_family(w["bpm"], seed["bpm"], tolerance)]
+            rankings.append((len(members), sum(w["strength"] for w in members), seed["strength"], seed["bpm"], members))
+        best = max(rankings, key=lambda rank: (rank[0], rank[1], rank[2], rank[3]))
+        anchor = float(best[3])
+        family = best[4]
+    conflicts = [w for w in strong if w not in family]
+    det_support = (
+        _in_family(float(deterministic_bpm), anchor, tolerance)
+        if anchor is not None and _valid(deterministic_bpm) else None
+    )
+    neural_support = (
+        _in_family(float(neural_bpm), anchor, tolerance)
+        if anchor is not None and _valid(neural_bpm) else None
+    )
+    # Legacy field is retained as separately measured model agreement.
+    neural_supported = [
+        w for w in strong if _in_family(w["bpm"], neural_bpm, tolerance)
+    ] if _valid(neural_bpm) else []
     return {
         "total_windows": total,
         "valid_windows": len(valid),
         "strong_windows": len(strong),
         "weak_windows": len(weak),
         "missing_windows": total - len(valid),
-        "neural_family_supported_windows": len(family),
-        "conflicting_strong_windows": len(conflicting),
+        "dominant_family_anchor_bpm": round(anchor, 4) if anchor is not None else None,
+        "dominant_family_supported_windows": len(family),
+        "conflicting_strong_windows": len(conflicts),
+        "deterministic_supports_dominant_family": det_support,
+        "neural_supports_dominant_family": neural_support,
+        "detector_disagreement": (
+            det_support != neural_support
+            if det_support is not None and neural_support is not None else None
+        ),
+        "neural_family_supported_windows": len(neural_supported),
         "strong_coverage_fraction": round(len(strong) / total, 4) if total else 0.0,
         "family_coverage_fraction": round(len(family) / total, 4) if total else 0.0,
-        "support_strength_mean": round(float(np.mean([w["strength"] for w in family])), 4)
-                                 if family else None,
+        "support_strength_mean": (
+            round(float(np.mean([w["strength"] for w in family])), 4)
+            if family else None
+        ),
     }
 
 
@@ -191,7 +232,7 @@ def arbitrate_tempo(
     window_bpms = tuple(round(float(b), 4) for b, _ in onset_windows)
     strengths = tuple(round(float(s), 4) for _, s in onset_windows)
     family_agrees = octave_family_agreement(tuple(float(b) for b, _ in onset_windows), tolerance=agreement_tolerance)
-    coverage = evidence_coverage(window_diagnostics, neural_bpm, minimum_strength=minimum_strength, tolerance=agreement_tolerance) if window_diagnostics else None
+    coverage = evidence_coverage(window_diagnostics, neural_bpm, deterministic_bpm=deterministic_bpm, minimum_strength=minimum_strength, tolerance=agreement_tolerance) if window_diagnostics else None
 
     def outcome(decision: str, reason: str, suggestion: float | None = None):
         return TempoArbitration(
@@ -221,7 +262,7 @@ def arbitrate_tempo(
         if coverage["conflicting_strong_windows"] > 0:
             return outcome("abstain", "contradictory strong onset evidence")
         if coverage["family_coverage_fraction"] < 0.60:
-            return outcome("abstain", "insufficient neural pulse-family support coverage")
+            return outcome("abstain", "insufficient dominant audio pulse-family coverage")
         values = [float(w["bpm"]) for w in window_diagnostics
                   if w.get("status") == "ok"
                   and _valid(w.get("bpm"))
@@ -229,6 +270,12 @@ def arbitrate_tempo(
                   and math.isfinite(w["strength"])
                   and w["strength"] >= minimum_strength]
         family_agrees = octave_family_agreement(tuple(values), tolerance=agreement_tolerance)
+        # Both detectors are hypotheses, not the reference by which we decide
+        # whether measured audio windows contradict one another.
+        if coverage["deterministic_supports_dominant_family"] and not coverage["neural_supports_dominant_family"]:
+            return outcome("retain", "strong audio-window family supports deterministic tempo; neural estimator disagrees")
+        if not coverage["neural_supports_dominant_family"]:
+            return outcome("abstain", "neither estimator supplies sufficient neural corroboration of audio family")
 
     if not family_agrees:
         return outcome("abstain", "onset windows disagree, including octave families")
