@@ -31,11 +31,61 @@ def compare_bpm(reference_bpm: float, predicted_bpm: float) -> dict[str, float]:
     }
 
 
+def deterministic_bpm(path: Path) -> float:
+    """Measure SAUND's original librosa tempo estimate, before neural fusion.
+
+    Mirrors analyze_track's audio loading, onset extraction, and beat_track
+    parameters. This intentionally avoids a full structural analysis.
+    """
+    import librosa
+    import numpy as np
+    from ..analysis import ANALYSIS_SAMPLE_RATE, HOP_LENGTH
+    from ..audio import load_audio
+
+    source_audio, sr = load_audio(path, sample_rate=ANALYSIS_SAMPLE_RATE, mono=False)
+    y = librosa.to_mono(source_audio)
+    if librosa.get_duration(y=y, sr=sr) < 4.0:
+        raise ValueError("Track is too short for SAUND analysis")
+    onset_envelope = librosa.onset.onset_strength(
+        y=y, sr=sr, hop_length=HOP_LENGTH, aggregate=np.median,
+    )
+    tempo, _ = librosa.beat.beat_track(
+        onset_envelope=onset_envelope, sr=sr, hop_length=HOP_LENGTH,
+        units="frames", sparse=True,
+    )
+    bpm = float(np.atleast_1d(tempo)[0]) if np.size(tempo) else 0.0
+    # Original analysis defaults to 120 BPM when librosa returns no tempo.
+    return bpm if bpm > 0.0 else 120.0
+
+
+def compare_estimators(reference: float, deterministic: float | None,
+                       neural: float | None) -> dict:
+    """Compare both estimators to the same reference; never infer a winner from missing data."""
+    output: dict = {"deterministic": None, "neural": None, "winner": "unavailable"}
+    if deterministic is not None:
+        output["deterministic"] = compare_bpm(reference, deterministic)
+    if neural is not None:
+        output["neural"] = compare_bpm(reference, neural)
+    if output["deterministic"] is None or output["neural"] is None:
+        return output
+    det_error = output["deterministic"]["absolute_error_bpm"]
+    neural_error = output["neural"]["absolute_error_bpm"]
+    if abs(det_error - neural_error) <= 0.01:
+        output["winner"] = "tie_within_0_01_bpm"
+    else:
+        output["winner"] = "deterministic" if det_error < neural_error else "neural"
+    return output
+
+
 def summarize(rows: list[dict]) -> dict:
     """Summarize available predictions while reporting missing data honestly."""
     observed = [r for r in rows if r.get("status") == "ok"]
     errors = [r["absolute_error_bpm"] for r in observed]
     percentages = [r["absolute_percentage_error"] for r in observed]
+    paired = [r for r in rows if r.get("comparison", {}).get("deterministic")
+              and r.get("comparison", {}).get("neural")]
+    det_errors = [r["comparison"]["deterministic"]["absolute_error_bpm"] for r in paired]
+    neural_errors = [r["comparison"]["neural"]["absolute_error_bpm"] for r in paired]
     return {
         "reference_count": len(rows),
         "evaluated_count": len(observed),
@@ -44,6 +94,12 @@ def summarize(rows: list[dict]) -> dict:
         "mean_absolute_percentage_error": round(mean(percentages), 4) if percentages else None,
         "within_1_bpm_count": sum(e <= 1.0 for e in errors),
         "within_2_bpm_count": sum(e <= 2.0 for e in errors),
+        "paired_count": len(paired),
+        "paired_mean_absolute_error_deterministic_bpm": round(mean(det_errors), 4) if det_errors else None,
+        "paired_mean_absolute_error_neural_bpm": round(mean(neural_errors), 4) if neural_errors else None,
+        "deterministic_wins": sum(r["comparison"]["winner"] == "deterministic" for r in paired),
+        "neural_wins": sum(r["comparison"]["winner"] == "neural" for r in paired),
+        "ties": sum(r["comparison"]["winner"] == "tie_within_0_01_bpm" for r in paired),
         "calibration_proven": False,
     }
 
@@ -70,12 +126,20 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
         if path is None:
             row["reason"] = "reference audio file not found"
         else:
+            # Run both estimators independently, without altering the DJ Brain.
+            deterministic = None
+            neural = None
+            failures = {}
+            try:
+                deterministic = deterministic_bpm(path)
+            except Exception as exc:
+                failures["deterministic"] = f"{type(exc).__name__}: {exc}"
             try:
                 result = predict_beats(path)
                 if result.available and result.bpm > 0:
-                    row.update(compare_bpm(reference, result.bpm))
+                    neural = result.bpm
+                    row.update(compare_bpm(reference, neural))
                     row.update({
-                        "status": "ok",
                         "tempo_stability": result.tempo_confidence,
                         "grid_confidence": result.confidence,
                         "beat_alignment_measured": False,
@@ -83,19 +147,24 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
                         "full_grid_adopted": result.used,
                     })
                 else:
-                    row["status"] = "unavailable"
-                    row["reason"] = result.reason
+                    failures["neural"] = result.reason
             except Exception as exc:
-                row["status"] = "error"
-                row["reason"] = f"{type(exc).__name__}: {exc}"
+                failures["neural"] = f"{type(exc).__name__}: {exc}"
+            row["comparison"] = compare_estimators(reference, deterministic, neural)
+            row["status"] = ("ok" if neural is not None else
+                             "partial" if deterministic is not None else "unavailable")
+            if failures:
+                row["estimator_failures"] = failures
         rows.append(row)
     return {
-        "benchmark": "SAUND real-track neural BPM reference",
+        "benchmark": "SAUND paired deterministic/neural BPM reference",
         "mode": "observation_only",
         "rows": rows,
         "summary": summarize(rows),
         "limitations": [
             "Two user-reported reference BPMs cannot establish model calibration",
+            "Comparison uses the initial librosa BPM before optional consistency reconciliation or fusion",
+            "Paired winners are descriptive, not statistically significant",
             "Tempo stability is not verified BPM accuracy",
             "Beat phase and musical downbeat accuracy are not measured",
             "No threshold or DJ Brain decision is modified",
