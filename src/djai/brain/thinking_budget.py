@@ -128,15 +128,28 @@ def _tempo_relation_risk(bpm_a: float, bpm_b: float) -> float:
 
 
 def _camelot_risk(track_a: TrackAnalysis, track_b: TrackAnalysis) -> float:
-    left = str(track_a.key.camelot or "")
-    right = str(track_b.key.camelot or "")
-    if left == right and left:
-        return 0.0
-    try:
-        left_num, left_mode = int(left[:-1]), left[-1]
-        right_num, right_mode = int(right[:-1]), right[-1]
-    except (TypeError, ValueError, IndexError):
+    # Only validated Camelot coordinates can establish harmonic agreement.
+    # Identical missing/malformed labels must not be mistaken for compatible keys.
+    def parse(value: object) -> tuple[int, str] | None:
+        key = str(value or "").strip().upper()
+        if len(key) not in (2, 3) or key[-1:] not in {"A", "B"}:
+            return None
+        number = key[:-1]
+        if not number.isascii() or not number.isdecimal() or number.startswith("0"):
+            return None
+        wheel = int(number)
+        if not 1 <= wheel <= 12:
+            return None
+        return wheel, key[-1]
+
+    left = parse(track_a.key.camelot)
+    right = parse(track_b.key.camelot)
+    if left is None or right is None:
         return 0.65
+    if left == right:
+        return 0.0
+    left_num, left_mode = left
+    right_num, right_mode = right
     circular = min((left_num - right_num) % 12, (right_num - left_num) % 12)
     if left_mode == right_mode and circular == 1:
         return 0.28

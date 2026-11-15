@@ -296,3 +296,24 @@ def test_v4_budget_is_applied_to_professional_brain_without_lowering_thresholds(
     assert brittle_cfg.finalists >= 6
     assert brittle_cfg.minimum_judge_score == easy_cfg.minimum_judge_score
     assert brittle_cfg.measurement_minimum == easy_cfg.measurement_minimum
+
+
+def test_brain_harmonic_risk_rejects_invalid_camelot_coordinates(tmp_path: Path) -> None:
+    """Uncertain harmonic information must never count as a perfect match."""
+    from djai.brain.thinking_budget import _camelot_risk
+
+    valid = analysis(tmp_path / "valid.wav", bpm=124.0, camelot="8A")
+    assert _camelot_risk(valid, valid) == 0.0
+
+    neighboring = analysis(tmp_path / "neighbor.wav", bpm=124.0, camelot="9A")
+    assert _camelot_risk(valid, neighboring) == 0.28
+
+    for invalid in ("0A", "13A", "8C", "abc", "", "8", "08A", "8AB"):
+        malformed = analysis(tmp_path / "invalid.wav", bpm=124.0)
+        malformed.key.camelot = invalid
+        assert _camelot_risk(malformed, malformed) == 0.65
+        assert _camelot_risk(malformed, valid) == 0.65
+
+    normalized = analysis(tmp_path / "normalized.wav", bpm=124.0)
+    normalized.key.camelot = " 8a "
+    assert _camelot_risk(valid, normalized) == 0.0
