@@ -146,3 +146,37 @@ and beat/downbeat alignment remains unvalidated.
 
 All these results are observation-only. No changes are made to the
 running app, its beat grids or transition cues.
+
+## Reproduce the neural full-grid gate with fallback beats (read-only)
+
+The original BPM benchmark invokes Beat This! without a fallback beat grid.
+The actual `analyze_track` path first computes deterministic beats and
+downbeats and passes both to `predict_beats`. This command repeats the
+**pre-neural deterministic beat/downbeat extraction** and calls the neural
+predictor with the same fallback argument names, without running the live
+analyzer, replacing grids, or writing to the running app:
+
+```sh
+cd /tmp/saund-brain-test
+export DJAI_WORKSPACE="/Users/khalidsabih/Downloads/lab/SAUND_AI"
+export DJAI_BEAT_THIS_CHECKPOINT="$DJAI_WORKSPACE/.djai-cache/neural/beat-this-final0.ckpt"
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m djai.intelligence.neural_grid_gate_audit \
+  --audio-root "$DJAI_WORKSPACE/audio" \
+  --filename "18. Lmoutchou - Toc Toc 4.mp3" \
+  --filename "Camelphat_&_Elderbrook_‘Cola’.wav" \
+  --output /tmp/saund-grid-gate-audit.json
+```
+
+Outputs include `neural_grid_gate_would_pass`,
+`neural_fallback_beat_agreement`, baseline and neural BPM, and
+`requires_human_review` for a passing grid gate with >2% BPM
+disagreement. This is a **live-signature reproduction**, not direct
+evidence of what an already-running server did. No beat-grid or
+downbeat accuracy is established. The tool fails if filenames are
+ambiguous, rather than choosing a duplicate song silently, and refuses
+to overwrite a prior JSON output. It reads and decodes local audio but
+never changes the original files.
+
+Note: This checks the *existing* full-grid selection behavior; the
+separate tempo-only adoption switch remains off by default.
