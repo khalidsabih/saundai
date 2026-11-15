@@ -49,7 +49,7 @@ def test_benchmark_is_observation_only(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     monkeypatch.setattr("djai.intelligence.neural_ears.predict_beats", fake_predict)
     monkeypatch.setattr("djai.intelligence.tempo_benchmark.deterministic_bpm", lambda path: 123.0)
-    monkeypatch.setattr("djai.intelligence.tempo_arbitration.onset_tempo_windows", lambda path: ())
+    monkeypatch.setattr("djai.intelligence.tempo_arbitration.onset_window_diagnostics", lambda path: {"status": "insufficient_duration", "duration_seconds": 5.0, "minimum_seconds": 72.0, "windows": []})
     result = evaluate(tmp_path, [
         {"filename": "Nova.wav", "reference_bpm": 123},
         {"filename": "Absent.wav", "reference_bpm": 120},
@@ -65,6 +65,7 @@ def test_benchmark_is_observation_only(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert result["summary"]["deterministic_wins"] == 1
     assert result["rows"][0]["comparison"]["deterministic"]["absolute_error_bpm"] == 0.0
     assert result["rows"][0]["arbitration"]["decision"] == "abstain"
+    assert result["rows"][0]["arbitration"]["window_analysis_status"] == "insufficient_duration"
     assert result["rows"][0]["arbitration"]["changes_dj_decisions"] is False
 
 def test_estimator_comparison_counts_true_error_not_model_agreement() -> None:
