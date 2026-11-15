@@ -115,7 +115,7 @@ def summarize(rows: list[dict]) -> dict:
 
 def evaluate(audio_root: Path, references: list[dict]) -> dict:
     from .neural_ears import predict_beats
-    from .tempo_arbitration import arbitrate_tempo, onset_tempo_windows
+    from .tempo_arbitration import arbitrate_tempo, onset_window_diagnostics
 
     if not audio_root.is_dir():
         raise ValueError(f"Audio directory not found: {audio_root}")
@@ -162,8 +162,25 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
                 failures["neural"] = f"{type(exc).__name__}: {exc}"
             row["comparison"] = compare_estimators(reference, deterministic, neural)
             try:
-                windows = onset_tempo_windows(path) if deterministic is not None and neural is not None else ()
-                arbitration = arbitrate_tempo(deterministic, neural, windows).to_dict()
+                diagnostics = (
+                    onset_window_diagnostics(path)
+                    if deterministic is not None and neural is not None
+                    else {"status": "missing_estimator", "windows": []}
+                )
+                windows = tuple(
+                    (float(w["bpm"]), float(w["strength"]))
+                    for w in diagnostics["windows"]
+                    if w["status"] == "ok"
+                )
+                arbitration = arbitrate_tempo(
+                    deterministic, neural, windows,
+                    window_diagnostics=tuple(diagnostics["windows"]),
+                ).to_dict()
+                arbitration["window_analysis_status"] = diagnostics["status"]
+                if "duration_seconds" in diagnostics:
+                    arbitration["analyzed_duration_seconds"] = diagnostics["duration_seconds"]
+                if "minimum_seconds" in diagnostics:
+                    arbitration["minimum_duration_seconds"] = diagnostics["minimum_seconds"]
                 if arbitration["suggested_bpm"] is not None:
                     arbitration["reference_error_if_adopted_bpm"] = compare_bpm(
                         reference, arbitration["suggested_bpm"]
