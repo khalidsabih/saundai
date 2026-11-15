@@ -309,9 +309,11 @@ def test_brain_harmonic_risk_rejects_invalid_camelot_coordinates(tmp_path: Path)
     assert _camelot_risk(valid, neighboring) == 0.28
 
     for invalid in ("0A", "13A", "8C", "abc", "", "8", "08A", "8AB"):
-        malformed = analysis(tmp_path / f"invalid-{invalid or 'empty'}.wav", bpm=124.0, camelot=invalid)
+        malformed = analysis(tmp_path / "invalid.wav", bpm=124.0)
+        malformed.key.camelot = invalid
         assert _camelot_risk(malformed, malformed) == 0.65
         assert _camelot_risk(malformed, valid) == 0.65
 
-    normalized = analysis(tmp_path / "normalized.wav", bpm=124.0, camelot=" 8a ")
+    normalized = analysis(tmp_path / "normalized.wav", bpm=124.0)
+    normalized.key.camelot = " 8a "
     assert _camelot_risk(valid, normalized) == 0.0
