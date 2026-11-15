@@ -485,6 +485,16 @@ test("Create navigation never overlaps content across desktop, tablet and mobile
         screenWidth: window.innerWidth,
         screenHeight: window.innerHeight,
         horizontalOverflow: root.scrollWidth > root.clientWidth + 1,
+        overflowDiagnostics: Array.from(document.querySelectorAll("*"))
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1);
+          })
+          .slice(0, 12)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return `${element.tagName.toLowerCase()}.${element.className?.toString().replace(/\\s+/g, ".").slice(0, 90)} [${Math.round(rect.left)},${Math.round(rect.right)}]`;
+          }),
       };
     });
 
@@ -494,6 +504,6 @@ test("Create navigation never overlaps content across desktop, tablet and mobile
       expect(geometry.railBottom, "mobile navigation should fit inside viewport").toBeLessThanOrEqual(geometry.screenHeight + 1);
     }
     expect(geometry.contentRight, `content beyond viewport at ${width}px`).toBeLessThanOrEqual(geometry.screenWidth + 1);
-    expect(geometry.horizontalOverflow, `horizontal page overflow at ${width}px`).toBe(false);
+    expect(geometry.horizontalOverflow, `horizontal page overflow at ${width}px: ${geometry.overflowDiagnostics.join(" | ")}`).toBe(false);
   }
 });
