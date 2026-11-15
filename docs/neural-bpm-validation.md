@@ -59,3 +59,54 @@ examples represented in the reference set. Deduplicate tracks and preserve an
 untouched test set before tuning thresholds. Two approximate track labels
 cannot support a general accuracy claim. Beat and downbeat placement are
 not evaluated by this BPM-only benchmark.
+
+## Build a reproducible 24-track annotation sheet (local only)
+
+The following workflow lists local filenames without decoding tracks or
+guessing BPM, genre, beat phase, or verification quality. It samples across
+folders for diversity where possible; **folders are not a proxy for genre**.
+Record actual genre, time signature / intended metrical level and difficult
+breakdowns manually in the `notes` field. For a reliable holdout, freeze the
+sample before inspecting model predictions.
+
+```sh
+cd /tmp/saund-brain-test
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m djai.intelligence.tempo_reference_workflow prepare \
+  --audio-root "$DJAI_WORKSPACE/audio" \
+  --count 24 \
+  --seed saund-bpm-v1 \
+  --output /tmp/saund-bpm-annotation-sheet.csv
+```
+
+The CSV includes: `filename`, `reference_bpm`,
+`reference_quality`, `verification_method`, `source`, `genre`, `notes`.
+All fields except filename start blank. A user should set
+`reference_quality=independently_verified` only after manually checking the
+**intended** BPM against an external, credible measurement independent of
+SAUND's estimators, recording exactly how it was checked. Mark a merely
+estimated BPM `approximate` instead. Check whether a reported BPM corresponds
+to half-time or double-time musical meter. A filename with duplicate basenames
+in different folders is excluded because the benchmark's file lookup by
+basename cannot disambiguate it. The CLI refuses to overwrite existing outputs.
+
+Once annotated, export **only completed rows** to local JSON:
+
+```sh
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m djai.intelligence.tempo_reference_workflow export \
+  --csv /tmp/saund-bpm-annotation-sheet.csv \
+  --output /tmp/saund-bpm-verified-sample.json
+```
+
+A partially annotated row fails instead of being silently treated as
+verified. Fully blank pending rows are counted and omitted; no BPM is made up.
+The exported file is suitable as the benchmark's `--references` argument.
+Do not commit raw audio, local paths, personal listening notes, or annotation
+files unless you explicitly choose to share them. If fewer than 24 uniquely
+named audio files exist, the sheet contains fewer than 24 tracks.
+
+These procedures do not establish independent scientific validation by
+themselves: the documented verification method is provided by the annotator.
+To evaluate real-world reliability, keep a holdout subset untouched while
+adjusting thresholds or models.
