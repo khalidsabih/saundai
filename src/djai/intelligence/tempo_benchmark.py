@@ -113,6 +113,10 @@ def summarize(rows: list[dict]) -> dict:
             (r.get("arbitration", {}).get("coverage") or {}).get("conflicting_strong_windows", 0) > 0
             for r in rows
         ),
+        "arbitration_detector_disagreements": sum(
+            (r.get("arbitration", {}).get("coverage") or {}).get("detector_disagreement") is True
+            for r in rows
+        ),
         "calibration_proven": False,
     }
 
@@ -214,6 +218,7 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
             "Tempo stability is not verified BPM accuracy",
             "Beat phase and musical downbeat accuracy are not measured",
             "Arbitration recommendations are for human review, never automatic tempo adoption",
+            "Audio pulse-family consensus and model disagreement are reported separately",
             "Window coverage is not statistical confidence or ground-truth correctness",
             "Onset ACF window evidence can share signal-processing biases with the deterministic estimator",
             "No threshold or DJ Brain decision is modified",
