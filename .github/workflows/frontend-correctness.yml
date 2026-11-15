@@ -1,0 +1,66 @@
+name: Frontend correctness
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-correctness.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-correctness.yml"
+  workflow_dispatch:
+
+jobs:
+  frontend-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verify historical CSS ownership and stylesheet order
+        working-directory: frontend
+        run: npm run test:css
+
+      - name: Check TypeScript and job lifecycle
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          npm run test:jobs
+
+      - name: Build production frontend
+        working-directory: frontend
+        env:
+          SAUND_INTERNAL_API_URL: http://127.0.0.1:8000
+        run: npm run build
+
+      - name: Install Playwright browser dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Run desktop/mobile browser regressions
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Upload Playwright diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-playwright-failures
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          if-no-files-found: ignore
