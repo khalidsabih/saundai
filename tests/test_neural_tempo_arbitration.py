@@ -225,3 +225,65 @@ def test_dizzy_still_abstains_for_insufficient_strong_coverage() -> None:
     assert result.reason == "insufficient strong evidence coverage across song"
     assert result.coverage["strong_windows"] == 2
     assert result.changes_dj_decisions is False
+
+
+def test_two_to_three_subdivision_is_diagnostic_not_octave_corroboration() -> None:
+    # Cola: four ~122 BPM windows and three ~81 BPM windows, all strong.
+    windows = _diagnostics((
+        (122.4053, .8175), (122.4306, .5696), (122.3542, .5938),
+        (81.1261, .8377), (81.1236, .5431), (81.1039, .8371),
+        (122.4584, .8759),
+    ))
+    coverage = evidence_coverage(windows, 120.0, deterministic_bpm=123.0469)
+    assert coverage["conflicting_strong_windows"] == 3
+    assert coverage["possible_two_to_three_subdivision_windows"] == 3
+    assert coverage["possible_two_to_three_subdivision_indices"] == [4, 5, 6]
+    assert coverage["subdivision_aliases_are_corroboration"] is False
+    result = arbitrate_tempo(
+        123.0469, 120.0, tuple((w["bpm"], w["strength"]) for w in windows),
+        window_diagnostics=windows,
+    )
+    assert result.decision == "abstain"
+    assert result.suggested_bpm is None
+
+
+def test_seven_consistent_windows_explicitly_retain_existing_bpm() -> None:
+    # Lane 8 Fingerprint: pulse near 123.6, reference reported as ~124.
+    windows = _diagnostics((
+        (123.6466, .945), (123.669, .8729), (123.5729, .9363),
+        (123.664, .8233), (123.5805, .8576), (123.6473, .8331),
+        (123.629, .7873),
+    ))
+    result = arbitrate_tempo(
+        123.046875, 125.0,
+        tuple((w["bpm"], w["strength"]) for w in windows),
+        window_diagnostics=windows,
+    )
+    assert result.decision == "retain"
+    assert result.suggested_bpm is None
+    assert "existing deterministic BPM" in result.reason
+    assert result.changes_dj_decisions is False
+
+
+def test_octave_only_agreement_does_not_falsely_retain_wrong_metrical_level() -> None:
+    windows = _diagnostics(((78.0, .9),) * 7)
+    result = arbitrate_tempo(
+        156.0, 78.0, ((78.0, .9),) * 7,
+        window_diagnostics=windows,
+    )
+    assert result.decision != "retain"
+    assert result.suggested_bpm is None
+    assert result.changes_dj_decisions is False
+
+
+def test_strong_subdivision_conflict_still_abstains_even_if_baseline_close() -> None:
+    windows = _diagnostics(((123.6, .8), (82.4, .9), (123.6, .8),
+                            (123.6, .8), (82.4, .9), (123.6, .8),
+                            (123.6, .8)))
+    result = arbitrate_tempo(
+        123.05, 125.0,
+        tuple((w["bpm"], w["strength"]) for w in windows),
+        window_diagnostics=windows,
+    )
+    assert result.decision == "abstain"
+    assert result.coverage["possible_two_to_three_subdivision_windows"] == 2
