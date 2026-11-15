@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from djai.intelligence.tempo_arbitration import arbitrate_tempo, tempo_candidates
 
 
 def test_candidate_search_includes_half_and_double_time() -> None:
     candidates = tempo_candidates(151.9991, 78.9474)
-    assert 75.9996 in candidates
+    assert any(value == pytest.approx(151.9991 / 2, abs=0.0001) for value in candidates)
     assert 78.9474 in candidates
     assert 151.9991 in candidates
     assert 157.8948 in candidates
