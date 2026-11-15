@@ -5,6 +5,9 @@ import json
 import math
 import os
 import re
+import tempfile
+import threading
+from functools import wraps
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Literal, Sequence
@@ -18,6 +21,17 @@ from .audio import load_audio, rms
 LayerKind = Literal["full", "instrumental", "vocals"]
 LAYER_REGISTRY_VERSION = "1.0"
 DEFAULT_LAYER_REGISTRY = Path(".djai-cache/performance-layers.json")
+_REGISTRY_LOCK = threading.RLock()
+
+
+def _registry_synchronized(func):
+    """Serialize in-process read/modify/write transactions for the registry."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _REGISTRY_LOCK:
+            return func(*args, **kwargs)
+    return wrapped
+
 
 _LAYER_PATTERNS: tuple[tuple[LayerKind, re.Pattern[str]], ...] = (
     (
@@ -164,9 +178,20 @@ def _load_registry(path: str | Path | None = None) -> dict[str, Any]:
 def _save_registry(payload: dict[str, Any], path: str | Path | None = None) -> Path:
     target = _registry_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(target.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(target)
+    # A fixed .tmp path races with concurrent requests; give each write
+    # its own temporary file in the same directory for an atomic replacement.
+    temporary_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=target.parent,
+            prefix=f".{target.name}.", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary_name = handle.name
+            handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary_name, target)
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
     return target
 
 
@@ -284,6 +309,7 @@ def _validate_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 
+@_registry_synchronized
 def register_performance_bundle(
     full: str | Path,
     *,
@@ -327,6 +353,7 @@ def register_performance_bundle(
     return bundle
 
 
+@_registry_synchronized
 def register_performance_layers(
     paths: Iterable[str | Path],
     *,
@@ -423,8 +450,16 @@ def find_performance_layers(
     siblings = [path for path in resolved.parent.iterdir() if path.is_file()]
     matching = [path for path in siblings if classify_layer_filename(path)[0] == key]
     if len(matching) > 1:
-        register_performance_layers(matching, registry_path=registry_path, validate=True)
-        return find_performance_layers(resolved, registry_path=registry_path)
+        registered = register_performance_layers(matching, registry_path=registry_path, validate=True)
+        # An incompatible bundle is intentionally excluded; do not recurse
+        # indefinitely attempting to rediscover the same invalid grouping.
+        return next(
+            (
+                bundle for bundle in registered
+                if Path(bundle.full.path).resolve() == resolved and bundle.duration_compatible
+            ),
+            None,
+        )
     return None
 
 
