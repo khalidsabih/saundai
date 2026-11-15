@@ -135,7 +135,7 @@ def _camelot_risk(track_a: TrackAnalysis, track_b: TrackAnalysis) -> float:
         if len(key) not in (2, 3) or key[-1:] not in {"A", "B"}:
             return None
         number = key[:-1]
-        if not number.isascii() or not number.isdecimal():
+        if not number.isascii() or not number.isdecimal() or number.startswith("0"):
             return None
         wheel = int(number)
         if not 1 <= wheel <= 12:
