@@ -140,6 +140,14 @@ def _in_family(bpm: float, anchor: float, tolerance: float) -> bool:
     ) <= tolerance
 
 
+def _subdivision_alias(bpm: float, anchor: float, tolerance: float) -> bool:
+    """Flag a possible 2:3 rhythmic subdivision, never treat it as tempo equivalence."""
+    return any(
+        _relative_error(bpm, anchor * factor) <= tolerance
+        for factor in (2.0 / 3.0, 3.0 / 2.0)
+    )
+
+
 def evidence_coverage(
     diagnostics: tuple[dict, ...],
     neural_bpm: float | None,
@@ -177,6 +185,10 @@ def evidence_coverage(
         anchor = float(best[3])
         family = best[4]
     conflicts = [w for w in strong if w not in family]
+    subdivision_aliases = [
+        w for w in conflicts if anchor is not None
+        and _subdivision_alias(w["bpm"], anchor, tolerance)
+    ]
     det_support = (
         _in_family(float(deterministic_bpm), anchor, tolerance)
         if anchor is not None and _valid(deterministic_bpm) else None
@@ -198,6 +210,9 @@ def evidence_coverage(
         "dominant_family_anchor_bpm": round(anchor, 4) if anchor is not None else None,
         "dominant_family_supported_windows": len(family),
         "conflicting_strong_windows": len(conflicts),
+        "possible_two_to_three_subdivision_windows": len(subdivision_aliases),
+        "possible_two_to_three_subdivision_indices": [w.get("index") for w in subdivision_aliases],
+        "subdivision_aliases_are_corroboration": False,
         "deterministic_supports_dominant_family": det_support,
         "neural_supports_dominant_family": neural_support,
         "detector_disagreement": (
@@ -270,6 +285,15 @@ def arbitrate_tempo(
                   and math.isfinite(w["strength"])
                   and w["strength"] >= minimum_strength]
         family_agrees = octave_family_agreement(tuple(values), tolerance=agreement_tolerance)
+        # Strong conflict-free windows can corroborate the existing tempo at
+        # its own metrical level. No alternative octave candidate is needed
+        # to justify *retaining* an already-supported deterministic BPM.
+        if (family_agrees and coverage["deterministic_supports_dominant_family"]
+            and coverage["neural_supports_dominant_family"]
+            and _in_family(float(deterministic_bpm), float(coverage["dominant_family_anchor_bpm"]), agreement_tolerance)
+            and abs(float(deterministic_bpm) - float(coverage["dominant_family_anchor_bpm"]))
+                / float(coverage["dominant_family_anchor_bpm"]) <= agreement_tolerance):
+            return outcome("retain", "strong audio windows corroborate existing deterministic BPM; retain without selecting octave")
         # Both detectors are hypotheses, not the reference by which we decide
         # whether measured audio windows contradict one another.
         if coverage["deterministic_supports_dominant_family"] and not coverage["neural_supports_dominant_family"]:
