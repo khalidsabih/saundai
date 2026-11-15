@@ -30,7 +30,8 @@ const expected = [
   "autonomous.css",
   "studio-intelligence.css",
   "product-system.css",
+  "create-launch-refinement.css",
 ];
 const imports = [...layout.matchAll(/^import "\.\/(.+\.css)";$/gm)].map((match) => match[1]);
-assert.deepEqual(imports, expected, "Global CSS cascade imports must retain the verified order");
-console.log("Phase 5 CSS ownership: original stylesheet contents and cascade order match.");
+assert.deepEqual(imports, expected, "Global CSS cascade imports must retain the verified order, including the Create refinement");
+console.log("Phase 5 CSS ownership: original stylesheet contents and expanded cascade order match.");

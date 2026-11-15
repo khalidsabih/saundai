@@ -64,7 +64,7 @@ async function completeIntro(page: Page) {
   await expect(enter).toBeDisabled();
   // A forced synthetic click must not bypass the authoritative progress gate.
   await enter.dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).not.toBeVisible();
 
   // Reduced-motion makes the timeline complete immediately by design, which
   // keeps the rest of the cross-browser smoke suite fast.
@@ -92,19 +92,19 @@ test("SAUND.AI opens as a locked cinematic intro before Create", async ({ page }
   const enter = page.getByRole("button", { name: "Start a session" });
   await expect(enter).toBeVisible();
   await expect(enter).toBeDisabled();
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).not.toBeVisible();
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
 
   // Even a synthetic click before completion must not enter the workspace.
   await enter.dispatchEvent("click");
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).not.toBeVisible();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
   const readyEnter = page.getByRole("button", { name: "Start a session" });
   await expect(readyEnter).toBeEnabled();
   await readyEnter.click();
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Sound on|Play sound|Mute/ })).toHaveCount(0);
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
 });
@@ -183,7 +183,7 @@ test("Create turns selected music into a finished set", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Autonomous DJ system")).toHaveCount(1);
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).toBeVisible();
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("radio", { name: /Drive/ }).click();
@@ -325,7 +325,7 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   });
   await page.goto("/");
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).toBeVisible();
   await page.getByRole("button", { name: /Aurora\.wav/ }).click();
   await page.getByRole("button", { name: /Afterglow\.wav/ }).click();
   await page.getByRole("button", { name: "Brain", exact: true }).click();
@@ -339,7 +339,7 @@ test("Brain is a first-class autonomous system view and Studio is separate", asy
   await expect(page.getByRole("heading", { name: /Shape the set/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Perform", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Aurora\.wav/ })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /Afterglow\.wav/ })).toHaveAttribute("aria-pressed", "true");
 });
@@ -368,7 +368,7 @@ test("API failure becomes an actionable visible error", async ({ page }) => {
   });
   await page.goto("/");
   await completeIntro(page);
-  await expect(page.getByRole("heading", { name: "Tell SAUND how the night should feel." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Your music\.\s*One continuous journey\./ })).toBeVisible();
   await expect(page.getByRole("region", { name: "Create an autonomous DJ set" }).getByRole("alert")).toContainText("Engine unavailable");
   await expect(page.getByRole("button", { name: "Dismiss error" })).toBeVisible();
 });
@@ -457,4 +457,53 @@ test("Training Lab collects blind preferences without exposing candidate metadat
   await page.getByRole("button", { name: "A Feels better" }).click();
   await expect(page.getByRole("heading", { name: "Pair 2 / 2" })).toBeVisible();
   await expect(page.getByText(/filter_build|eq_bass_swap|professional_judge_score/)).toHaveCount(0);
+});
+
+
+test("Create navigation never overlaps content across desktop, tablet and mobile", async ({ page }) => {
+  await mockAuth(page, false);
+  await mockLibrary(page);
+  await page.goto("/");
+  await completeIntro(page);
+
+  for (const width of [1440, 1000, 768, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const rail = page.locator(".product-shell__rail");
+    const content = page.locator(".product-shell__content");
+    await expect(rail).toBeVisible();
+    await expect(content).toBeVisible();
+
+    const geometry = await page.evaluate(() => {
+      const rail = document.querySelector(".product-shell__rail")!.getBoundingClientRect();
+      const content = document.querySelector(".product-shell__content")!.getBoundingClientRect();
+      const root = document.documentElement;
+      return {
+        railRight: rail.right,
+        railBottom: rail.bottom,
+        contentLeft: content.left,
+        contentRight: content.right,
+        screenWidth: window.innerWidth,
+        screenHeight: window.innerHeight,
+        horizontalOverflow: root.scrollWidth > root.clientWidth + 1,
+        overflowDiagnostics: Array.from(document.querySelectorAll("*"))
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1);
+          })
+          .slice(0, 12)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            return `${element.tagName.toLowerCase()}.${element.className?.toString().replace(/\s+/g, ".").slice(0, 90)} [${Math.round(rect.left)},${Math.round(rect.right)}]`;
+          }),
+      };
+    });
+
+    if (width > 720) {
+      expect(geometry.railRight, `rail/content overlap at ${width}px`).toBeLessThanOrEqual(geometry.contentLeft + 1);
+    } else {
+      expect(geometry.railBottom, "mobile navigation should fit inside viewport").toBeLessThanOrEqual(geometry.screenHeight + 1);
+    }
+    expect(geometry.contentRight, `content beyond viewport at ${width}px`).toBeLessThanOrEqual(geometry.screenWidth + 1);
+    expect(geometry.horizontalOverflow, `horizontal page overflow at ${width}px: ${geometry.overflowDiagnostics.join(" | ")}`).toBe(false);
+  }
 });

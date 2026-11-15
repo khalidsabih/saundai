@@ -57,6 +57,38 @@
   --saund-motion-standard: 240ms;
   --saund-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
 
+  /* Compatibility contract for product-system.css.
+   * Keep legacy semantic spellings mapped to the canonical SAUND tokens
+   * until each product surface is migrated and browser-verified.
+   */
+  --color-bg-canvas: var(--saund-color-bg);
+  --color-bg-surface: var(--saund-color-surface);
+  --color-bg-surface-raised: var(--saund-color-surface-raised);
+  --color-bg-surface-subtle: rgba(239, 236, 226, 0.035);
+  --color-text-primary: var(--saund-color-text);
+  --color-text-secondary: var(--saund-color-text-muted);
+  --color-text-tertiary: #797f84;
+  --color-border-subtle: var(--saund-color-line);
+  --color-border-strong: var(--saund-color-line-strong);
+  --color-analysis: var(--saund-color-analysis);
+  --color-analysis-subtle: var(--saund-color-analysis-soft);
+  --color-possibility: var(--saund-color-analysis);
+  --color-decision: var(--saund-color-commit);
+  --color-decision-subtle: var(--saund-color-commit-soft);
+  --color-success: var(--saund-color-safe);
+  --color-success-subtle: rgba(126, 183, 148, 0.13);
+  --color-danger: var(--saund-color-failure);
+  --color-danger-subtle: rgba(212, 126, 119, 0.13);
+  --radius-sm: var(--saund-radius-sm);
+  --radius-md: var(--saund-radius-md);
+  --radius-lg: var(--saund-radius-lg);
+  --radius-pill: var(--saund-radius-pill);
+  --font-size-xs: var(--saund-font-size-xs);
+  --tracking-label: var(--saund-letter-label);
+  --motion-fast: var(--saund-motion-fast);
+  --ease-standard: var(--saund-ease-standard);
+  --shadow-surface: 0 16px 40px rgba(0, 0, 0, 0.18);
+
   /* Compatibility aliases while legacy surfaces migrate. */
   --saund-bg: var(--saund-color-bg);
   --saund-panel: var(--saund-color-surface);
