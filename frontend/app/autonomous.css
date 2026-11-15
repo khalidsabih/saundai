@@ -1216,7 +1216,8 @@
 
 .performance-topbar {
   position: relative;
-  z-index: 10;
+  /* Keep the view switch clickable when the real safety alert is visible. */
+  z-index: 20;
   flex: 0 0 72px;
 }
 
