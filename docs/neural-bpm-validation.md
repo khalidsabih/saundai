@@ -110,3 +110,39 @@ These procedures do not establish independent scientific validation by
 themselves: the documented verification method is provided by the annotator.
 To evaluate real-world reliability, keep a holdout subset untouched while
 adjusting thresholds or models.
+
+## 17-track diagnostic follow-up (November 2026)
+
+The 17 supplied reference tempos are **approximate** and cannot support
+claims about independent accuracy, beat phase or musical downbeat. The
+observational report showed 17 arbitration abstentions, including seven
+consistent Lane 8 Fingerprint onset windows and mixed ~122/~81 BPM onset
+peaks in Cola. In addition, the fallback-free benchmark inference marked
+the full-grid authority gate as passed for Toc Toc 4, despite strong
+disagreement with its approximate BPM.
+
+The benchmark calls `predict_beats(path)` **without fallback beats**;
+the live analysis code instead calls it with deterministic beats and
+downbeats. Consequently the historical `full_grid_adopted` benchmark
+field records only a model-gate decision in that different call context,
+**not observed live grid adoption**. Inspect
+`full_grid_adopted_in_live_analysis` (always `null` unless a separate
+live trace supplies evidence) and `grid_adoption_risk`. A flagged
+risk requires reproduction with the actual fallback grid; never infer a
+live replacement from benchmark-only output.
+
+Strong onset estimates at ~2:3 ratios can be periodic subdivisions.
+`possible_two_to_three_subdivision_windows` and associated indices
+are descriptive, not proof of a true subdivision or corroboration of a
+beat grid. Those windows continue to count as contradictions for the
+strict arbitration gate; its thresholds remain unchanged.
+
+When enough strong, conflict-free audio windows match the existing
+**exact** deterministic metrical BPM (within the existing tolerance),
+the research decision may now say `retain`, even if octave-related
+alternatives are representable. This is not a tempo correction. Mere
+half/double agreement with a *different* baseline BPM does not qualify,
+and beat/downbeat alignment remains unvalidated.
+
+All these results are observation-only. No changes are made to the
+running app, its beat grids or transition cues.
