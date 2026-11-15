@@ -22,8 +22,12 @@
 }
 
 .autonomous-launch .session-launch__hero h1 em {
+  display: block;
+  max-width: 100%;
   font-style: normal;
   color: var(--saund-color-commit);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .autonomous-launch .session-launch__lede {
