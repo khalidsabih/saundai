@@ -122,9 +122,11 @@ def summarize(rows: list[dict]) -> dict:
 
 
 def evaluate(audio_root: Path, references: list[dict]) -> dict:
+    from .tempo_validation import validate_references, prospective_impact, validation_summary
     from .neural_ears import predict_beats
     from .tempo_arbitration import arbitrate_tempo, onset_window_diagnostics
 
+    references = validate_references(references)
     if not audio_root.is_dir():
         raise ValueError(f"Audio directory not found: {audio_root}")
     available = {
@@ -138,6 +140,8 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
         row = {
             "filename": filename,
             "reference_source": item.get("source", "unspecified"),
+            "reference_quality": item["reference_quality"],
+            "verification_method": item.get("verification_method"),
             "status": "missing",
         }
         path = available.get(filename)
@@ -205,14 +209,18 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
                              "partial" if deterministic is not None else "unavailable")
             if failures:
                 row["estimator_failures"] = failures
+        row["prospective_impact"] = prospective_impact(row)
         rows.append(row)
     return {
         "benchmark": "SAUND paired deterministic/neural BPM reference",
         "mode": "observation_only",
         "rows": rows,
         "summary": summarize(rows),
+        "validation": validation_summary(rows),
         "limitations": [
-            "Two user-reported reference BPMs cannot establish model calibration",
+            "User-reported approximate reference tempos do not establish verified calibration",
+            "A verified reference requires a documented verification method",
+            "False-correction metrics are hypothetical review-candidate simulations, not deployed behavior",
             "Comparison uses the initial librosa BPM before optional consistency reconciliation or fusion",
             "Paired winners are descriptive, not statistically significant",
             "Tempo stability is not verified BPM accuracy",
@@ -233,9 +241,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, help="Optional local JSON report file")
     args = parser.parse_args()
     references = json.loads(args.references.read_text(encoding="utf-8"))
-    if not isinstance(references, list):
-        parser.error("References must be a JSON array")
-    report = evaluate(args.audio_root, references)
+    try:
+        report = evaluate(args.audio_root, references)
+    except ValueError as exc:
+        parser.error(str(exc))
     rendered = json.dumps(report, indent=2, ensure_ascii=False)
     print(rendered)
     if args.output:
