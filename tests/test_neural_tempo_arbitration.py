@@ -133,6 +133,7 @@ def test_coverage_separates_missing_weak_and_conflicting_evidence() -> None:
     assert coverage["missing_windows"] == 1
     assert coverage["neural_family_supported_windows"] == 4
     assert coverage["conflicting_strong_windows"] == 1
+    assert coverage["dominant_family_supported_windows"] == 4
     assert coverage["strong_coverage_fraction"] == pytest.approx(5 / 7, abs=.0001)
 
 
@@ -189,3 +190,38 @@ def test_long_track_samples_seven_nonoverlapping_windows(
     starts = [w["start_seconds"] for w in result["windows"]]
     assert starts == sorted(set(starts))
     assert all(b - a >= 24.0 - 0.1 for a, b in zip(starts, starts[1:]))
+
+def test_nova_audio_family_support_is_not_neural_conflict() -> None:
+    # Actual seven-window evidence: 61.5168 is half of the ~123 BPM pulse.
+    windows = _diagnostics((
+        (None, None), (123.0073, .9943), (123.0158, .8116),
+        (160.2976, .1612), (61.5168, .9417),
+        (123.0074, .855), (123.0282, .7983),
+    ))
+    coverage = evidence_coverage(windows, 125.0, deterministic_bpm=123.046875)
+    assert coverage["strong_windows"] == 5
+    assert coverage["dominant_family_supported_windows"] == 5
+    assert coverage["conflicting_strong_windows"] == 0
+    assert coverage["family_coverage_fraction"] == pytest.approx(5 / 7, abs=.0001)
+    assert coverage["deterministic_supports_dominant_family"] is True
+    assert coverage["neural_supports_dominant_family"] is False
+    assert coverage["detector_disagreement"] is True
+    observed = tuple((w["bpm"], w["strength"]) for w in windows if w["status"] == "ok")
+    result = arbitrate_tempo(123.046875, 125, observed, window_diagnostics=windows)
+    assert result.decision == "retain"
+    assert result.suggested_bpm is None
+    assert result.changes_dj_decisions is False
+
+
+def test_dizzy_still_abstains_for_insufficient_strong_coverage() -> None:
+    windows = _diagnostics((
+        (78.0343, .6187), (78.4795, .2717), (153.5406, .3848),
+        (156.7579, .1897), (77.971, .3448), (64.1051, .1606),
+        (78.3973, .2824),
+    ))
+    observed = tuple((w["bpm"], w["strength"]) for w in windows)
+    result = arbitrate_tempo(151.9991, 78.9474, observed, window_diagnostics=windows)
+    assert result.decision == "abstain"
+    assert result.reason == "insufficient strong evidence coverage across song"
+    assert result.coverage["strong_windows"] == 2
+    assert result.changes_dj_decisions is False
