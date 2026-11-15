@@ -180,3 +180,48 @@ never changes the original files.
 
 Note: This checks the *existing* full-grid selection behavior; the
 separate tempo-only adoption switch remains off by default.
+
+## Provisional full-grid safety screen (counterfactual; not live)
+
+A separate research-only module, `neural_grid_safety_screen.py`, evaluates
+the **existing** fallback-aware neural gate. It does not modify
+`predict_beats`, `analyze_track`, the registry, model authority, beat grids,
+downbeats, or DJ playback. All hypothetical passes explicitly report
+`approved_for_live_adoption: false`.
+
+In addition to the existing model gate, its provisional screen requires:
+- Both BPM values are finite and in 40–240 BPM.
+- The neural and deterministic BPMs differ by at most 2% **at the same metrical level**, not half/double-time.
+- The measured fallback-beat agreement is at least 85%.
+- There are at least 16 deterministic beats, 2 deterministic downbeats,
+  16 neural beats and 2 neural downbeats.
+- The neural inference is available and the pre-existing model gate passed.
+
+These cutoffs are **conservative research hypotheses, not validated
+thresholds**; passing them is not proof of musical beat/downbeat accuracy.
+Two models may confidently agree on the same wrong BPM or phase. Independent
+audio annotations and untouched holdout testing are required before proposing
+a live gate update.
+
+Run the existing read-only CLI with new output path (it refuses overwrite):
+
+```sh
+cd /tmp/saund-brain-test
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m djai.intelligence.neural_grid_gate_audit \
+  --audio-root "$DJAI_WORKSPACE/audio" \
+  --filename "18. Lmoutchou - Toc Toc 4.mp3" \
+  --filename "Camelphat_&_Elderbrook_‘Cola’.wav" \
+  --output /tmp/saund-grid-gate-screen-v2.json
+```
+
+Compare `neural_grid_gate_would_pass` (legacy existing gate) to
+`counterfactual_safety_screen.would_pass_provisional_screen`.
+The real-audio 2026-11-15 inputs are expected to be rejected
+counterfactually: Toc Toc 4 has 86.1328 versus 88.2353 BPM despite
+96.74% fallback beat agreement, and Cola has 123.0469 versus 120.0 BPM
+with 47.84% fallback agreement. The reported user BPM labels (~116 and
+~122 respectively) are approximate, not independently verified.
+
+No live adoption, timing change, beat-grid replacement, or downstream
+DJ decision results from running this audit.
