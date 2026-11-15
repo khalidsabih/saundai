@@ -416,12 +416,30 @@ export function SimpleExperience({ onOpenStudio }: { onOpenStudio: () => void })
           <section className="autonomous-launch" aria-label="Create an autonomous DJ set">
             <div className="session-launch">
             <header className="session-launch__hero">
-              <div>
-                <span className="autonomous-kicker">CREATE</span>
-                <h1>Tell SAUND how the night should feel.</h1>
+              <div className="session-launch__headline">
+                <span className="autonomous-kicker">CREATE / YOUR SET</span>
+                <h1>Your music.<br /><em>One continuous journey.</em></h1>
+                <p className="session-launch__lede">
+                  Choose the tracks. Shape the direction. SAUND plans and rehearses the transitions before you hit play.
+                </p>
               </div>
-              <p>Choose the music and the direction. SAUND understands the crate, explores the route, rehearses the hard moments and commits only when the performance is safe.</p>
+              <div className="session-launch__overview" aria-label="Current crate selection">
+                <span className="session-launch__overview-label">YOUR SESSION</span>
+                <strong>{selectedPaths.length.toString().padStart(2, "0")} <span>tracks selected</span></strong>
+                <div className="session-launch__overview-divider" />
+                <span className="session-launch__readiness">
+                  {readySelectedCount} ready
+                  {preparingSelectedCount > 0 && ` · ${preparingSelectedCount} preparing`}
+                  {failedSelectedCount > 0 && ` · ${failedSelectedCount} need attention`}
+                </span>
+              </div>
             </header>
+
+            <div className="session-launch__steps" aria-label="How to create a set">
+              <div><span className="session-launch__step-number">01</span><span><strong>Choose music</strong><small>Build your crate</small></span></div>
+              <div><span className="session-launch__step-number">02</span><span><strong>Shape the journey</strong><small>Set the energy and timing</small></span></div>
+              <div><span className="session-launch__step-number">03</span><span><strong>Create &amp; listen</strong><small>Rehearse before playback</small></span></div>
+            </div>
 
             <div className="session-launch__grid">
               <CrateSelector
