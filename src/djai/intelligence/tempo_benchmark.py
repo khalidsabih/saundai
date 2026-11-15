@@ -166,13 +166,31 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
                         "grid_confidence": result.confidence,
                         "beat_alignment_measured": False,
                         "downbeat_accuracy_measured": False,
+                        # Benchmark inference has no deterministic fallback grid.
+                        # This is only the model gate result, NOT evidence of
+                        # actual adoption by live analyze_track.
                         "full_grid_adopted": result.used,
+                        "full_grid_adopted_in_live_analysis": None,
+                        "benchmark_has_fallback_beat_grid": False,
+                        "grid_adoption_gate_passed_without_fallback": bool(result.used),
                     })
                 else:
                     failures["neural"] = result.reason
             except Exception as exc:
                 failures["neural"] = f"{type(exc).__name__}: {exc}"
             row["comparison"] = compare_estimators(reference, deterministic, neural)
+            # This is a diagnostic red flag, not a claim of live grid replacement.
+            # A beat-grid gate can pass in fallback-free benchmark inference even
+            # when the tempo disagrees with an approximate reference.
+            if neural is not None:
+                row["grid_adoption_risk"] = {
+                    "requires_live_reproduction": bool(row.get("full_grid_adopted") and
+                        row["absolute_error_bpm"] > 2.0),
+                    "model_gate_passed_without_fallback": bool(row.get("full_grid_adopted")),
+                    "live_grid_adoption_observed": False,
+                    "reference_quality": row["reference_quality"],
+                    "reason": "benchmark does not provide fallback beat/downbeat grids; live grid adoption unobserved",
+                }
             try:
                 diagnostics = (
                     onset_window_diagnostics(path)
@@ -224,6 +242,8 @@ def evaluate(audio_root: Path, references: list[dict]) -> dict:
             "Comparison uses the initial librosa BPM before optional consistency reconciliation or fusion",
             "Paired winners are descriptive, not statistically significant",
             "Tempo stability is not verified BPM accuracy",
+            "Benchmark full_grid_adopted means fallback-free model gate passed; actual live adoption was not observed",
+            "Grid adoption risk flag is an observational investigation trigger, not proof of live-grid replacement",
             "Beat phase and musical downbeat accuracy are not measured",
             "Arbitration recommendations are for human review, never automatic tempo adoption",
             "Audio pulse-family consensus and model disagreement are reported separately",
