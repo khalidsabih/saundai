@@ -493,7 +493,7 @@ test("Create navigation never overlaps content across desktop, tablet and mobile
           .slice(0, 12)
           .map((element) => {
             const rect = element.getBoundingClientRect();
-            return `${element.tagName.toLowerCase()}.${element.className?.toString().replace(/\\s+/g, ".").slice(0, 90)} [${Math.round(rect.left)},${Math.round(rect.right)}]`;
+            return `${element.tagName.toLowerCase()}.${element.className?.toString().replace(/\s+/g, ".").slice(0, 90)} [${Math.round(rect.left)},${Math.round(rect.right)}]`;
           }),
       };
     });
