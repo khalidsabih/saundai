@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from djai.intelligence.tempo_arbitration import arbitrate_tempo, tempo_candidates, octave_family_agreement, onset_window_diagnostics
+from djai.intelligence.tempo_arbitration import arbitrate_tempo, tempo_candidates, octave_family_agreement, onset_window_diagnostics, evidence_coverage
 
 
 def test_candidate_search_includes_half_and_double_time() -> None:
@@ -112,3 +112,59 @@ def test_no_periodicity_peak_reports_specific_window_failure(
     assert result["status"] == "incomplete_periodicity"
     assert len(result["windows"]) == 3
     assert all(w["status"] == "no_periodicity_peak" for w in result["windows"])
+
+def _diagnostics(values: tuple[tuple[float | None, float | None], ...]) -> tuple[dict, ...]:
+    return tuple(
+        {"index": i, "status": "ok" if bpm is not None else "no_periodicity_peak",
+         "bpm": bpm, "strength": strength}
+        for i, (bpm, strength) in enumerate(values, 1)
+    )
+
+
+def test_coverage_separates_missing_weak_and_conflicting_evidence() -> None:
+    windows = _diagnostics((
+        (78, .8), (156, .9), (78.2, .2), (None, None),
+        (90, .8), (78, .5), (157, .6),
+    ))
+    coverage = evidence_coverage(windows, 78)
+    assert coverage["total_windows"] == 7
+    assert coverage["strong_windows"] == 5
+    assert coverage["weak_windows"] == 1
+    assert coverage["missing_windows"] == 1
+    assert coverage["neural_family_supported_windows"] == 4
+    assert coverage["conflicting_strong_windows"] == 1
+    assert coverage["strong_coverage_fraction"] == pytest.approx(5 / 7, abs=.0001)
+
+
+def test_five_strong_sections_allow_observational_retention() -> None:
+    windows = _diagnostics((
+        (123, .8), (123.1, .7), (None, None),
+        (123.1, .7), (123, .8), (123.2, .6), (123.0, .9),
+    ))
+    observed = tuple((w["bpm"], w["strength"]) for w in windows if w["status"] == "ok")
+    result = arbitrate_tempo(123.05, 123.1, observed, window_diagnostics=windows)
+    assert result.decision == "retain"
+    assert result.coverage["strong_windows"] == 6
+    assert result.coverage["missing_windows"] == 1
+    assert result.changes_dj_decisions is False
+
+
+def test_strong_conflict_blocks_arbitration_even_with_majority() -> None:
+    windows = _diagnostics((
+        (78, .8), (78, .8), (156, .9), (78, .9),
+        (90, .7), (78, .8), (78, .8),
+    ))
+    observed = tuple((w["bpm"], w["strength"]) for w in windows)
+    result = arbitrate_tempo(152, 78, observed, window_diagnostics=windows)
+    assert result.decision == "abstain"
+    assert result.coverage["conflicting_strong_windows"] == 1
+    assert result.reason == "contradictory strong onset evidence"
+
+
+def test_missing_coverage_does_not_count_as_support() -> None:
+    windows = _diagnostics(((123, .8), (None, None), (None, None),
+                            (123, .8), (None, None), (123, .8), (None, None)))
+    observed = tuple((w["bpm"], w["strength"]) for w in windows if w["status"] == "ok")
+    result = arbitrate_tempo(123, 123, observed, window_diagnostics=windows)
+    assert result.decision == "abstain"
+    assert result.coverage["strong_coverage_fraction"] < .60
