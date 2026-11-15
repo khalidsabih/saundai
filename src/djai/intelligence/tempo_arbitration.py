@@ -8,7 +8,7 @@ track analysis or changes beat positions, bar phase, or cue placement.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +28,7 @@ class TempoArbitration:
     reason: str
     octave_family_agreement: bool = False
     window_diagnostics: tuple[dict, ...] = ()
+    coverage: dict | None = None
     changes_dj_decisions: bool = False
 
     def to_dict(self) -> dict:
@@ -64,7 +65,7 @@ def octave_family_agreement(
 
     This describes rhythmic equivalence, NOT the correct perceived BPM level.
     """
-    if len(bpms) != 3 or any(not _valid(b) for b in bpms):
+    if len(bpms) < 3 or any(not _valid(b) for b in bpms):
         return False
     for reference in bpms:
         if all(
@@ -100,11 +101,11 @@ def onset_window_diagnostics(path: Path) -> dict:
             "minimum_seconds": round(minimum_frames / frames_per_second, 3),
             "windows": [],
         }
-    starts = [
-        round(0.08 * (len(onset) - window)),
-        round(0.47 * (len(onset) - window)),
-        round(0.87 * (len(onset) - window)),
-    ]
+    # Seven evenly distributed windows, but never count duplicated/overlapping
+    # windows as independent evidence. Very short tracks still yield three.
+    count = min(7, max(3, len(onset) // max(window, 256)))
+    span = len(onset) - window
+    starts = [round(i * span / (count - 1)) for i in range(count)]
     windows = []
     for index, start in enumerate(starts, start=1):
         result = _acf_tempo(
@@ -131,6 +132,47 @@ def onset_window_diagnostics(path: Path) -> dict:
     }
 
 
+def evidence_coverage(
+    diagnostics: tuple[dict, ...],
+    neural_bpm: float | None,
+    *, minimum_strength: float = 0.35,
+    tolerance: float = 0.015,
+) -> dict:
+    """Measure evidence coverage, conflicts and octave-family support.
+
+    Missing peaks count against coverage. Only strong peaks count as support.
+    This reports an observed family; it does not determine musical meter.
+    """
+    total = len(diagnostics)
+    valid = [w for w in diagnostics if w.get("status") == "ok"
+             and _valid(w.get("bpm")) and w.get("strength") is not None
+             and math.isfinite(w["strength"]) and w["strength"] >= 0]
+    strong = [w for w in valid if w["strength"] >= minimum_strength]
+    weak = [w for w in valid if w["strength"] < minimum_strength]
+    family = []
+    conflicting = []
+    if _valid(neural_bpm):
+        for w in strong:
+            if min(_relative_error(w["bpm"], neural_bpm * scale)
+                   for scale in (0.5, 1.0, 2.0)) <= tolerance:
+                family.append(w)
+            else:
+                conflicting.append(w)
+    return {
+        "total_windows": total,
+        "valid_windows": len(valid),
+        "strong_windows": len(strong),
+        "weak_windows": len(weak),
+        "missing_windows": total - len(valid),
+        "neural_family_supported_windows": len(family),
+        "conflicting_strong_windows": len(conflicting),
+        "strong_coverage_fraction": round(len(strong) / total, 4) if total else 0.0,
+        "family_coverage_fraction": round(len(family) / total, 4) if total else 0.0,
+        "support_strength_mean": round(float(np.mean([w["strength"] for w in family])), 4)
+                                 if family else None,
+    }
+
+
 def arbitrate_tempo(
     deterministic_bpm: float | None,
     neural_bpm: float | None,
@@ -140,7 +182,7 @@ def arbitrate_tempo(
     agreement_tolerance: float = 0.015,
     window_diagnostics: tuple[dict, ...] = (),
 ) -> TempoArbitration:
-    """Suggest only with three strong distributed windows and neural support.
+    """Suggest only with sufficient distributed strong windows and neural support.
 
     A suggestion remains research evidence; it never changes the BPM.
     Window onset estimates are corroboration, not independent annotations.
@@ -149,6 +191,7 @@ def arbitrate_tempo(
     window_bpms = tuple(round(float(b), 4) for b, _ in onset_windows)
     strengths = tuple(round(float(s), 4) for _, s in onset_windows)
     family_agrees = octave_family_agreement(tuple(float(b) for b, _ in onset_windows), tolerance=agreement_tolerance)
+    coverage = evidence_coverage(window_diagnostics, neural_bpm, minimum_strength=minimum_strength, tolerance=agreement_tolerance) if window_diagnostics else None
 
     def outcome(decision: str, reason: str, suggestion: float | None = None):
         return TempoArbitration(
@@ -157,17 +200,36 @@ def arbitrate_tempo(
             candidates_bpm=candidates, window_bpms=window_bpms,
             window_strengths=strengths, reason=reason,
             octave_family_agreement=family_agrees, window_diagnostics=window_diagnostics,
+            coverage=coverage,
         )
 
     if not _valid(deterministic_bpm) or not _valid(neural_bpm):
         return outcome("abstain", "both BPM estimators are required")
-    if len(onset_windows) != 3 or any(
-        not _valid(b) or not math.isfinite(s) or s < minimum_strength
-        for b, s in onset_windows
-    ):
-        return outcome("abstain", "three sufficiently strong onset windows required")
+    # Legacy direct calls without per-window data retain strict three-window
+    # behavior; the benchmark supplies full coverage, including missing peaks.
+    if coverage is None:
+        if len(onset_windows) != 3 or any(
+            not _valid(b) or not math.isfinite(s) or s < minimum_strength
+            for b, s in onset_windows
+        ):
+            return outcome("abstain", "three sufficiently strong onset windows required")
+        values = [float(b) for b, _ in onset_windows]
+    else:
+        if (coverage["total_windows"] < 3 or coverage["strong_windows"] < 3
+            or coverage["strong_coverage_fraction"] < 0.60):
+            return outcome("abstain", "insufficient strong evidence coverage across song")
+        if coverage["conflicting_strong_windows"] > 0:
+            return outcome("abstain", "contradictory strong onset evidence")
+        if coverage["family_coverage_fraction"] < 0.60:
+            return outcome("abstain", "insufficient neural pulse-family support coverage")
+        values = [float(w["bpm"]) for w in window_diagnostics
+                  if w.get("status") == "ok"
+                  and _valid(w.get("bpm"))
+                  and w.get("strength") is not None
+                  and math.isfinite(w["strength"])
+                  and w["strength"] >= minimum_strength]
+        family_agrees = octave_family_agreement(tuple(values), tolerance=agreement_tolerance)
 
-    values = [float(b) for b, _ in onset_windows]
     if not family_agrees:
         return outcome("abstain", "onset windows disagree, including octave families")
     if not candidates:
