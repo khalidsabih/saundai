@@ -22,7 +22,7 @@
   --saund-amber-soft: var(--color-decision-subtle);
   --saund-green: var(--color-success);
   --saund-red: var(--color-danger);
-  --saund-rail: var(--rail-width);
+  --saund-rail: var(--saund-rail-width);
   --saund-radius: var(--radius-lg);
 }
 
@@ -38,6 +38,8 @@ body {
 /* Product shell ---------------------------------------------------------- */
 
 .product-shell {
+  display: grid;
+  grid-template-columns: var(--saund-rail-width) minmax(0, 1fr);
   min-height: 100vh;
   background:
     radial-gradient(circle at 78% 8%, rgba(125,168,216,0.07), transparent 32rem),
@@ -46,11 +48,13 @@ body {
 }
 
 .product-shell__rail {
-  position: fixed;
-  inset: 0 auto 0 0;
+  position: sticky;
+  top: 0;
   z-index: 50;
-  width: var(--rail-width);
+  width: 100%;
   height: 100vh;
+  height: 100dvh;
+  min-width: 0;
   padding: 26px 18px 22px;
   display: flex;
   flex-direction: column;
@@ -176,8 +180,9 @@ body {
 }
 
 .product-shell__content {
+  min-width: 0;
   min-height: 100vh;
-  padding-left: var(--rail-width);
+  padding-left: 0;
 }
 
 .autonomous-shell.is-entered {
@@ -316,8 +321,8 @@ body {
 /* Create ----------------------------------------------------------------- */
 
 .session-launch {
-  width: min(var(--content-max), 100%);
-  max-width: var(--content-max);
+  width: min(var(--saund-content-max), 100%);
+  max-width: var(--saund-content-max);
   margin: 0 auto;
   padding: 50px clamp(28px, 4vw, 70px) 90px;
 }
@@ -976,12 +981,17 @@ input[type="range"] {
 }
 
 @media (max-width: 720px) {
+  .product-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .product-shell__content {
     padding-left: 0;
     padding-bottom: 74px;
   }
 
   .product-shell__rail {
+    position: fixed;
     inset: auto 10px 10px 10px;
     width: auto;
     height: 58px;
