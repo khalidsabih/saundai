@@ -225,3 +225,33 @@ with 47.84% fallback agreement. The reported user BPM labels (~116 and
 
 No live adoption, timing change, beat-grid replacement, or downstream
 DJ decision results from running this audit.
+
+## Batch audit all 17 annotated reference tracks (read-only)
+
+Use the same exact 17-reference JSON from the BPM benchmark; do not relabel
+algorithm-derived or user-estimated values as independently verified.
+
+```sh
+cd /tmp/saund-brain-test
+export DJAI_WORKSPACE="/Users/khalidsabih/Downloads/lab/SAUND_AI"
+export DJAI_BEAT_THIS_CHECKPOINT="$DJAI_WORKSPACE/.djai-cache/neural/beat-this-final0.ckpt"
+PYTHONPATH="$PWD/src" "$DJAI_WORKSPACE/.venv/bin/python" \
+  -m djai.intelligence.neural_grid_batch_audit \
+  --audio-root "$DJAI_WORKSPACE/audio" \
+  --references /tmp/saund-bpm-17-references.json \
+  --output /tmp/saund-grid-gate-batch-17-v1.json
+```
+
+The output prints aggregated counts and writes each track's original
+`neural_grid_gate_would_pass`, the provisional
+`counterfactual_safety_screen`, rejection reasons, and approximate BPM
+reference error. It explicitly reports existing gate approvals, how many
+would be rejected by the experimental screen, and how many would pass.
+Missing tracks, inference failures and duplicate basenames are marked
+unavailable and excluded from approval rates. Files are never overwritten.
+
+This **does not** estimate false approvals or false rejections: such
+rates require independently labeled musical beat/downbeat annotations.
+A pass means only that an *unvalidated provisional screen* was satisfied,
+not that the neural grid was correct or should be used by the live DJ.
+There is no automatic adoption or change to the existing inference gate.
