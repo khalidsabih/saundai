@@ -22,7 +22,7 @@
   --saund-amber-soft: var(--color-decision-subtle);
   --saund-green: var(--color-success);
   --saund-red: var(--color-danger);
-  --saund-rail: var(--rail-width);
+  --saund-rail: var(--saund-rail-width);
   --saund-radius: var(--radius-lg);
 }
 
@@ -49,7 +49,7 @@ body {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 50;
-  width: var(--rail-width);
+  width: var(--saund-rail-width);
   height: 100vh;
   padding: 26px 18px 22px;
   display: flex;
@@ -177,7 +177,7 @@ body {
 
 .product-shell__content {
   min-height: 100vh;
-  padding-left: var(--rail-width);
+  padding-left: var(--saund-rail-width);
 }
 
 .autonomous-shell.is-entered {
@@ -316,8 +316,8 @@ body {
 /* Create ----------------------------------------------------------------- */
 
 .session-launch {
-  width: min(var(--content-max), 100%);
-  max-width: var(--content-max);
+  width: min(var(--saund-content-max), 100%);
+  max-width: var(--saund-content-max);
   margin: 0 auto;
   padding: 50px clamp(28px, 4vw, 70px) 90px;
 }
