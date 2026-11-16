@@ -26,6 +26,7 @@
 | 05C. Connect M1 reference metric evaluator to registry | VERIFIED — owner's Mac ran 11/11 combined evaluator + registry focused tests (2026-11-16); real annotation import pending | `scripts/m1-rhythm-benchmark.py`, `tests/test_m1_rhythm_benchmark.py`, `M1-RHYTHM-BENCHMARK-RUNBOOK.md` |
 | 05D. Import real GiantSteps Tempo and Ballroom reference formats | VERIFIED — owner's Mac passed 18/18 combined importer, evaluator and registry tests (2026-11-16); real dataset/audio acquisition pending | `scripts/m1-import-references.py`, `tests/test_m1_import_references.py`, `M1-REFERENCE-IMPORT-RUNBOOK.md` |
 | 05E. Acquire and audit independently published rhythm annotations | VERIFIED — owner audited 664 GiantSteps and 698 Ballroom annotations, 22/22 focused tests passed; matching audio and rights unresolved | `scripts/m1-audit-annotations.py`, `tests/test_m1_audit_annotations.py`, `M1-REAL-REFERENCE-ACQUISITION-2026-11-16.md` |
+| 05F. Identify official Ballroom audio and audit pairing/replicas without download | AUDIT TOOL COMMITTED — official URL/MD5 documented; five focused tests and local audio/rights review pending | `scripts/m1-audio-readiness.py`, `tests/test_m1_audio_readiness.py`, `M1-AUDIO-PAIRING-PILOT.md` |
 | 06. M0 exit review | BLOCKED by environment/evidence signoff; dataset acquisitions are future milestone work | Explicit milestone verdict and deviations |
 
 ## Isolation rule
