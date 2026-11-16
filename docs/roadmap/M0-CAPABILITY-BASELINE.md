@@ -1,6 +1,6 @@
 # SAUND.AI M0 — product baseline and capability inventory
 
-Status: **IN PROGRESS — source audit complete, local reproduction pending**  
+Status: **IN PROGRESS — source audit complete; first local synthetic render completed 2026-11-16; full runtime freeze pending**  
 Roadmap: M0 → M1 rhythm → M2 transitions → M3 rendered evaluation → M4 set storytelling → M5 learned DJ intelligence → M6 live reliability.  
 Source baseline: `main` at `1aef9a8d8fbfaac90e2b65d4f9e70120618785bd`, version `2.0.0-rc.1`.  
 This file documents **source-supported functionality, not demonstrated real-world accuracy**.
@@ -39,8 +39,8 @@ This file documents **source-supported functionality, not demonstrated real-worl
 | --- | --- | --- | --- |
 | R-01 | P0 | On 17 approximate-BPM tracks, the fallback-aware neural full-grid gate reproduced two gate passes rejected by the provisional research screen. No **observed live** adoption or independent beat/downbeat correctness. Results are isolated in draft PR #27. | M1 |
 | R-02 | P0 | No independently verified musical beat/downbeat labels on the 17-track personal sample; no accuracy or false-rejection claim justified. | M1 |
-| R-03 | P0 | No recorded reproducible M0 demo-set run against frozen main commit/config/environment yet. | M0 |
-| R-04 | P0 | Actual local app readiness, installed optional models, checkpoint hashes and runtime overrides are unconfirmed. | M0 |
+| R-03 | P0 | The 2026-11-16 demo completed and WAV checksum was captured; exact runtime config, artifact report and repeatability still need review. | M0 |
+| R-04 | P0 | Registry `models-status` reports seven models without registered checkpoint files, but Beat This! weights downloaded during the demo. Local cache, overrides and application readiness remain unconfirmed. | M0 |
 | R-05 | P1 | No frozen, rights-cleared multi-genre audio manifest / transition matrix yet. | M0 |
 | R-06 | P1 | Real-music rendered set quality and cross-genre performance have not been measured by the current research. | M2–M4 |
 | R-07 | P1 | Default DJ decision heads have zero authority; trained production models have not been demonstrated. | M5 |
@@ -62,10 +62,10 @@ This file documents **source-supported functionality, not demonstrated real-worl
 - [x] Source commit, version and default model policy frozen **on paper**.
 - [x] Reproducible local smoke commands specified in `docs/roadmap/M0-BASELINE-RUNBOOK.md`.
 - [x] Fixed benchmark/scenario design specified in `docs/roadmap/M0-MULTIGENRE-SUITE.md`.
-- [ ] Local environment and actual `models-status` evidence recorded.
-- [ ] Synthetic end-to-end demo rendered from the pinned source revision; file and result inspected.
+- [x] User-provided `models-status` recorded (2026-11-16); full runtime environment/checkpoint cache still pending.
+- [x] Synthetic five-track end-to-end render completed, WAV existence and SHA-256 captured; JSON report and WAV metadata inspection still pending.
 - [ ] App readiness, frontend status and failures recorded, where runtime is available.
 - [ ] Rights-cleared real-music reference manifest frozen, without copying private audio.
 - [ ] Baseline evidence artifact reviewed and M0 **explicitly accepted**.
 
-**Gate: M0 is not completed** until all required local reproduction and evidence conditions pass. The next task is a single reproducible smoke run; no new model training or audio accuracy benchmark is necessary for M0.
+**Gate: M0 is not completed** until all required local reproduction and evidence conditions pass. The next task is to inspect the existing render report/metadata and freeze remaining local evidence; no new model training or audio accuracy benchmark is necessary for M0. Evidence: `M0-LOCAL-EVIDENCE-2026-11-16.md`.
