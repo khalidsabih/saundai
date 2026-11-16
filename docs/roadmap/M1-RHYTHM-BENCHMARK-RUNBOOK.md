@@ -1,6 +1,6 @@
 # M1 rhythm benchmark — first automatic evaluator (research-only)
 
-**Status:** source and focused tests committed; **Mac execution pending**. This adds evaluation tooling to the isolated M0 research branch. It does not start M1 implementation changes, modify DJ analysis, touch Live or enable neural model authority.
+**Status:** source and focused tests committed; **Mac focused tests passed (2026-11-16): 11/11 across evaluator and registry**. Real dataset integration pending. This adds evaluation tooling to the isolated M0 research branch. It does not start M1 implementation changes, modify DJ analysis, touch Live or enable neural model authority.
 
 ## Data contract
 
@@ -84,4 +84,4 @@ cd /tmp/saund-m0-dataset-registry
 
 The first six focused tests check event matching, BPM MAE, missing downbeat truth, annotation validation and path safety. The existing five registry tests protect ledger cohort comparability and champion rules.
 
-**Next:** verify focused tests, verify datasets/rights, then import actual reference metadata and only after that run the first benchmark. Dataset research may be tracked in M0; real musical understanding improvement belongs to M1. No claims about data download, model improvement or real scores are made now.
+**Next:** verify datasets/rights, then import actual reference metadata and only after that run the first benchmark. Dataset research may be tracked in M0; real musical understanding improvement belongs to M1. No claims about data download, model improvement or real scores are made now.
