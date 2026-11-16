@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "catalog_status": "proposed_sources_only",
+  "sources": [
+    {"id":"local_34","name":"Private SAUND canonical crate","purpose":["M0","M2","M3","M4"],"source_url":null,"content_kind":"full_tracks_local","rights_status":"unreviewed","audio_available":"private_local","splits_status":"unassigned","notes":"34 distinct byte hashes from user's 49 files; no audio or manifest in Git."},
+    {"id":"fma","name":"Free Music Archive","purpose":["M2","M3"],"source_url":"https://github.com/mdeff/fma","content_kind":"track_metadata_and_audio","rights_status":"review_required_per_recording","audio_available":"requires_explicit_acquisition","splits_status":"not_frozen","notes":"Genre labels are weak metadata; do not treat clips as full DJ performances."},
+    {"id":"giantsteps_tempo","name":"GiantSteps Tempo","purpose":["M1"],"source_url":"https://github.com/GiantSteps/giantsteps-tempo-dataset","content_kind":"tempo_references_and_excerpts","rights_status":"review_required","audio_available":"requires_explicit_acquisition","splits_status":"not_frozen","notes":"Tempo reference does not establish downbeat timestamps."},
+    {"id":"ballroom","name":"Ballroom","purpose":["M1"],"source_url":"https://mirdata.readthedocs.io/en/latest/source/quick_reference.html","content_kind":"beat_and_tempo_annotations","rights_status":"review_required","audio_available":"requires_explicit_acquisition","splits_status":"not_frozen","notes":"Check available labels and rights for actual audio."},
+    {"id":"mtg_jamendo","name":"MTG-Jamendo","purpose":["M2","M4"],"source_url":"https://mtg.github.io/mtg-jamendo-dataset/","content_kind":"full_tracks_and_tags","rights_status":"noncommercial_research_review_required","audio_available":"requires_explicit_acquisition","splits_status":"provided_splits_require_review","notes":"No commercial use or model training authorized by this registry."},
+    {"id":"djmix_transitions","name":"DJ transition metadata candidate","purpose":["M3","M5"],"source_url":"https://huggingface.co/datasets/djmix/transitions","content_kind":"transition_metadata_candidate","rights_status":"unknown_unverified","audio_available":"not_assumed","splits_status":"not_frozen","notes":"Source provenance, actual contents and reuse terms must be verified before import."}
+  ],
+  "benchmarks": [
+    {"id":"m0_synthetic_render","milestone":"M0","metric":"technical_pass_rate","direction":"maximize","minimum":1.0,"requires_human":false,"notes":"Pipeline technical execution only; production_safe=false remains blocker to production claims."},
+    {"id":"m1_tempo_mae","milestone":"M1","metric":"tempo_mae_bpm","direction":"minimize","minimum":null,"requires_human":false,"notes":"Requires independent reference BPM and proper meter-level scoring."},
+    {"id":"m1_beat_f1","milestone":"M1","metric":"beat_f1","direction":"maximize","minimum":0.90,"requires_human":false,"notes":"Proposed 70ms tolerance, owner sign-off pending."},
+    {"id":"m1_downbeat_f1","milestone":"M1","metric":"downbeat_f1","direction":"maximize","minimum":0.85,"requires_human":false,"notes":"Proposed 100ms tolerance; absent downbeat truth is NOT zero."},
+    {"id":"m2_transition_safety","milestone":"M2","metric":"hard_safety_pass_rate","direction":"maximize","minimum":1.0,"requires_human":false,"notes":"Explicit safe declines counted separately."},
+    {"id":"m3_blind_preference","milestone":"M3","metric":"challenger_blind_win_rate","direction":"maximize","minimum":0.60,"requires_human":true,"notes":"Cannot be promoted without independent blind Arena evidence."},
+    {"id":"m4_story_quality","milestone":"M4","metric":"story_preference_rate","direction":"maximize","minimum":null,"requires_human":true,"notes":"Human-blind outcome plus set constraint checks."},
+    {"id":"m5_learned_policy","milestone":"M5","metric":"heldout_preference_rate","direction":"maximize","minimum":null,"requires_human":true,"notes":"Training rights and separately governed production promotion required."},
+    {"id":"m6_live_reliability","milestone":"M6","metric":"critical_failures","direction":"minimize","minimum":0.0,"requires_human":false,"notes":"Actual on-device test, never offline-render proxy."}
+  ]
+}
