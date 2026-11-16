@@ -52,3 +52,19 @@ After audits, identify a legally usable sample of audio **exactly matching the a
 Four new audit-focused tests are checked in but **not yet executed in the owner's Mac**. Previously, 18 importer/evaluator/registry focused tests passed. Expected combined count: 22 (pending local run).
 
 This is metadata acquisition preparation, **not** a measured musical benchmark, model improvement, live authority change or M0 signoff.
+
+
+## Owner's actual annotation acquisition and audit results — 2026-11-16
+
+The owner successfully cloned **annotations only** into private `/tmp/saund-m1-reference-sources/` and ran the audited tools from detached `/tmp/saund-m1-evaluator`, then ran all focused tests:
+
+| Source | Pinned annotation commit | Collection hash SHA-256 | Verified coverage |
+|---|---|---|---|
+| GiantSteps Tempo v2 | `d51ab2422e76abacfaa86616a57054bc222ec9fd` | `0be3f2f15d8e9b9caa73c49b19db73f609677aeccc5587256da3a3138db0aec5` | 664 files; 661 BPM present, 3 missing |
+| Ballroom bar-position annotations | `1db08914a8ae15edb01f104046e30bad88effe67` | `0fab8c8ac7229c1112b1b07f0a8b8fb36295802ccff293a5f12a164b62f2bd6a` | 698 files; 44,605 beats; 12,222 downbeats; 698 tracks with both |
+
+Tests: `22 / 22 passed` (4 annotation audits + 7 importer + 6 evaluator + 5 registry tests).
+
+Observed audit JSON flags for **both sources**: `audio_acquired=false`, `audio_use_rights_confirmed=false`, `benchmark_ready=false`. No audio or rights are inferred from these results. No music accuracy measurements or champions exist from this evidence.
+
+**Next bounded gate:** obtain audio clips matching exact annotation IDs **with appropriate permitted-use rights**, protect known Ballroom recording replicas from split leakage, create owner-reviewed private development manifest, then run first actual SAUND M1 development benchmark. Do not rerun the 22 synthetic tests unless code changes.
