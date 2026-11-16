@@ -21,7 +21,7 @@
 | 02. Freeze multi-genre scenario definitions | DONE (specification only) | `M0-MULTIGENRE-SUITE.md` |
 | 03. Capture actual local models and runtime config | PARTIAL — user-supplied `models-status`; overrides/cache/environment not frozen | `M0-LOCAL-EVIDENCE-2026-11-16.md` |
 | 04. Render a pinned five-track synthetic set and inspect WAV + report | PASS for synthetic render and JSON report audit; WAV container inspection still optional | `M0-LOCAL-EVIDENCE-2026-11-16.md`, `M0-RENDER-REPORT-REVIEW-2026-11-16.md` |
-| 05. Identify rights-cleared scenario assets and freeze private hashes/splits | PARTIAL — 49 files scanned, 34 unique SHA-256 hashes; deduplicated draft validates with zero errors; 12 scenarios, rights and split still unassigned | Private `/tmp/saund-m0-crate-unique.json` on user's machine; manifest and music not committed |
+| 05. Identify rights-cleared scenario assets and freeze private hashes/splits | PARTIAL — 34 unique hashes, genre candidate map documented; S06/S08–S11 lack established coverage; rights and dev/test splits unassigned | `M0-GENRE-COVERAGE-2026-11-16.md`, private `/tmp/saund-m0-crate-unique.json` |
 | 06. M0 exit review | BLOCKED by 03–05 | Explicit milestone verdict and deviations |
 
 ## Isolation rule
