@@ -24,6 +24,7 @@
 | 05. Identify rights-cleared scenario assets and freeze private hashes/splits | PARTIAL — 34 unique hashes, genre candidate map documented; S06/S08–S11 lack established coverage; rights and dev/test splits unassigned | `M0-GENRE-COVERAGE-2026-11-16.md`, private `/tmp/saund-m0-crate-unique.json` |
 | 05B. Implement dataset and milestone benchmark registry | VERIFIED — catalog/status commands worked and 5/5 focused tests passed on user's Mac (2026-11-16) | `benchmarks/dataset-registry/catalog.json`, `scripts/dataset-benchmark-registry.py`, `tests/test_dataset_benchmark_registry.py`, `M0-DATASET-BENCHMARK-REGISTRY.md` |
 | 05C. Connect M1 reference metric evaluator to registry | VERIFIED — owner's Mac ran 11/11 combined evaluator + registry focused tests (2026-11-16); real annotation import pending | `scripts/m1-rhythm-benchmark.py`, `tests/test_m1_rhythm_benchmark.py`, `M1-RHYTHM-BENCHMARK-RUNBOOK.md` |
+| 05D. Import real GiantSteps Tempo and Ballroom reference formats | IMPLEMENTED — format sources checked; 7 focused importer tests committed, local execution and dataset/audio acquisition pending | `scripts/m1-import-references.py`, `tests/test_m1_import_references.py`, `M1-REFERENCE-IMPORT-RUNBOOK.md` |
 | 06. M0 exit review | BLOCKED by environment/evidence signoff; dataset acquisitions are future milestone work | Explicit milestone verdict and deviations |
 
 ## Isolation rule
