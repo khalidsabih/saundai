@@ -22,10 +22,11 @@
 | 03. Capture actual local models and runtime config | PARTIAL — user-supplied `models-status`; overrides/cache/environment not frozen | `M0-LOCAL-EVIDENCE-2026-11-16.md` |
 | 04. Render a pinned five-track synthetic set and inspect WAV + report | PASS for synthetic render and JSON report audit; WAV container inspection still optional | `M0-LOCAL-EVIDENCE-2026-11-16.md`, `M0-RENDER-REPORT-REVIEW-2026-11-16.md` |
 | 05. Identify rights-cleared scenario assets and freeze private hashes/splits | PARTIAL — 34 unique hashes, genre candidate map documented; S06/S08–S11 lack established coverage; rights and dev/test splits unassigned | `M0-GENRE-COVERAGE-2026-11-16.md`, private `/tmp/saund-m0-crate-unique.json` |
-| 06. M0 exit review | BLOCKED by 03–05 | Explicit milestone verdict and deviations |
+| 05B. Implement dataset and milestone benchmark registry | IMPLEMENTED — execution tests pending | `benchmarks/dataset-registry/catalog.json`, `scripts/dataset-benchmark-registry.py`, `tests/test_dataset_benchmark_registry.py`, `M0-DATASET-BENCHMARK-REGISTRY.md` |
+| 06. M0 exit review | BLOCKED by environment/evidence signoff; dataset acquisitions are future milestone work | Explicit milestone verdict and deviations |
 
 ## Isolation rule
 
 **Do not merge draft PR #27 or apply its research threshold changes during M0.** Source inspection, baseline documents and evidence gathering do not change any production rhythm gate, frontend/backend, cue, grid, audio file, playback or live model authority.
 
-**Current gate verdict: M0 NOT YET PASSED.** The user supplied a complete 5-track synthetic render, a WAV checksum and `models-status` on 2026-11-16. Model cache downloaded `small0.ckpt` during the run, so network/cache effects must be tracked. Report audit completed: 4/4 exact technical checks passed, but two risky emergency transitions and `production_safe=false` remain recorded. Runtime environment and private rights-cleared scenario manifest remain open.
+**Current gate verdict: M0 NOT YET PASSED.** The user supplied a complete 5-track synthetic render, a WAV checksum and `models-status` on 2026-11-16. Model cache downloaded `small0.ckpt` during the run, so network/cache effects must be tracked. Report audit completed: 4/4 exact technical checks passed, but two risky emergency transitions and `production_safe=false` remain recorded. Runtime environment and private rights-cleared scenario manifest remain open; the benchmark registry prototype has been committed but not yet tested in the owner's Python environment.
