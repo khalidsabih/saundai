@@ -20,7 +20,7 @@
 | 01. Inventory implemented/optional/shadow capabilities and risks | DONE (source-only) | `M0-CAPABILITY-BASELINE.md` |
 | 02. Freeze multi-genre scenario definitions | DONE (specification only) | `M0-MULTIGENRE-SUITE.md` |
 | 03. Capture actual local models and runtime config | PARTIAL — user-supplied `models-status`; overrides/cache/environment not frozen | `M0-LOCAL-EVIDENCE-2026-11-16.md` |
-| 04. Render a pinned five-track synthetic set and inspect WAV + report | PARTIAL PASS — render complete and WAV hash recorded; metadata/report inspection pending | `M0-LOCAL-EVIDENCE-2026-11-16.md` |
+| 04. Render a pinned five-track synthetic set and inspect WAV + report | PASS for synthetic render and JSON report audit; WAV container inspection still optional | `M0-LOCAL-EVIDENCE-2026-11-16.md`, `M0-RENDER-REPORT-REVIEW-2026-11-16.md` |
 | 05. Identify rights-cleared scenario assets and freeze private hashes/splits | PENDING owner input | Private audio manifest, no media committed |
 | 06. M0 exit review | BLOCKED by 03–05 | Explicit milestone verdict and deviations |
 
@@ -28,4 +28,4 @@
 
 **Do not merge draft PR #27 or apply its research threshold changes during M0.** Source inspection, baseline documents and evidence gathering do not change any production rhythm gate, frontend/backend, cue, grid, audio file, playback or live model authority.
 
-**Current gate verdict: M0 NOT YET PASSED.** The user supplied a complete 5-track synthetic render, a WAV checksum and `models-status` on 2026-11-16. Model cache downloaded `small0.ckpt` during the run, so network/cache effects must be tracked. Artifact report inspection, runtime environment and the private rights-cleared scenario manifest remain open.
+**Current gate verdict: M0 NOT YET PASSED.** The user supplied a complete 5-track synthetic render, a WAV checksum and `models-status` on 2026-11-16. Model cache downloaded `small0.ckpt` during the run, so network/cache effects must be tracked. Report audit completed: 4/4 exact technical checks passed, but two risky emergency transitions and `production_safe=false` remain recorded. Runtime environment and private rights-cleared scenario manifest remain open.
