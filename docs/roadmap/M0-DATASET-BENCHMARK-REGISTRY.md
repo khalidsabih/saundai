@@ -62,8 +62,9 @@ python scripts/dataset-benchmark-registry.py promote --run-id 1 --initial
 - [x] Registry catalog and acceptance metric definitions committed in isolated draft branch.
 - [x] Local SQLite ledger, fingerprinted records, explicit comparison/champion steps implemented.
 - [x] Focused tests checked in.
-- [ ] Execute focused tests on clean checkout.
-- [ ] Demonstrate `catalog` and `status` commands, then connect an actual measured run on approved data.
+- [x] Execute focused tests on isolated clean checkout: 5/5 passed on the owner's Mac, 2026-11-16.
+- [x] Demonstrate `catalog` and `status` commands: 6 proposed dataset entries, 9 benchmark definitions, empty runs/champions as expected.
+- [ ] Connect an actual measured run on an approved, frozen dataset; this belongs to M1+ evaluation integration.
 - [ ] Rights-cleared splits and dataset acquisition separately approved; M0 source and synthetic baseline gates still tracked in `SAUND-MILESTONE-TRACKER.md`.
 
-**Status: CODE PRESENT / LOCAL EXECUTION NOT YET VERIFIED.**
+**Status: REGISTRY IMPLEMENTED / LOCAL SMOKE VERIFIED (2026-11-16).** The user supplied successful catalog output, five passing focused tests (`..... [100%]`) and an empty valid ledger. This is not a benchmark measurement, a model improvement, or an M0 milestone signoff.
