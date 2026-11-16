@@ -41,7 +41,6 @@ def test_pilot_plans_genre_diversity_and_excludes_replicas(tmp_path, monkeypatch
     archive, ann = sources(tmp_path)
     # Fake archive fixture cannot have official checksum; checksum validation itself
     # is tested separately and remains mandatory in real usage.
-    monkeypatch.setattr(m.load_script, "__call__", getattr(m.load_script, "__call__", lambda: None), raising=False) if False else None
     original = m.load_script
 
     def patched(path, name):
