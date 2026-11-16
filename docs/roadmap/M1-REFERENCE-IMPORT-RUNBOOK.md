@@ -1,6 +1,6 @@
 # M1 — GiantSteps Tempo and Ballroom reference import
 
-**Status:** importers and focused tests implemented, **local execution pending**. No audio was downloaded, no training data was created, and no engine/model authority changed.
+**Status:** importers and focused tests **verified on owner's Mac (2026-11-16): 18/18 passed**, dataset/audio acquisition and real musical metrics pending. No audio was downloaded, no training data was created, and no engine/model authority changed.
 
 ## Verified upstream formats
 
@@ -63,6 +63,6 @@ To keep the evaluation honest, do **not** benchmark the same file with many smal
   tests/test_dataset_benchmark_registry.py
 ```
 
-Seven importer tests cover actual published formats, missing labels, unsafe or ambiguous matches, no-output overwrite and proper private manifest flags. Combined with the previously passing 11 tests, expected focused count is **18**, pending user execution.
+Seven importer tests cover actual published formats, missing labels, unsafe or ambiguous matches, no-output overwrite and proper private manifest flags. Combined with the previously passing 11 tests, expected focused count is **18**, passed on owner's Mac, 2026-11-16.
 
 **Next gate:** importer-focused tests pass, then source/audio acquisition and rights review; only then first automatic real-music metric. Dataset availability and the current 34-track private crate do not automatically authorize publication, commercial use or ML training.
