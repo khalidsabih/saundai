@@ -390,3 +390,27 @@ python scripts/m1-correlate-phase-anomaly-overlaps.py \
 ```
 
 Compare `groups.crosses_anomaly.phase_trajectory_patterns` with `groups.does_not_cross_anomaly.phase_trajectory_patterns`, plus each group's sampled phase-change metrics, rather than declaring any phase correction authorized. Continue rejecting plans over the existing **25 ms phase residual envelope**. No real transition has been rendered or accepted.
+
+## Owner trajectory results: all non-crossing rejections show directional motion
+
+The owner reran `tests/test_m1_phase_anomaly_overlap.py` (**6 passed**) and the expanded rejected-trace correlation. The **28 anomaly-crossing** rejected configurations were all classified as irregular phase motion, with median **396.179 ms** residual and median largest sampled step **169.698 ms**. The **83 non-crossing** rejected configurations were all classified as mostly directional drift, with median **210.420 ms** residual, median absolute end-to-end phase change **255.420 ms**, and median largest sampled step **46.440 ms**. All 111 rows were measured; none were skipped.
+
+This strongly suggests there are both localized tracker errors and a broader beat-clock/tempo-rate discrepancy. **It is not evidence that the 25 ms phase envelope is too strict.**
+
+Source inspection identifies a specific research hypothesis: `decision._tempo_context` derives incoming render rate via `match_bpm(effective_bpm_a, track_b.bpm)`, while `performance/deck.py:_phase_integrity_profile` measures phase from sampled `track_a.beats_seconds` and `track_b.beats_seconds`. Both generated tracks' scalar estimated BPM was **123.0469**, yet earlier synthetic reference analysis found substantially different beat-clock rates (incoming ~124.0008 BPM; outgoing globally fitted ~122.5123 BPM, itself potentially distorted by local compression). Thus a nominal rate of 1.0 inferred from scalar BPM equality could leave measurable within-overlap drift.
+
+Added `scripts/m1-demo-phase-clock-counterfactual.py` and `tests/test_m1_demo_phase_clock_counterfactual.py`. The read-only script combines the saved generator-grounded beat-index audit with the rejected phase trace and reports planned render rates, fitted output beat-clock BPM for each deck, **predicted uncontrolled drift**, observed start-to-end phase movement, direction agreement, and remaining unexplained movement. This is an explanatory comparison only; it does not swap BPM, build/re-sign a plan, render, bypass a grid or open sealed test audio.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_demo_phase_clock_counterfactual.py
+
+python scripts/m1-demo-phase-clock-counterfactual.py \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --beat-audit /tmp/saund-m1-demo-beat-clusters-05.json \
+  --output /tmp/saund-m1-demo-phase-clock-01.json
+```
+
+Because the outgoing global fitted BPM can be biased by local compressed beat intervals, this is a **hypothesis test, not a production BPM correction**. Compare predicted and measured change and how much remains unexplained, then consider segment-local rate estimation and independent audio-onset evidence before any controlled proposal. The phase-lock stop, current 25 ms limit, frozen neural policy, and rights constraints remain unchanged.
