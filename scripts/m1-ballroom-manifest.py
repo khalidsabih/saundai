@@ -62,7 +62,9 @@ def read_duration(path):
 
 
 def build(source_root, exclude_ids, *, count=80, seed=20261117, min_seconds=8.0, split="development"):
-    if split not in {"development", "validation", "test"}:\n        raise ValueError("invalid split")\n    if count < 1 or min_seconds < 4:
+    if split not in {"development", "validation", "test"}:
+        raise ValueError("invalid split")
+    if count < 1 or min_seconds < 4:
         raise ValueError("count must be positive; minimum duration must be >=4 seconds")
     annotations = source_root / "annotations" / "beats"
     tempos = source_root / "annotations" / "tempo"
@@ -146,18 +148,24 @@ def main(argv=None):
                         help="previous pilot; its IDs may not appear in new sample")
     parser.add_argument("--output", type=Path, required=True,
                         help="new private unapproved manifest; no overwrite")
-    parser.add_argument("--count", type=int, default=80)\n    parser.add_argument("--split", choices=("development", "validation", "test"), default="development")
+    parser.add_argument("--count", type=int, default=80)
+    parser.add_argument("--split", choices=("development", "validation", "test"), default="development")
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--min-seconds", type=float, default=8)
     args = parser.parse_args(argv)
     if args.output.exists() or args.output.is_symlink():
         raise ValueError("refusing to overwrite existing output")
-    old = json.loads(args.exclude_manifest.read_text(encoding="utf-8"))
-    if old.get("dataset_id") != "ballroom" or not isinstance(old.get("items"), list):
-        raise ValueError("expected Ballroom exclusion manifest")
-    exclude = {i["id"] for i in old["items"]}
+    exclude = set()
+    for excluded_manifest in args.exclude_manifest:
+        old = json.loads(excluded_manifest.read_text(encoding="utf-8"))
+        if old.get("dataset_id") != "ballroom" or not isinstance(old.get("items"), list):
+            raise ValueError("expected Ballroom exclusion manifest")
+        ids = [i["id"] for i in old["items"]]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate track IDs in exclusion manifest")
+        exclude.update(ids)
     manifest, audit = build(args.source_root.resolve(), exclude, count=args.count,
-                            seed=args.seed, min_seconds=args.min_seconds)
+                            seed=args.seed, min_seconds=args.min_seconds, split=args.split)
     assert not (exclude & {i["id"] for i in manifest["items"]})
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as f:
