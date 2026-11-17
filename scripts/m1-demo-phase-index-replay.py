@@ -42,6 +42,40 @@ def position_components(beats, seconds, expected_period):
             "interval_ms": interval * 1000.0}
 
 
+
+def interval_budget(beats, start_seconds, end_seconds, expected_period):
+    """Summarize all *complete* observed beat intervals within a source window.
+
+    Median BPM alone discards local deviations. The aggregate signed interval
+    error is diagnostic only: incomplete edge intervals and beat indexing can
+    also contribute to the phase profile.
+    """
+    if not valid(start_seconds) or not valid(end_seconds) or end_seconds <= start_seconds or expected_period <= 0:
+        return {"status": "invalid_window"}
+    intervals = [
+        (index, float(right - left))
+        for index, (left, right) in enumerate(zip(beats, beats[1:]))
+        if left >= start_seconds and right <= end_seconds
+    ]
+    if not intervals:
+        return {"status": "insufficient_intervals"}
+    deviations = [1000.0 * (delta - expected_period) for _, delta in intervals]
+    outliers = [
+        {"interval_index": index, "deviation_ms": round(1000.0 * (delta - expected_period), 3)}
+        for index, delta in intervals
+        if abs(delta / expected_period - 1.0) >= .15
+    ]
+    return {
+        "status": "measured",
+        "complete_interval_count": len(intervals),
+        "median_interval_ms": round(median([d for _, d in intervals]) * 1000.0, 3),
+        "cumulative_interval_deviation_ms": round(sum(deviations), 3),
+        "max_abs_interval_deviation_ms": round(max(abs(d) for d in deviations), 3),
+        "outlier_interval_count": len(outliers),
+        "outlier_intervals": outliers[:12],
+    }
+
+
 def replay(trace, tracks):
     from djai.performance.deck import _continuous_beat_position
 
@@ -103,6 +137,19 @@ def replay(trace, tracks):
         phase_change = ((last["phase_difference_beats"] - first["phase_difference_beats"]) * beat_seconds * 1000.0)
         integer_change = ((last["index_a"] - first["index_a"]) - (last["index_b"] - first["index_b"])) * beat_seconds * 1000.0
         fractional_change = (((last["fraction_a"] - first["fraction_a"]) - (last["fraction_b"] - first["fraction_b"])) * beat_seconds * 1000.0)
+        start_a = ea + duration * first["fraction"] * ra
+        end_a = ea + duration * last["fraction"] * ra
+        start_b = eb + nudge + duration * first["fraction"] * rb
+        end_b = eb + nudge + duration * last["fraction"] * rb
+        budget_a = interval_budget(a["beats"], start_a, end_a, beat_seconds * ra)
+        budget_b = interval_budget(b["beats"], start_b, end_b, beat_seconds * rb)
+        # Difference in detected beat count minus ideal count, per deck.
+        # These expose which deck accounts for unwrapped phase movement
+        # without assuming that a single whole-beat index shift is missing audio.
+        expected_a = (end_a - start_a) / (beat_seconds * ra)
+        expected_b = (end_b - start_b) / (beat_seconds * rb)
+        excess_a = (last["phase_a"] - first["phase_a"] - expected_a) * beat_seconds * 1000.0
+        excess_b = (last["phase_b"] - first["phase_b"] - expected_b) * beat_seconds * 1000.0
         observed = [float(p["phase_error_ms"]) for p in points if isinstance(p, dict) and valid(p.get("phase_error_ms"))]
         trace_change = observed[-1] - observed[0] if len(observed) >= 2 else None
         evaluated.append({
@@ -113,6 +160,11 @@ def replay(trace, tracks):
             "trace_phase_change_ms": round(trace_change, 3) if trace_change is not None else None,
             "replay_minus_trace_ms": round(phase_change - trace_change, 3) if trace_change is not None else None,
             "sample_count": len(samples),
+            "outgoing_clock_excess_ms": round(excess_a, 3),
+            "incoming_clock_excess_ms": round(excess_b, 3),
+            "clock_excess_difference_ms": round(excess_a - excess_b, 3),
+            "outgoing_complete_interval_budget": budget_a,
+            "incoming_complete_interval_budget": budget_b,
             "first_sample": {k: round(v, 5) if isinstance(v, float) else v for k,v in first.items()},
             "last_sample": {k: round(v, 5) if isinstance(v, float) else v for k,v in last.items()},
         })
@@ -124,6 +176,9 @@ def replay(trace, tracks):
         "median_abs_integer_index_change_ms": measure("integer_index_change_ms"),
         "median_abs_fraction_change_ms": measure("within_beat_fraction_change_ms"),
         "median_abs_replay_trace_difference_ms": measure("replay_minus_trace_ms"),
+        "median_abs_outgoing_clock_excess_ms": measure("outgoing_clock_excess_ms"),
+        "median_abs_incoming_clock_excess_ms": measure("incoming_clock_excess_ms"),
+        "median_abs_clock_excess_difference_ms": measure("clock_excess_difference_ms"),
         "examples": evaluated[:10], "counterfactual_only": True,
         "notes": [
             "Component decomposition uses the default sequential-index mode; rerun only with DJAI_BEAT_GAP_AWARE off.",
