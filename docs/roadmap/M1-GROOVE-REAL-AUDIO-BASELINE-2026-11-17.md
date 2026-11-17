@@ -52,3 +52,15 @@ Reran deterministic `analyze_track` for eight worst errors, as reported by owner
 | 1 | 80 | 107.67 | 1.346 |
 
 All eight recordings are from `drummer1/session1`. The first four indicate probable half/double-tempo ambiguity. The latter four cluster near 4:3 ratio but cannot yet be labeled as a specific meter/subdivision failure. The exact recurring prediction 129.20 BPM appears in three recordings, which warrants checking recording identity, durations and estimator/fallback diagnostics rather than assuming a root cause. **No weight, algorithm, or model authority changes justified by this pilot alone.**
+
+## Identity check for repeated 129.20 BPM estimates
+
+Owner confirmed the three recordings have different SHA-256 prefixes and durations, ruling out duplicate audio bytes as the explanation for the repeated deterministic estimate:
+
+| ID | Reference BPM | Predicted BPM | Duration | SHA-256 prefix |
+|---|---:|---:|---:|---|
+| drummer1/session1/100 | 94 | 129.20 | 135.32 s | `6b1ea54caa94` |
+| drummer1/session1/102 | 95 | 129.20 | 224.77 s | `036c4deed4db` |
+| drummer1/session1/201 | 64 | 129.20 | 112.50 s | `c336210485cf` |
+
+This supports investigating systematic estimator behavior, not a proven specific root cause. Next compare against neural evidence on the same 12-track cohort if an already installed checkpoint can run without downloads. A neural run must be treated as an experiment, not model promotion or definitive model-quality evidence.
