@@ -40,6 +40,33 @@ def _sample_attack_energy(power, sample_rate, timestamps, *, radius_ms=22.0, wid
     return np.asarray(values, dtype=float)
 
 
+
+def _sample_attack_rise(power, sample_rate, timestamps, *, radius_ms=22.0, width_ms=6.0):
+    """Peak positive before/after energy rise near each detected-grid point.
+
+    Unlike a peak-energy sampler, this penalizes sustained sound extending
+    across a candidate beat. The value is diagnostic, not a classifier vote.
+    """
+    width = max(1, round(sample_rate * width_ms / 1000))
+    radius = max(1, round(sample_rate * radius_ms / 1000))
+    integral = np.concatenate(([0.0], np.cumsum(power, dtype=np.float64)))
+    out = []
+    for time in timestamps:
+        center = round(float(time) * sample_rate)
+        left = max(width, center - radius)
+        right = min(len(power) - width, center + radius)
+        if right < left:
+            out.append(float("nan"))
+            continue
+        starts = np.arange(left, right + 1, max(1, width // 4), dtype=int)
+        if starts[-1] != right:
+            starts = np.append(starts, right)
+        previous = (integral[starts] - integral[starts - width]) / width
+        following = (integral[starts + width] - integral[starts]) / width
+        out.append(float(max(0.0, np.max(following - previous))))
+    return np.asarray(out, dtype=float)
+
+
 def phase_evidence_features(audio, sample_rate, beat_seconds):
     """Return sample-aligned band powers on original grid and halfbeat.
 
@@ -73,6 +100,8 @@ def phase_evidence_features(audio, sample_rate, beat_seconds):
         "low_at_midpoint": _sample_attack_energy(low * low, sample_rate, midpoints),
         "high_at_beat": _sample_attack_energy(high * high, sample_rate, beats),
         "high_at_midpoint": _sample_attack_energy(high * high, sample_rate, midpoints),
+        "high_rise_at_beat": _sample_attack_rise(high * high, sample_rate, beats),
+        "high_rise_at_midpoint": _sample_attack_rise(high * high, sample_rate, midpoints),
     }
 
 
@@ -108,7 +137,7 @@ def classify_phase_window(features, *, start, count=16):
     status = ("kick_aligned" if kick_count >= needed else
               "suspected_offbeat_lock" if offbeat_count >= needed else
               "insufficient_evidence")
-    return {
+    result = {
         "status": status,
         "beat_observations": count,
         "kick_support_count": kick_count,
@@ -118,6 +147,23 @@ def classify_phase_window(features, *, start, count=16):
         "reason": "two_band_sustained_contrast" if status != "insufficient_evidence"
                   else "mixed_or_insufficient_phase_contrast",
     }
+    # Additional independent attack-rise evidence is observational only:
+    # preserve existing classification and thresholds until validated.
+    if "high_rise_at_beat" in features and "high_rise_at_midpoint" in features:
+        rise_beat = np.asarray(features["high_rise_at_beat"], dtype=float)[start:end]
+        rise_mid = np.asarray(features["high_rise_at_midpoint"], dtype=float)[start:end]
+        if (len(rise_beat) == count and len(rise_mid) == count
+                and np.all(np.isfinite(rise_beat)) and np.all(np.isfinite(rise_mid))
+                and np.all(rise_beat >= 0) and np.all(rise_mid >= 0)):
+            rise_floor = max(1e-12, float(np.median(np.r_[rise_beat, rise_mid])) * .02)
+            rise_ratio = (rise_mid + rise_floor) / (rise_beat + rise_floor)
+            result["median_high_rise_mid_to_beat_ratio"] = round(float(np.median(rise_ratio)), 3)
+            result["high_rise_mid_dominant_count"] = int(np.count_nonzero(rise_ratio >= 2.0))
+            result["high_rise_beat_dominant_count"] = int(np.count_nonzero(rise_ratio <= .5))
+            result["high_rise_diagnostic_only"] = True
+        else:
+            result["high_rise_diagnostic_unavailable"] = True
+    return result
 
 
 def summarize_phase_integrity(features, *, window_beats=16, stride_beats=8,
