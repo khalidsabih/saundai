@@ -607,3 +607,29 @@ python scripts/m1-demo-meter-audit.py \
 ```
 
 Inspect each track's `tempo_consistency_evidence.shadow_audio_windows`, its three BPMs and correlation strengths, and confirm `bpm` remains **123.0469** with `decision=retain`. Weak, missing, or divergent independent windows are grounds to retain/abstain, not to lower a threshold. Even three strong windows would motivate a carefully staged policy design and multi-genre checks, **not** an immediate silent tempo change or an unsafe rendered handoff. Do not touch the sealed Ballroom final test cohort.
+
+## Owner onset-shadow run: three strong windows per synthetic track, no BPM promotion
+
+The owner ran the opt-in `DJAI_TEMPO_SHADOW_AUDIO_WINDOWS=1` audit with the default 0.8% tempo materiality threshold unchanged. Both synthetic tracks retained **123.0469 BPM**, both remain detected 4/4, and no transition was rendered. The neural checkpoint was **not** bootstrapped in this run; both grids were deterministic.
+
+| Synthetic track | Full-grid span BPM | Independent onset-window BPM estimates | Strengths |
+|---|---:|---|---|
+| Opening (generator 122) | 122.95467 | 122.44625, 122.46173, 122.44389 | 0.9431, 0.9397, 0.9364 |
+| Groove (generator 124) | 123.99157 | 123.61149, 123.61791, 123.61261 | 0.9626, 0.9659, 0.9646 |
+
+The independent audio-onset windows are each tightly clustered and strong, and the two tracks' estimates differ. This increases confidence that the shared **123.0469 BPM scalar** is unrepresentative for the synthetic transition; it does **not** establish a universally superior replacement BPM. The audio ACF values differ from the exact known generator references. Since the global disagreements fell below the existing strict materiality threshold, both recorded reconciler decisions remain `retain` with `reason=no_material_global_disagreement`.
+
+Added a separate **offline, read-only** `scripts/m1-shadow-tempo-evidence-assessment.py` with `tests/test_m1_shadow_tempo_evidence_assessment.py`. It reads the already saved meter-audit JSON (no new inference or plan), applies the existing three-window quality/agreement conditions to the shadow evidence, and reports whether the onset and full-grid estimates agree. A hypothetical rate is labeled *not authorized*; it is not applied to production, and cannot authorize a transition that fails the continuous phase-lock gate.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_shadow_tempo_evidence_assessment.py
+
+python scripts/m1-shadow-tempo-evidence-assessment.py \
+  --audit /tmp/saund-m1-meter-tempo-shadow-02.json \
+  --output /tmp/saund-m1-shadow-tempo-assessment-01.json
+```
+
+Inspect `tracks[].max_window_disagreement_pct`, `tracks[].grid_onset_disagreement_pct`, `tracks[].status`, and `comparison` if present. Never silently lower the 0.8% reconciliation gate, apply a hypothetical rate to a signed transition, or weaken the **25 ms** residual safety envelope. Any later guarded policy proposal needs broader music and meter validation plus independent source-onset verification.
