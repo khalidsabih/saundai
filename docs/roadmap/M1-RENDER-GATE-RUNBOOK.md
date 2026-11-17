@@ -1045,3 +1045,26 @@ python scripts/m1-audio-adaptive-event-spacing.py \
 ```
 
 The six tests include abstention, no oracle/beat-grid input, deterministic extra controls, both strategies with missing evidence, and explicit no-production-change assertions. Tests and report **must be run by the operator** before any performance claims; do not substitute expectations for results. Any unsupported/contradictory evidence remains a no-decision, not a correction or safe planner bypass. No existing production tempo selection, neural authority, 25 ms transition phase gate, or render output is changed.
+
+## Owner audio-adaptive spacing comparison: 260 BPM recovery improves; acceleration abstains
+
+The operator ran `scripts/m1-audio-adaptive-event-spacing.py` on its predeclared **10 synthetic cases**. Report declares `selected_configuration=null`, `beat_grid_used_for_period=false`, `generator_reference_used_for_period=false`, `reference_used_only_for_posthoc_scoring=true`, and no production/render changes. Only execution of the report is shown here; the pasted output does not show a pytest result, so **do not claim the six new tests passed** without separate evidence.
+
+| Synthetic case | Fixed 250 ms primary recovery | Audio-derived adaptive primary recovery | Adaptive pulse/behavior |
+|---|---:|---:|---|
+| Stable 120 BPM | 23/23 | 23/23 | 500 ms period, 275 ms spacing |
+| Fast 200 BPM | 38/38 | 38/38 | 300 ms period, 165 ms spacing |
+| **Very fast 260 BPM** | **30/49 (61.2%)** | **49/49 (100%)** | 230 ms measured ACF period, 126.5 ms spacing |
+| Three-pulse accents | 24/24 | 24/24 | 480 ms period, 264 ms spacing |
+| Weak/noisy kicks | 23/23, 3 unmatched events | 23/23, 2 unmatched events | 500 ms period, 275 ms spacing |
+| Syncopated bass | 23/23, 1 unmatched event | 23/23, 0 unmatched events | 500 ms period, 275 ms spacing |
+| Missing kicks | 18/18 | 18/18 | 500 ms period, 275 ms spacing |
+| Alternating bass | 23/23, 1 unmatched event | 23/23, 0 unmatched events | 500 ms period, 275 ms spacing |
+| Accelerating | 29/29 | **abstained** | `weak_or_ambiguous_acf` |
+| Silence | 0 events, null recall | **abstained** | `weak_low_band` |
+
+The 260 BPM case demonstrates the *specific* failure of fixed 250 ms spacing: the true pulse separation of approximately 230.8 ms is shorter than the enforced spacing, yielding only 30/49 recovered pulses, whereas audio-derived 126.5 ms spacing retains all 49. The adaptive approach also removed the extra event in each of two controlled bass-distractor cases. Neither result establishes generalizable beat identity or a safe rhythm-grid correction.
+
+**Decision:** Keep adaptive audio-derived spacing as a **shadow research challenger** and fixed 250 ms as an explicitly unpromoted comparator. The current algorithm estimates a **global** ACF period from three six-second windows and refuses strong disagreement; it is **not** a local tempo-tracker and does not solve the accelerating control. Next experiments should add adversarial half-/double-time ambiguity, triplets, shuffled/offbeat bass, complex meter, low-kick/high-bass mixes, different sample rates, and genuinely time-varying tempo. Require independent rights-cleared real-audio validation, stable negative-control behavior and an end-to-end *unforced* safe planner pass before any production use.
+
+No playback rate or beat grid was altered; the frozen neural policy, 25 ms continuous phase-integrity limit, and no-render-on-unsafe rule remain intact.
