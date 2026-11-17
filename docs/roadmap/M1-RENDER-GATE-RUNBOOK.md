@@ -249,3 +249,35 @@ DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
 ```
 
 Next inspect the resulting track-specific gap counts and event-time errors, then correlate with the original rejected trace's candidate cue spans. If detected beats are dropped or duplicated, study the phase-index problem with synthetic known events before proposing a bounded corrective policy. If event indices are intact, investigate relative phase calculations and tempo-rate assumptions. In either case, **do not force a mix** or relax the phase-integrity stop, and do not score the sealed Ballroom test cohort.
+
+## Owner generator-grounded beat-index result and drift decomposition
+
+The owner ran `tests/test_m1_demo_beat_index_audit.py` (**3 passed**) and evaluated the real generated demo tracks with the opt-in neural downbeat guard enabled. Read-only results:
+
+| Quantity | Opening 122 BPM | Groove 124 BPM |
+|---|---:|---:|
+| Accepted neural grid | no | no |
+| Beat observations | 128 | 126 |
+| Median absolute error to nearest generator kick | **210.477 ms** | **27.286 ms** |
+| Maximum nearest-kick error | 226.362 ms | 39.216 ms |
+| Missing nearest-index jumps | 0 | 0 |
+| Duplicate nearest-index jumps | 1 | 0 |
+| First observed beat | 0.510839 s | 0.510839 s |
+
+These observations suggest the outgoing deterministic grid is much less accurate against known generated kicks, but **do not prove** that the residual phase-lock rejection is caused only by a dropped beat or only by actual tempo drift. Nearest-grid errors are bounded by half a beat and can mask accumulated drift by wrapping the reference beat index. Also, an observed beat beginning around 0.51 seconds does not automatically mean the first beat was missed: beat estimators can omit onset-adjacent events.
+
+To separate **fixed phase offset** from **accumulating slope**, the existing `scripts/m1-demo-beat-index-audit.py` now reports `sequential_index_drift`: first- and last-third signed errors, ms-per-beat fitted slope, approximate implied BPM, and endpoint displacement anchored to the first nearest generator kick. This is valid only on the constant-tempo generated examples, and the assumption of sequential beats must be cross-checked against the missing/double event report. The reported values do not feed the planner or allow overrides.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$M1_PYTHON" -m pytest -q tests/test_m1_demo_beat_index_audit.py
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+"$M1_PYTHON" scripts/m1-demo-beat-index-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-demo-beat-index-drift-02.json
+```
+
+Before changing an inference model or switching phase-index policy, compare `slope_ms_per_beat` with `first_third_median_signed_ms` / `last_third_median_signed_ms` and the original phase-lock JSONL profiles. Maintain the current fail-closed continuous phase gate (25 ms default) and keep all final-test music sealed.
