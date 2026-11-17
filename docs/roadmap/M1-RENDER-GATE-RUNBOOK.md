@@ -1322,3 +1322,22 @@ python scripts/m1-period-anchor-attribution.py \
 ```
 
 **Execution status:** committed research source, tests and runbook only; owner-run report and pytest evidence are pending. Do not adjust detector thresholds based on this matrix, merge or promote PR #28, touch the sealed Ballroom test, correct any production beat grids, or render unsafe transitions. The original hard **25 ms** continuous phase-integrity gate and frozen neural selection remain intact.
+
+## Owner four-arm period-vs-anchor attribution results: global audio period plus local anchor is stronger on jitter
+
+The owner ran `scripts/m1-period-anchor-attribution.py` on its previously declared **52 synthetic waveform fixtures**. Its `summary_by_fixture_jitter` reports the following **both-overlapping-8-second-windows** counts for competing acoustic phase evidence; the two local windows share source audio and **are not independent trials**:
+
+| Research arm | Two-phase 0 ms jitter (n=16) | Two-phase ±14 ms jitter (n=16) | Pulse-only and noise-only flags (n=20) |
+|---|---:|---:|---:|
+| `global_period_held_anchor` | 8 | 4 | 0 |
+| `global_period_local_anchor` | **8** | **8** | **0** |
+| `local_period_held_anchor` | 8 | 4 | 0 |
+| `local_period_local_anchor` | 8 | 4 | 0 |
+
+The **global audio-derived period + window-local acoustic anchor** arm yields **16/32** two-phase detections overall (50%) versus **12/32** (37.5%) for each other arm. Under jitter alone the counts are **8/16** against **4/16**. All four arms abstained from competing-phase claims on every **16 pulse-only** and **four noise-only** negative control. These are corpus-specific research counts, not real-music error rates or independently validated efficacy.
+
+The arm decomposition shows that the relationship is **not simply "local estimates are better."** Retaining the full-waveform period but relearning phase alignment within each shorter segment is associated with more supported competing-attack evidence in this fixture. Replacing the period with a locally estimated ACF period (with either anchor) did not yield aggregate improvement. For the seed-907, lowpass, 87 Hz decaying kick, amplitude-0.12, ±14 ms jitter example, the full-waveform ACF period was **507.5 ms**, with local hypotheses **505 ms** (0–8s) and **495 ms** (4–12s). Under the global-period/local-anchor arm the first window yielded anchor/opposite coverage **0.667/0.733**, ratio **0.0102**, and the second **0.800/0.867**, ratio **0.01026**, both flagging competing acoustic trains. This illustrates the combination's behavior but does not establish causal correctness of either period or anchor, or identify any musically correct kick.
+
+**Decision: do not promote or select an arm.** This comparison reuses the same 52 synthetic fixtures repeatedly examined in prior research; despite a predeclared four-arm matrix, the reported gain needs entirely new, independently generated waveform/timbre/jitter controls and rights-cleared real audio before any claim of generalization. Maintain fixed **42 ms event radius, 0.60 per-phase coverage, 0.006 relative-rise threshold**, original audio-only ACF and low-band peak finder. Held global anchors are also inferred from the same waveform used by local windows, so no independent ground truth is available. A two-phase flag is *ambiguity evidence*, not proof of unsafe alignment; no flag remains `insufficient_evidence`, never a safe-beat approval. The pasted artifact shows the experiment report but not a separate pytest result.
+
+PR #28 stays draft. No production beat-grid edit, source override, neural policy promotion, planner approval, relaxed **25 ms** continuous phase gate or rejected-transition render is authorized. The next bounded research step should independently generate new timing disturbances and source timbres before comparing the four arms against real rights-cleared tracks.
