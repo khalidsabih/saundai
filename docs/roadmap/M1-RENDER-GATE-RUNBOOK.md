@@ -1165,3 +1165,28 @@ The owner ran `scripts/m1-competing-acoustic-phase-trains.py` on the 12 syntheti
 **Interpretation:** This is a meaningful shadow diagnostic result: the known confidently wrong offbeat selection now has independently observed opposing acoustic phase evidence. It remains non-authoritative. The observed **0.00983 weaker/stronger ratio** is only just above the experiment's **0.006** configured floor, so detector sensitivity, waveform noise, and false positives must be tested before generalizing. The clean syncopated case also yields competing evidence; a future production veto must not treat all such evidence as proof of unsafe beat phase. The owner-provided terminal output shows the experiment, not a separate pytest result.
 
 **Decision:** Keep all acoustic-phase conclusions **shadow-only**, with no approved beat identity and no transition authorization. Next validate weaker-rival sensitivity with amplitudes/noise variants and inspect the too-restrictive minimum-event count. Then run rights-cleared non-synthetic audio controls and compare against the actual analyzed grid before considering a veto-only policy. Continue to enforce the existing **25 ms** continuous phase-lock envelope and do not render unsafe plans.
+
+## M1 predeclared acoustic phase-sensitivity sweep and minimum-event guard
+
+The previous owner-run waveform-only competing-phase experiment reported `competing_acoustic_phase_trains` for the catastrophic `low_kick_high_bass` control: 70 events, anchor/opposite coverage **0.971 / 1.000**, and weaker-to-stronger median rise ratio **0.00983**. Clean `syncopated_bass` also triggered ambiguity, while `stable_120` had only 23 localized events and was rejected by the old **24-event minimum** before phase comparison. This is research evidence, not proof of correct kick identity.
+
+Changed **only** the shadow-only `scripts/m1-competing-acoustic-phase-trains.py` event minimum from `2 * min_cycles` to `min_cycles`. A single periodic attack train can legitimately contain only one event per cycle; requiring twice as many should not prevent the instrument-agnostic comparison from observing that there is *no demonstrated rival*. This does **not** turn a clean single-phase report into a "safe beat" classification: the only statuses remain `competing_acoustic_phase_trains` or `insufficient_evidence`.
+
+Added `scripts/m1-competing-phase-sensitivity.py` plus `tests/test_m1_competing_phase_sensitivity.py` to run a **predeclared 24-case synthetic diagnostic matrix**, without modifying production code:
+
+- **15 two-phase controls:** kick amplitudes 0.02, 0.06, 0.12, 0.25 and 0.5 against constant strong offbeat bass amplitude 1.1, crossed with independent deterministic noise standard deviations 0, 0.001, and 0.005.
+- **Nine baseline controls:** stable pulse-only, strong offbeat bass-only, and noise-only, each at the same three noise levels.
+
+The fixture generator returns only a waveform/sample rate to the analysis; no generator timestamps or beat grid are passed into the audio-only ACF estimator, globally localized event finder or rival-phase comparator. Inspect `cases[].audio_periodicity.status`, `cases[].phase_evidence.status`, `anchor_event_coverage`, `opposite_event_coverage`, `weaker_to_stronger_median_rise_ratio` and abstentions. Do **not** post-select the weakest kick/noise combination that passes. A detection in bass-only/noise-only controls or a missed quiet rival in mixed tracks reveals the limits of this heuristic; neither outcome certifies musical beat phase. The comparison still cannot distinguish kick identity, and an unsupported ACF period must abstain.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_competing_phase_sensitivity.py tests/test_m1_competing_acoustic_phase_trains.py
+
+python scripts/m1-competing-phase-sensitivity.py \
+  --output /tmp/saund-m1-competing-phase-sensitivity-01.json
+```
+
+**Status:** New script/tests have been committed but owner Mac run results are still needed. This remains a **shadow-only abstention experiment**; no beat-grid repair, neural authority change, plan/render permission or modification of the **25 ms** continuous phase-integrity requirement is authorized. Require broader audio and independently rights-cleared music before any proposal for production veto integration.
