@@ -60,6 +60,12 @@ def interval_budget(beats, start_seconds, end_seconds, expected_period):
     if not intervals:
         return {"status": "insufficient_intervals"}
     deviations = [1000.0 * (delta - expected_period) for _, delta in intervals]
+    # The median period can agree between decks while systematic small
+    # interval differences add up across 30+ beats. Measure the arithmetic
+    # mean and distribution as *diagnostics*, not a replacement tempo policy.
+    periods = [delta for _, delta in intervals]
+    mean_period = sum(periods) / len(periods)
+    median_period = median(periods)
     outliers = [
         {"interval_index": index, "deviation_ms": round(1000.0 * (delta - expected_period), 3)}
         for index, delta in intervals
@@ -68,7 +74,11 @@ def interval_budget(beats, start_seconds, end_seconds, expected_period):
     return {
         "status": "measured",
         "complete_interval_count": len(intervals),
-        "median_interval_ms": round(median([d for _, d in intervals]) * 1000.0, 3),
+        "median_interval_ms": round(median_period * 1000.0, 3),
+        "mean_interval_ms": round(mean_period * 1000.0, 3),
+        "mean_minus_median_ms": round((mean_period - median_period) * 1000.0, 3),
+        "mean_implied_bpm": round(60.0 / mean_period, 5),
+        "median_implied_bpm": round(60.0 / median_period, 5),
         "cumulative_interval_deviation_ms": round(sum(deviations), 3),
         "max_abs_interval_deviation_ms": round(max(abs(d) for d in deviations), 3),
         "outlier_interval_count": len(outliers),
