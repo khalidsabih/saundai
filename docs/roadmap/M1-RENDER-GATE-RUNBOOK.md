@@ -950,3 +950,39 @@ python scripts/m1-unconditioned-transient-localization.py \
 Compare `tracks[0].bands.low.regions` versus `tracks[0].bands.high.regions` for **outgoing_middle** and the intact incoming region. Inspect `localized_global_events`, `beat_within_tolerance_count`, `midpoint_within_tolerance_count`, `unique_*_events_matched`, and `shared_event_count`. Only repeatable audio-event timing with meaningful negative controls should advance toward a further **shadow veto candidate**. Do not reuse the synthetic oracle in production, change the 25 ms overlap envelope, promote the neural challenger, or render rejected overlaps.
 
 PR #28 is explicitly a combined **draft M0 baseline + M1 rhythm-phase research** branch, not its original docs-only M0 draft. Before merging, split or otherwise thoroughly scope-review the combined changes; the M1 render gate remains blocked.
+
+## Owner grid-independent transient audit — robust kick identity still unresolved
+
+The owner executed `scripts/m1-unconditioned-transient-localization.py` against the rights-free synthetic pair, obtaining **256 high-band events on each track** and **459/441 low-band events** on outgoing/incoming. These are globally localized onset peaks, **not kick identities**. The high-band counts are consistent with events on both beat and offbeat positions: for outgoing middle, high-band within-80-ms matches were **99/99 beats and 99/99 midpoints**, with median errors of 34.830 and 33.559 ms; incoming similarly had **125/125 beat and midpoint matches**. Thus high-band presence does not discriminate the phase.
+
+Low-band localization gives the expected regional tendency but includes many secondary events:
+
+| Source | Low-band beat matches | Low-band midpoint matches | Median absolute beat error | Median absolute midpoint error |
+|---|---:|---:|---:|---:|
+| Outgoing start | 17/17 | 4/17 | 19.410 ms | 84.172 ms |
+| **Outgoing middle** | **82/99** | **99/99** | **63.673 ms** | **22.675 ms** |
+| Outgoing end | 6/6 | 0/6 | 18.685 ms | 166.712 ms |
+| Incoming whole track | 125/125 | 104/125 | 18.503 ms | 27.756 ms |
+
+The fact that 104/125 **correctly aligned incoming midpoints** match a low-frequency peak within 80 ms shows why counting any global low-band onset is too permissive: secondary kick oscillation, bass events, and neighboring peaks can produce false associations. No source-grounded conclusion says those events are true kicks.
+
+### Fixed sensitivity sweep before any threshold selection
+
+Added research-only `scripts/m1-low-band-event-robustness.py` and `tests/test_m1_low_band_event_robustness.py`. The script runs the **same globally localized event detector** using a *predeclared* low-band parameter grid (minimum event spacing 85, 150, 250, 250, 350 ms, paired with threshold fractions 0.12, 0.12, 0.12, 0.30, 0.30). All five settings are reported; **none is selected**. For each, it reports global event counts, unique beat/midpoint event association and regional timing/coverage, always comparing only *after* acoustic peak extraction. It never changes the beat grid, tempo, neural authority, safe plan or 25 ms phase envelope. This sweep explores sensitivity and should **not** be tuned to optimize the two synthetic examples without external negative-control validation.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_low_band_event_robustness.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-low-band-event-robustness.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-low-band-robustness-01.json
+```
+
+Next inspect whether event counts approach a plausible number of primary kick attacks and whether **both** the correct incoming beat and incorrect outgoing middle regions retain clean directional separation across multiple predeclared settings. Failing that, remain in diagnostic abstention and prioritize explicit negative-control and instrument-separation tests rather than choose an opportunistic threshold. No production classifier or rendering gate changes are authorized.
