@@ -1433,3 +1433,32 @@ python scripts/m1-beat-this-downbeat-timing-audit.py \
 ```
 
 The above script does not need the Beat This! experimental Python venv because its `.beats` output files already exist. It uses the existing SAUND evaluator's NumPy/soundfile dependencies. **Mac execution has not yet been observed**; record actual results only after the user runs it. The two known generated tracks are narrow controls and do not measure generalization to independent rights-cleared tracks or commercial recordings. Regardless of outcome, PR #28 remains draft, model policy frozen, sealed Ballroom test untouched, source beat grids unchanged, and **no unsafe transition may render**.
+
+## Owner-run Beat This! downbeat/timing audit: all 256 synthetic beats within 25 ms, excessive bar-start labels
+
+The owner executed `scripts/m1-beat-this-downbeat-timing-audit.py` against the saved **Beat This! final0 external predictions** and both `generate_demo_set` copyright-free WAVs; the report schema is `saund-m1-external-beat-this-bar-and-timing-audit-v1`. This source generator explicitly defines **32 bars of 4/4 = 128 pulses plus 32 bar-start references per track**. The generator truth was used **after** external inference strictly for scoring, not as model input. The report confirms `beat_this_rerun=false`, `model_download=false`, `production_changed=false`, `beat_grid_modified=false`, `planner_25ms_gate_tested=false`, and `transition_rendered=false`.
+
+| Measured fixture result | Opening 122 BPM | Groove 124 BPM |
+|---|---:|---:|
+| Reference beats | 128 | 128 |
+| Beat This predicted beats | 129 | 129 |
+| One-to-one matched beats (80 ms) | **128/128** | **128/128** |
+| 80 ms beat F1 | **0.9961** | **0.9961** |
+| Beat median absolute residual | 9.508 ms | 9.032 ms |
+| Beat p95 absolute residual | 18.689 ms | 18.065 ms |
+| Beat maximum absolute residual | **20.984 ms** | **20.000 ms** |
+| Measured reference beats without a match within 25 ms | **0** | **0** |
+| Extra beat predictions | 1 (62.94 s near end) | 1 (61.92 s near end) |
+| Reference bar starts | 32 | 32 |
+| Predicted downbeat labels | **46** | **55** |
+| Matched reference bar starts at 80 ms | **32/32** | **32/32** |
+| Extra downbeat labels | **14** | **23** |
+| Downbeat F1 at 80 ms | **0.8205** | **0.7356** |
+| Non-four-beat intervals between predicted label-1 positions | **26** | **40** |
+| Median predicted downbeat-to-downbeat spacing | **1.48 s** | **0.96 s** |
+
+In the **predeclared outgoing 9.636281–58.305306 s failure region**, the report records **99/99 generated beat references matched**, **no beat residual above 25 ms**, maximum matched error **20.984 ms**, median **9.836 ms**, beat F1 **1.0**. The predicted downbeats in this same region match **25/25** reference bar starts, but include **12 extra** predicted bar-start labels (downbeat F1 **0.8065**). The result therefore shows an exceptionally strong solution to the previously diagnosed *beat phase* error on the current synthetic demo pair while exposing an independent *bar-phase/labeling* defect. It is not credible to call the raw downbeat predictions production-ready.
+
+**Important distinction:** The count `matched_outside_25ms=0` applies to one-to-one matched beat timestamps against the **ideal synthetic generator schedule**, and all 128 generated pulse references on each track have such a match. This is **not** a check of SAUND's continuous planner phase-integrity envelope (which includes relationship between two tracks, playback rate/warp and overlap behavior), and it must not be reported as an unforced planner pass. The two whole-track extra beat predictions are still unmatched. The 80 ms benchmark tolerance has never been promoted into the 25 ms planner threshold. Results are exclusively on two known synthetic tracks, and no real-song or sealed Ballroom validation has run. The supplied log includes the JSON execution but no visible separate pytest output.
+
+**Next bounded investigation:** Determine whether the surplus beat-number-1 labels arise in **raw Beat This downbeat probabilities**, the model's downbeat postprocessor or the exported `.beats` beat-number conversion; measure segment/time locations of extra downbeats and their relationship to 4/4 bar structure without assuming 4/4 for arbitrary future audio. Do this with a **read-only offline comparison** that reuses the already cached checkpoint; preserve original `.beats` and do not rewrite/normalize away surplus downbeats just to make synthetic F1 perfect. If needed, benchmark documented Beat This postprocessing modes before considering an explicit conservative bar-phase consistency check. Do not promote Beat This, modify production TrackAnalysis, touch sealed tests, replace the hard **25 ms** phase gate, or render an unsafe transition. PR #28 remains draft.
