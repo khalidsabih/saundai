@@ -446,3 +446,30 @@ python scripts/m1-demo-local-clock-audit.py \
 ```
 
 Compare `median_absolute_unexplained_ms`, `median_predicted_local_clock_change_ms`, `matching_direction_count`, and `non_evaluable_count` with the global-clock counterfactual. The new results should be compared by cue interval and inspected for any local timing anomalies. Do not treat filtered BPM evidence as authorization to interpolate across a bad beat or force a long transition. Validation must later include independent real audio onset references and both non-4/4 meters before any production proposal.
+
+## Owner local-clock result: median beat period fails to explain within-overlap drift
+
+The owner completed the new cue-local clock audit on the 111 rejected synthetic demo configurations. All **111 were evaluated**, none were skipped. Representative cue windows had clean local interval medians of **123.04689 BPM on both decks**, with 31 outgoing and 32 incoming intervals and zero discarded outliers. The planned rates were both **1.0**. The local median-clock model predicted **0 ms** change, while the measured median rejected phase change was **−255.420 ms**, leaving median absolute unexplained change **255.420 ms** and matching predicted/observed directions in **0 cases**.
+
+This **rejects** a simplistic conclusion that the rejected phase motion is explained by a *difference in cue-local median BPM*. The earlier whole-track regression was contaminated by localized beat compressions and cannot authorize a rate override. Equivalent local *median* periods do **not**, however, prove equivalent accumulated unwrapped phase; endpoint timestamps, fractional beat progress and observed event indices can differ even when median interval lengths match.
+
+### Read-only exact continuous-phase replay
+
+Added `scripts/m1-demo-phase-index-replay.py` with `tests/test_m1_demo_phase_index_replay.py`. It loads the two known generated demo files with the same opt-in neural integrity configuration, reads the existing rejected phase JSONL, and replays the actual `_continuous_beat_position` calculation for the recorded candidate cue positions and sample fractions. It separately reports whole-beat **integer index** and **fractional beat** contributions to each rejection's end-to-end phase movement, and verifies the decomposed position against the imported deck calculation. It does **not** replace `TrackAnalysis`, sign any plan, alter beat timestamps, change `DJAI_BEAT_GAP_AWARE` or touch the default **25 ms** phase integrity envelope.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_demo_phase_index_replay.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_BEAT_GAP_AWARE=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-phase-index-replay.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --output /tmp/saund-m1-phase-index-replay-01.json
+```
+
+Compare `median_abs_integer_index_change_ms`, `median_abs_fraction_change_ms`, and `median_abs_replay_trace_difference_ms`. A small replay discrepancy would support consistency with the recorded phase implementation; a large discrepancy requires investigating environmental differences or reconstruction assumptions before interpreting the decomposition. An integer index change is *not automatically an actual missing beat*, because the fractional component may cancel it. All findings remain diagnostic and synthetic-only; no transition has been approved for rendering.
