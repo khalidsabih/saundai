@@ -84,3 +84,29 @@ def test_regular_offset_grid_does_not_create_interval_outliers():
     local = mod.compare_to_generator(beats, bpm=120, duration=31)["local_interval_diagnostics"]
     assert local["outlier_interval_count"] == 0
     assert local["nearest_index_wraps"] == []
+
+
+
+def test_adjacent_interval_outliers_are_grouped_without_changing_beats():
+    mod = load()
+    beats = [i * .5 for i in range(30)]
+    # Two adjacent anomalous intervals at 9->10 and 10->11, plus one
+    # isolated anomalous interval later in the sequence.
+    beats[10] = beats[9] + .10
+    beats[22] = beats[21] + .20
+    report = mod.compare_to_generator(beats, bpm=120, duration=16)
+    clusters = report["local_interval_diagnostics"]["outlier_clusters"]
+    assert len(clusters) == 2
+    assert clusters[0]["first_interval_index"] == 9
+    assert clusters[0]["last_interval_index"] == 10
+    assert clusters[0]["interval_count"] == 2
+    assert clusters[1]["first_interval_index"] == 21
+    assert clusters[1]["last_interval_index"] == 22
+    assert clusters[1]["interval_count"] == 2
+
+
+def test_regular_offset_grid_has_no_interval_clusters():
+    mod = load()
+    beats = [i * .5 + .20 for i in range(60)]
+    report = mod.compare_to_generator(beats, bpm=120, duration=31)
+    assert report["local_interval_diagnostics"]["outlier_clusters"] == []
