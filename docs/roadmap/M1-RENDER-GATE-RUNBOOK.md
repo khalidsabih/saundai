@@ -1268,3 +1268,22 @@ python scripts/m1-window-local-phase-robustness.py \
 ```
 
 The new tests and waveform report have **not yet been run on the owner's Mac**. No neural candidate promotion, beat-grid adjustment, planner approval, production integration or render is permitted. The original **25 ms** continuous phase-integrity hard limit and no-render-on-rejected-transition policy remain in force; PR #28 stays draft.
+
+## Owner global-versus-local comparison: no aggregate recovery, isolated jitter improvement
+
+The owner ran `scripts/m1-window-local-phase-robustness.py` on the same predeclared 52 controlled waveforms. **The 8-second overlapping-window strategy made no aggregate improvement** over the 12-second global strategy under the research rule that **both** local windows must show competing phase trains:
+
+| Fixture type | Cases | Global competing | Recurrent local competing | Any local competing |
+|---|---:|---:|---:|---:|
+| Two-phase, zero jitter | 16 | 8 | 8 | 8 |
+| Two-phase, ±14 ms jitter | 16 | 4 | 4 | 4 |
+| Pulse-only, zero jitter | 8 | 0 | 0 | 0 |
+| Pulse-only, ±14 ms jitter | 8 | 0 | 0 | 0 |
+| Noise-only | 4 | 0 | 0 | 0 |
+| **Total** | **52** | **12** | **12** | **12** |
+
+Both 8-second local segments returned **supported audio periodicity** for all 32 mixed and 16 pulse-only waveforms; all four noise-only inputs abstained on both local periods. The limitation remains **acoustic phase localization and evidence strength**, not simply failure to estimate a local period. The overlapping windows are correlated and their agreement cannot be counted as independent confirmation.
+
+One individual jittered example is diagnostically useful: seed **907**, lowpass noise, **87 Hz decaying kick**, **0.12** kick amplitude, **±14 ms** jitter. The whole-clip audio period was **507.5 ms** with **0.565/0.565** coverage and `insufficient_evidence` (rival rise ratio **0.0118**, above the fixed 0.006 strength floor). Its 0–8 s window estimated **505 ms**, saw **0.933/0.800** coverage and ratio **0.01246**; the 4–12 s window estimated **495 ms**, saw **0.938/0.938** coverage and ratio **0.01142**. Both local windows reported `competing_acoustic_phase_trains`. These observations support the **possibility** that shorter windows reduce some global alignment drift, but they do not prove the underlying cause; window ACF period error, jitter and anchor-phase shifts may interact. Crucially, this local rescue does **not** improve overall detection counts because other cases remain missed.
+
+**Conclusion:** The global-vs-local candidate has **no demonstrated aggregate benefit** on this matrix. Keep **12/32** mixed detections and **0/20** negative flags as empirical fixture counts only. Do not relax fixed research coverage (0.60), rival strength (0.006), or 42 ms tolerance based on this evaluation. If pursuing local analysis further, isolate the period bias versus anchor-phase drift with explicitly diagnostic (non-authoritative) per-window observations and independent audio controls, especially quiet kicks and timing jitter. Do not promote the global or local detector, infer the true kick phase, rewrite source beats, or authorize rejected transitions. The 25 ms phase-integrity hard gate and draft status of PR #28 remain unchanged. The pasted report alone does not establish a pytest pass.
