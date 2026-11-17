@@ -64,3 +64,18 @@ The 8-WAV pilot has exactly four neural grids accepted and four rejected. In all
 | Albums-Ballroom_Classics4-06 | 130.4348 | 130.43 | true | 0.8836 | 0.3004 |
 
 Next decisive validation: compare **candidate** neural beats/downbeats of four rejected grids with independent Ballroom annotations using existing one-to-one event matcher (70ms beat, 100ms downbeat). Do not swap the grids or alter production thresholds before independent scoring. Candidate BPM ratios alone cannot establish correct beat phase or downbeat position.
+
+## Rejected Beat This! candidate beat-grid scoring against independent Ballroom labels
+
+Owner independently scored all four rejected neural candidate event grids versus selected SAUND grids on the eight-track Ballroom local development pilot, using **70ms beat** and **100ms downbeat** one-to-one tolerances. This is a direct reference-timestamp comparison, not just a comparison of scalar BPM:
+
+| Track | Selected beat F1 | Neural candidate beat F1 | Selected downbeat F1 | Neural candidate downbeat F1 |
+|---|---:|---:|---:|---:|
+| Albums-Cafe_Paradiso-14 | 0.619 | 0.988 | 0.000 | 1.000 |
+| Albums-Ballroom_Classics4-18 | 0.571 | 1.000 | 0.000 | 1.000 |
+| Albums-AnaBelen_Veneo-13 | 0.340 | 0.977 | 0.087 | 1.000 |
+| Albums-AnaBelen_Veneo-02 | 0.680 | 0.875 | 0.000 | 0.880 |
+
+**Findings:** All four rejected Beat This! event grids outperform the retained deterministic grids on both beat F1 and downbeat F1, including tracks where neural tempo estimates differ ~2x or ~1.46x from selected scalar BPM. Current gate was over-conservative on all four examples; it may still protect other tracks, and the 8-recording Ballroom sample is not enough to retune or loosen production safeguards. In four other tracks the neural grid was accepted and earlier per-track evaluation found beat F1 1.0 / downbeat F1 1.0, but the above is NOT a complete micro-aggregated all-neural score; it reports only four rejected candidates. No production or checkpoint promotion.
+
+**Next:** create auditable, read-only candidate-versus-selected beat/downbeat F1 across a larger *non-overlapping* independently annotated Ballroom evaluation cohort, inspect length/genre/meter and neural-confidence failure cases, and preregister a gate challenger with deterministic fail-closed safeguards. Also audit internal BPM-to-beat-grid consistency before integrating any scalar-only tempo selection. Do not assume current Ballroom study permits model training or unrestricted redistribution.
