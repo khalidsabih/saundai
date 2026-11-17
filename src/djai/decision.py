@@ -329,6 +329,42 @@ def _tempo_context(
     return blend_allowed, difference, rate_b, warnings
 
 
+
+def blend_gate_diagnostics(
+    track_a: TrackAnalysis,
+    track_b: TrackAnalysis,
+    breakdown: CompatibilityBreakdown,
+    tempo_policy: TempoPolicy,
+    effective_bpm_a: float,
+) -> list[str]:
+    """Explain the same blend prerequisites used by _tempo_context; no policy changes."""
+    allowed, difference, rate_b, _ = _tempo_context(
+        track_a, track_b, breakdown, tempo_policy, effective_bpm_a
+    )
+    if allowed:
+        return []
+    if tempo_policy == "cut":
+        return ["cut tempo policy disables beatmatched blends"]
+    failures = []
+    limit = SAFE_TEMPO_DIFFERENCE if tempo_policy == "safe" else STRETCH_TEMPO_DIFFERENCE
+    rates = SAFE_RATE_RANGE if tempo_policy == "safe" else STRETCH_RATE_RANGE
+    if difference > limit:
+        failures.append(f"tempo difference {difference:.1%} exceeds {limit:.0%} limit")
+    if not rates[0] <= rate_b <= rates[1]:
+        failures.append(f"incoming render rate {rate_b:.4f} outside [{rates[0]:.2f}, {rates[1]:.2f}]")
+    meter_a = int(track_a.time_signature or 0)
+    meter_b = int(track_b.time_signature or 0)
+    if meter_a not in {3, 4, 6} or meter_a != meter_b:
+        failures.append(f"estimated meters incompatible or unknown ({meter_a} vs {meter_b})")
+    if breakdown.beat_grid < 0.38:
+        failures.append(f"local beat-grid confidence {breakdown.beat_grid:.3f} below 0.380")
+    phase_warp_enabled = os.environ.get("DJAI_DECK_PHASE_WARP", "1").strip().lower() not in {"0", "false", "no", "off"}
+    if not phase_warp_enabled and (track_a.variable_tempo or track_b.variable_tempo):
+        failures.append("variable tempo requires enabled deck phase warp")
+    return failures or ["blend gate failed without an identified prerequisite"]
+
+
+
 def _technique_failures(
     technique: TransitionTechnique,
     track_a: TrackAnalysis,
