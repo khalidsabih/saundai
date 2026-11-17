@@ -149,12 +149,11 @@ def predict_beats(path,*,fallback_beats:Sequence[float]=(),fallback_downbeats:Se
         if not valid:
             used=False
             reason="opt-in neural downbeat integrity rejected grid: "+integrity_reason
-    # Default-on safety: do not promote a neural bar grid into structure/cue
-    # planning when the model emits inconsistent bar starts. An explicit
-    # research-only override exists for paired comparisons; never use it as
-    # a production shortcut. Candidate timestamps remain observable in evidence.
-    strict = os.environ.get("DJAI_NEURAL_BAR_SAFETY", "1").strip().lower()
-    if used and strict not in {"0", "off", "false", "no"}:
+    # Always fail closed: neural beats and bars are an indivisible input to
+    # cue/phrase planning. An inconsistent bar-start sequence is not permitted
+    # to replace the deterministic grid, regardless of environment flags.
+    # Candidate timestamps remain visible for offline comparison in evidence.
+    if used:
         coherent, bar_reason = downbeat_bar_integrity(bv, dv)
         if not coherent:
             used = False
