@@ -279,3 +279,16 @@ git checkout --detach FETCH_HEAD
 ```
 
 The report is deliberately labeled **`rendered_transitions_tested=false`, `cross_domain_tested=false`**. Hypothetical cue boundaries and reference downbeat proximity do not establish actual DJ render safety, any concrete SAUND cue policy, usable musical phrases, audible mix continuity, source rights beyond local authorized evaluation, or reliability outside Ballroom. Failing records must be diagnosed before a real mix-render canary can be designed and executed. **No final test inference until those checks and final evaluation criteria are frozen.**
+
+## Offline bar-aware transition-timing validation result (owner, 2026-11-17)
+
+Owner executed `scripts/m1-ballroom-transition-timing-shadow.py` on the already rights-approved 80-track Ballroom **validation** manifest. The summary was:
+
+| Measure | Current selected grid | Frozen 0.50 challenger | Raw neural candidate |
+|---|---:|---:|---:|
+| Tracks failing stricter hypothetical bar/cue preflight | **22/80** | **12/80** | **13/80** |
+| Tracks passing preflight | 58/80 | 68/80 | 67/80 |
+
+Challenger's hypothetical four-bar cue start was within 100 ms of some independently annotated downbeat for **76/80** tracks (**95%**); the cue comparison was evaluable on all 80. Challenger selected a neural grid for **76/80** tracks. **No rendered transitions tested**, no production changes.
+
+This is a broader hypothetical cue/bar integrity audit than the earlier basic beat-grid structure test, where the challenger had 0/80 failures; **do not confuse the two measures**. This audit imposes a reference-derived beats-per-bar assumption, <=20% deviation from median estimated bar duration, >=5 predicted downbeats, and a 4-bar cue span. It may flag meter interpretation differences, irregular intros/outros, truncated or missing downbeat events, or genuine rhythm failures. The 12 failures and four reference cue-start misses must be inspected per track and by failure reason **before interpreting them as correctable musical errors**. In particular, proximity of a *hypothetical* cue start to a labeled downbeat is not an actual DJ transition safety validation. Keep the final 80-track test dataset unapproved/unscored, preserve the frozen 0.50 challenger, then investigate false positives/real failures and plan source-rights-safe render tests on non-test data.
