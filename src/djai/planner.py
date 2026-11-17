@@ -346,6 +346,44 @@ def _rank_style_plans(
         ranked.append((utility, plan, signature))
 
     if not ranked:
+        # Run an opt-in diagnostic pass only for failed planning. The regular
+        # scoring/ranking path and all hard feasibility rules remain unchanged.
+        from collections import Counter
+
+        rejection_counts: Counter[str] = Counter()
+        examined_pairs = 0
+        for evidence in evidence_matrix.pairs:
+            if evidence.cue_signature in excluded:
+                continue
+            examined_pairs += 1
+            assessments = []
+            assess_transition(
+                track_a,
+                track_b,
+                evidence.exit_candidate,
+                evidence.entry_candidate,
+                evidence.breakdown,
+                style=style,
+                tempo_policy=tempo_policy,
+                effective_bpm_a=effective_bpm_a,
+                render_rate_a=render_rate_a,
+                requested_bars=requested_bars,
+                stems_available=stems_available,
+                allow_fallback=allow_fallback,
+                exact_bars=exact_bars,
+                diagnostics=assessments,
+            )
+            # Count each hard-failure reason at most once per cue pair, rather
+            # than inflating totals across intents/techniques on the same pair.
+            reasons = {reason for item in assessments for reason in item.hard_failures}
+            rejection_counts.update(reasons)
+        detail = (
+            " Rejection diagnostics across "
+            + str(examined_pairs)
+            + " examined cue pair(s): "
+            + "; ".join(f"{reason} ({count} pair(s))" for reason, count in rejection_counts.most_common(4))
+            if rejection_counts else " No technique assessments were available for diagnosis."
+        )
         bars_detail = (
             f" The requested {requested_bars}-bar limit is unsupported or unavailable for every feasible technique."
             if requested_bars is not None
@@ -354,7 +392,7 @@ def _rank_style_plans(
         raise DifficultTransitionError(
             0.0,
             "No technique-feasible transition was found for the selected cues and tempo policy."
-            + bars_detail,
+            + bars_detail + detail,
         )
 
     ranked.sort(
