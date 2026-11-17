@@ -633,3 +633,37 @@ python scripts/m1-shadow-tempo-evidence-assessment.py \
 ```
 
 Inspect `tracks[].max_window_disagreement_pct`, `tracks[].grid_onset_disagreement_pct`, `tracks[].status`, and `comparison` if present. Never silently lower the 0.8% reconciliation gate, apply a hypothetical rate to a signed transition, or weaken the **25 ms** residual safety envelope. Any later guarded policy proposal needs broader music and meter validation plus independent source-onset verification.
+
+## Owner shadow assessment: hypothetical 0.991102 incoming rate is not an approved plan
+
+The owner executed `m1-shadow-tempo-evidence-assessment.py` using the existing synthetic audit. Its two tracks satisfied the existing *independent-window quality and beat-grid agreement tests in shadow only*, but the reconciler **retained** both 123.0469 BPM scalars because the strict 0.8% materiality threshold was not met. The shadow estimates were:
+
+| Fixture | Onset median BPM | Full grid BPM | Onset-vs-grid disagreement | Shadow-only blended BPM |
+|---|---:|---:|---:|---:|
+| Opening | 122.44625 | 122.95467 | 0.4135% | 122.70046 |
+| Groove | 123.61261 | 123.99157 | 0.3056% | 123.80209 |
+
+The research-only suggested B source rate is **0.991102** versus the currently planned **1.0**, with hypothetical tempo difference **1.10163 BPM**. This is **not** an authorized substitution for the planner's BPM or tempo-match rate, and does not establish phase integrity.
+
+### Bounded phase-rate numerical counterfactual on rejected overlaps
+
+Added `scripts/m1-shadow-rate-phase-replay.py` with isolated tests in `tests/test_m1_shadow_rate_phase_replay.py`. It consumes the **saved rejected-phase trace**, synthetic demo audio and the shadow assessment; reuses the existing read-only bounded `phase_profile` routine, holding original cues, overlap duration, outgoing rate and target BPM constant while comparing the existing B rate against 0.991102 on the **unchanged original beat grids**. It reports paired numeric residuals, skipped/incomplete evidence and how many hypothetical profiles happen to fall within the existing 25 ms *numeric* envelope. A numerical pass is **not** a safe/accepted transition: the hypothetical variation has not passed phrase, source-availability, downbeat, timing, rendering or quality authorization.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_shadow_rate_phase_replay.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_BEAT_GAP_AWARE=0 DJAI_TEMPO_CONSISTENCY=0 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-shadow-rate-phase-replay.py \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --assessment /tmp/saund-m1-shadow-tempo-assessment-01.json \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-shadow-rate-phase-replay-01.json
+```
+
+Inspect `paired_numeric_profiles`, `median_original_numeric_residual_ms`, `median_hypothetical_numeric_residual_ms`, `hypothetical_numeric_below_25ms_count`, and any `missing_phase_coordinate` statuses. The command does not authorize modifying production analysis, planner or rendering. Do not use any hypothetical rate to generate an unsafe transition.
