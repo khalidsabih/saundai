@@ -153,3 +153,16 @@ Raw Beat This! candidate beat/downbeat F1 exceeds proposed 0.90/0.85 M1 gates **
 Owner's read-only analysis of `grid-shadow-80.json` showed **29/30 rejected raw Beat This! candidates improved per-track beat F1**, **1/30 reduced beat F1**, and **30/30 improved downbeat F1**. No ties. The one beat regression is `Media-104011` (selected 0.979 beat F1 vs candidate 0.950, while downbeat F1 improves 0.000 to 0.923). All selected and neural candidate grids across the complete 80-track cohort had absolute scalar-BPM vs median beat-grid BPM discrepancies <=2 BPM (0 above 2 in both). Selected tempo-vs-grid consistency by itself does not imply tempo accuracy; the candidate tempo MAE is lower (2.558 vs 22.548 BPM).
 
 **Decision:** Evidence supports an *offline challenger* to the existing authority/confidence gate, not immediate production rule modification. Even a high mean F1 and 29/30 improvements do not prove absence of catastrophic mistakes outside Ballroom or of unsafe bar-phase changes in DJ transition rendering. Assess raw candidate scores, paired selected-vs-candidate regressions, and clinical-like fail-safes on an untouched holdout; include Groove regressions and transition continuity before promotion. Avoid selecting a production threshold from these 80 exploratory examples and then treating them as independent validation.
+
+## Neural-confidence band diagnosis (owner-run exploratory 80-track Ballroom development cohort)
+
+| Neural confidence | Tracks | Currently accepted | Candidate beat F1 vs selected | Candidate downbeat F1 vs selected | Mean per-track beat gain | Mean per-track downbeat gain |
+|---|---:|---:|---|---|---:|---:|
+| <0.50 | 9 | 0 | 8 improve, 1 regress | 9 improve | +0.3365 | +0.6143 |
+| 0.50–0.70 | 21 | 0 | 21 improve, 0 regress | 21 improve, 0 regress | +0.5603 | +0.8567 |
+| 0.70–0.85 | 21 | 21 | 0 change (already selected) | 0 change (already selected) | 0.0 | 0.0 |
+| >=0.85 | 29 | 29 | 0 change (already selected) | 0 change (already selected) | 0.0 | 0.0 |
+
+All 30 neural candidate rejections are in confidence <0.70; all 50 current neural acceptances are confidence >=0.70 on this data. This pattern is **descriptive**, not a verified implementation-wide hard threshold: multiple authority/confidence signals may influence acceptance. The zero F1 deltas in accepted cases are **tautological** because selected equals candidate, and must not be interpreted as poor neural quality. The 21/21 improvement in the 0.50–0.70 bin is substantial, but cannot justify lowering production cutoff directly: the dataset has already been inspected, the <0.50 band contains one beat regression, and other genres/source data could behave differently.
+
+**Next experiment:** preregister a conservative *shadow-only* challenger (e.g. propose acceptance for `confidence >=0.50`, no production changes), compare track-paired selected vs counterfactual selected metrics across a **new disjoint validation cohort**. Keep independent test set untouched for once policy is frozen. Check downbeat phase/bar-grid consistency and rendered DJ transitions on any candidate to be promoted. Avoid reusing these 80 development tracks as validation of the chosen cutoff.
