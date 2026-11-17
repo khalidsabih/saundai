@@ -199,6 +199,14 @@ def run(manifest_path, audio_root, cli, checkpoint, output, *, timeout_seconds=3
         "track_count": len(rows),
         "research_use_rights_attested_by_manifest": True,
         "commercial_rights_approved": False,
+        "known_training_dataset_overlap": True,
+        "training_overlap_reason": (
+            "Beat This v1.1.0 final0 trained on all paper datasets except GTZAN; "
+            "Ballroom is listed among Beat This training datasets. This is "
+            "a known-dataset engineering smoke test, not unseen-music "
+            "generalization or production release evidence."
+        ),
+        "eligible_for_unseen_music_release_gate": False,
         "model_checkpoint_loaded_by_neural_ears_adapter": False,
         "neural_model_used_for_saund_baseline": False,
         "model_downloaded": False,
