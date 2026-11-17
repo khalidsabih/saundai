@@ -97,3 +97,18 @@ DJAI_NEURAL_BEATS=1 DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 
 ```
 
 Before expanding beyond eight, **inventory the user's actual local annotation files and original Ballroom archive/extraction layout** and establish a fresh disjoint track-ID manifest; do not guess paths or reconstruct annotations from predictions. Because Ballroom is evaluation-only and subject to intended-use/attribution constraints, any expanded manifest must be explicitly reviewed and approved; do not blanket-authorize additional audio. Freeze untouched final holdout separately from exploratory gate development.
+
+## Auditable eight-track candidate-grid shadow evaluator execution (owner Mac)
+
+After fetching PR branch at `430843c`, owner executed `tests/test_m1_ballroom_grid_shadow.py`: **3/3 tests passed**. The real-data `scripts/m1-ballroom-grid-shadow.py` run on the eight rights-approved local Ballroom development WAVs reported:
+
+| Metric | SAUND selected grid | All Beat This! candidate grids |
+|---|---:|---:|
+| Beat F1 (70 ms) | **0.773073** | **0.983732** |
+| Downbeat F1 (100 ms) | **0.532110** | **0.988593** |
+| Tempo MAE | null (no reference BPM) | null |
+| Neural candidate coverage | — | 8/8 |
+| Accepted by current gate | — | 4/8 |
+| Rejected by current gate | — | 4/8 |
+
+`production_changed=false`, `model_promoted=false`. **This pilot exceeds proposed M1 beat/downbeat thresholds for raw candidate grids, not the production-selected grid**, and the sample of eight exploratory recordings is insufficient for representative performance or safety certification. Owner's inventory of `/tmp` found neither the specifically named Ballroom beat-annotation file examples nor `data1.tar.gz`, and `/tmp/saund-m1-ballroom-pilot` contains only its `audio` subdirectory. Next locate original annotation/archive files in the owner's actual acquisition directory rather than inventing paths or regenerating labels from SAUND. For a larger research-only set, freeze non-overlapping IDs and conduct separate applicable rights review; preserve a final untouched holdout.
