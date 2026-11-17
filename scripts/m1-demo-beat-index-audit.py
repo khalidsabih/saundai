@@ -39,9 +39,39 @@ def compare_to_generator(beats, bpm, duration):
     indices = [round(t / period) for t in observed]
     residuals_ms = [1000.0 * abs(t - i * period) for t, i in zip(observed, indices)]
     jumps = [b - a for a, b in zip(indices, indices[1:])]
+    # A nearest-reference error can wrap near half a beat and look like a
+    # missing/duplicate event. Independently track a sequential beat index to
+    # expose accumulated tempo slope without modulo-beat wrapping.
+    sequential_indices = [indices[0] + i for i in range(len(observed))]
+    signed_errors = [
+        1000.0 * (t - i * period)
+        for t, i in zip(observed, sequential_indices)
+    ]
+    x = list(range(len(observed)))
+    mid_x = statistics.mean(x)
+    mid_error = statistics.mean(signed_errors)
+    denominator = sum((n - mid_x) ** 2 for n in x)
+    slope_ms_per_beat = (
+        sum((n - mid_x) * (e - mid_error) for n, e in zip(x, signed_errors))
+        / denominator
+    )
+    fitted_ms_per_minute = slope_ms_per_beat * bpm
+    implied_period = period + slope_ms_per_beat / 1000.0
+    first_third = signed_errors[: max(1, len(signed_errors) // 3)]
+    last_third = signed_errors[-max(1, len(signed_errors) // 3):]
     ideal_total = len(range(0, int((duration - 0.01) / period) + 1))
     return {
         "generator_bpm": bpm,
+        "sequential_index_drift": {
+            "reference_anchor_index": indices[0],
+            "first_third_median_signed_ms": round(statistics.median(first_third), 3),
+            "last_third_median_signed_ms": round(statistics.median(last_third), 3),
+            "slope_ms_per_beat": round(slope_ms_per_beat, 4),
+            "slope_ms_per_minute": round(fitted_ms_per_minute, 3),
+            "implied_bpm_from_linear_fit": round(60.0 / implied_period, 4) if implied_period > 0 else None,
+            "end_minus_start_signed_ms": round(signed_errors[-1] - signed_errors[0], 3),
+            "index_assumption": "consecutive beats from first nearest-generator pulse; diagnose skipped/doubled beats separately",
+        },
         "observed_count": len(observed),
         "expected_count_approx": ideal_total,
         "median_absolute_grid_error_ms": round(statistics.median(residuals_ms), 3),
