@@ -129,3 +129,29 @@ def test_audio_with_halfbeat_shifted_grid_reports_sustained_mismatch():
     report = inspect_waveform(audio, sr, displaced)
     assert report["decision"] == "sustained_offbeat_phase_inconsistency"
     assert len(report["sustained_offbeat_runs"]) >= 1
+
+
+
+def test_high_frequency_rise_is_diagnostic_not_classification_authority():
+    features = fake_features("offbeat")
+    baseline = classify_phase_window(features, start=0)
+    features["high_rise_at_beat"] = np.full(64, 1.)
+    features["high_rise_at_midpoint"] = np.full(64, .01)
+    augmented = classify_phase_window(features, start=0)
+    assert baseline["status"] == "suspected_offbeat_lock"
+    assert augmented["status"] == baseline["status"]
+    assert augmented["high_rise_beat_dominant_count"] == 16
+    assert augmented["high_rise_diagnostic_only"] is True
+
+
+def test_attack_rise_requires_a_new_positive_transient():
+    from djai.music.rhythm_phase_integrity import _sample_attack_rise
+
+    sr = 16000
+    power = np.zeros(sr * 3, dtype=float)
+    power[sr:sr + 200] = 1.
+    power[sr + 200:sr + 2000] = .2
+    onset = _sample_attack_rise(power, sr, [1.0])[0]
+    silence = _sample_attack_rise(power, sr, [2.0])[0]
+    assert onset > 0
+    assert silence == 0
