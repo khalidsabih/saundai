@@ -155,3 +155,28 @@ def test_attack_rise_requires_a_new_positive_transient():
     silence = _sample_attack_rise(power, sr, [2.0])[0]
     assert onset > 0
     assert silence == 0
+
+
+
+def test_wide_high_rise_reports_measured_presence_separately_from_zero_ratio():
+    features = fake_features("offbeat")
+    features["high_rise_wide_at_beat"] = np.zeros(64)
+    features["high_rise_wide_at_midpoint"] = np.zeros(64)
+    original = classify_phase_window(features, start=0)["status"]
+    report = classify_phase_window(features, start=0)
+    assert report["wide_high_rise_both_absent_count"] == 16
+    assert report["wide_high_rise_median_ratio_on_evidence"] is None
+    assert report["wide_high_rise_mid_dominant_evidence_count"] == 0
+    assert report["status"] == original
+
+
+def test_wide_transient_search_recovers_offset_attack_without_changing_classification():
+    from djai.music.rhythm_phase_integrity import _sample_attack_rise
+    sample_rate = 16000
+    power = np.zeros(sample_rate * 3, dtype=float)
+    transient = sample_rate + round(.037 * sample_rate)
+    power[transient:transient + 100] = 1.0
+    original = _sample_attack_rise(power, sample_rate, [1.0], radius_ms=22.0)[0]
+    wider = _sample_attack_rise(power, sample_rate, [1.0], radius_ms=55.0)[0]
+    assert original == 0.0
+    assert wider > 0.0
