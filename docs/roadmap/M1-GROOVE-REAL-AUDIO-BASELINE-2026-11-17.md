@@ -35,3 +35,20 @@
 5. Do not promote Beat This! or any learned head based on this one 12-song pilot.
 
 **Status:** M1 real-audio pilot measured; more representative baseline and error characterization pending.
+
+## Owner's diagnostic BPM pairs (2026-11-17)
+
+Reran deterministic `analyze_track` for eight worst errors, as reported by owner:
+
+| Recording ID suffix | Reference BPM | Predicted BPM | Ratio |
+|---|---:|---:|---:|
+| 3 | 80 | 161.50 | 2.019 |
+| 184 | 78 | 152.00 | 1.949 |
+| 201 | 64 | 129.20 | 2.019 |
+| 101 | 120 | 60.09 | 0.501 |
+| 176 | 105 | 143.55 | 1.367 |
+| 100 | 94 | 129.20 | 1.374 |
+| 102 | 95 | 129.20 | 1.360 |
+| 1 | 80 | 107.67 | 1.346 |
+
+All eight recordings are from `drummer1/session1`. The first four indicate probable half/double-tempo ambiguity. The latter four cluster near 4:3 ratio but cannot yet be labeled as a specific meter/subdivision failure. The exact recurring prediction 129.20 BPM appears in three recordings, which warrants checking recording identity, durations and estimator/fallback diagnostics rather than assuming a root cause. **No weight, algorithm, or model authority changes justified by this pilot alone.**
