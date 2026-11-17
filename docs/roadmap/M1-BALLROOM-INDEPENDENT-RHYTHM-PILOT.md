@@ -332,3 +332,28 @@ Three **deterministic-selected** flagged tracks exhibited sustained non-referenc
 Owner's repeated attempts to write the same diagnostic output returned `refusing to overwrite output` as intended; the first report already exists. Reuse the report for analysis or choose a new filename for an explicitly justified rerun. Avoid silent overwrite.
 
 **Next safety focus:** instrument SAUND's actual renderer and cue selection on *non-test* rights-approved data, verify meter and downbeat phase around real mix boundaries, and separately verify the candidate neural grids on three deterministic 6-beat problems. Do not modify the frozen 0.50 threshold or unseal the final test set yet.
+
+## First genuine renderer canary: rights-gated development-pair workflow
+
+Reviewed production code paths: `src/djai/planner.py:plan_transition` compiles a constrained signed `TransitionPlan`; `src/djai/renderer.py:render_transition_audio` validates that plan and uses the actual DSP / performance-program pipeline. The former manual-cue logic in `planner._manual_candidate` uses a musical timeline with nearest bar and a BPM/meter-derived available-bar estimate. The frozen neural challenger cannot safely be substituted as **only** `TrackAnalysis.bpm` / `beats_seconds` / `downbeats_seconds` without rebuilding candidate/timeline/phrase/decision evidence; doing so would risk inconsistent signed plans. This canary therefore measures **only the CURRENT production-selected grid** through the actual planner/renderer, and **does not claim to exercise the 0.50 challenger**.
+
+Added `scripts/m1-real-transition-render-canary.py` and focused `tests/test_m1_real_transition_render_canary.py`. Each selected music pair must be separately confirmed for **local derived-audio rendering**, not just beat-annotation research evaluation. `--manifest` points to a **private** JSON file with `schema_version: saund-m1-render-canary-v1`, `split: development`, `rights_confirmed: true`, `render_permission_confirmed: true`, and 1–8 pairs, each `{id, track_a, track_b}`, with relative filenames under `--audio-root`. Do not use Ballroom final-test tracks or assume that research evaluation rights include rendering or redistribution. Music previews remain local, never added to git.
+
+Usage, after operator has confirmed licenses and prepared **independently permitted development** audio pairs:
+
+```sh
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_real_transition_render_canary.py
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 DJAI_NEURAL_BEATS=1 \
+ "$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-real-transition-render-canary.py \
+ --manifest /tmp/saund-m1-render-canary/approved-development-pairs.json \
+ --audio-root /absolute/path/to/authorized/audio \
+ --output-dir /tmp/saund-m1-render-canary/baseline-render-01 \
+ --confirm-render-rights
+```
+
+**Do not run** until both the JSON manifest and the explicit CLI confirmation are authorized. The program checks rights fields and non-test split, refuses output overwrite and unsafe path traversal, analyzes each pair with no automatic checkpoint downloads, **abstains** if either selected BPM disagrees with its beat interval by >2 BPM, requests `plan_transition(..., force=False, style=safe, tempo_policy=safe)`, and calls `render_transition_audio` for the signed production plan only if the planner does not demand confirmation. It saves private WAV previews and a report with absolute sample peaks, silent-frame proportion, component-boundary sample jumps, actual rendered/blocked/error counts. No forced transition; no training or promotion; no new neural acceptance feature flag.
+
+**These tests are only a technical audio canary:** listening to actual previews, checking musically intended downbeat/cue phase, audible phase/bass overlap, actual export integrity, and pairwise cross-genre generalization are additional human and machine tasks. A baseline render cannot demonstrate challenger safety. Before comparing challenger rendering, design a recomputation of all `TrackAnalysis` grid-dependent features and cue candidates **before planning**, plus exact rendered plan verification and safe rollback. Do not infer it is safe to mutate an already-compiled plan.
