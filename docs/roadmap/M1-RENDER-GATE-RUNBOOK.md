@@ -1600,3 +1600,34 @@ python -m pytest -q \
 The grouping is **7 adapter flag/fallback/rollback tests**, **8 independent regression-runner tests**, and **4 structural downbeat-integrity tests**. This verifies mocked failure paths, off-switch behavior, zero-authority constraints, the research runner's validation-only split handling and structural downbeat checks. It **does not** establish end-to-end deployed rollback, actual `final0` adapter behavior on independent tracks, independent corpus performance, commercial license approval, host performance, or an unforced continuous 25ms planner gate pass. Keep draft PR #28 unmerged and production settings unchanged.
 
 **Fastest next meaningful evidence:** prepare one fixed, independently annotated, rights-cleared validation set and run `scripts/m1-beat-this-independent-regression.py` with the same **final0** checkpoint tested on the generated demos; in parallel check SHA256/runtime/commercial rights and test the full integration's off-switch in a nonproduction run. Do not substitute synthesized BPM/kick references for independent annotations or invoke the sealed Ballroom test.
+
+## M1 accelerated real-audio final0 comparison: existing approved eight-track Ballroom pilot
+
+**Shortcut verified from prior owner records:** The owner's Mac already has eight exact-matched Ballroom WAVs with independent beat/downbeat annotations and a *separately owner-reviewed* local development manifest `/tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json`. Local audio root was `/tmp/saund-m1-ballroom-pilot/audio`. This is **research evaluation only**: the source archive/dataset has noncommercial licensing constraints, the specific past owner acknowledgment does NOT authorize commercial distribution, model training or automatic rendered derived audio. Do not use these audio files for production deployment or a public preview.
+
+Added `scripts/m1-beat-this-final0-fasttrack-pilot.py` and `tests/test_m1_beat_this_final0_fasttrack_pilot.py`. This bounded **one-command offline research pilot** requires a rights-reviewed development/validation Ballroom manifest with 1–8 tracks, external cached **final0** checkpoint and isolated Beat This! CLI. It computes SHA256 of the local checkpoint and private manifest, performs `beat_this --gpu=-1 --model <absolute cached checkpoint>` for each audio WAV into fresh private output, then independently runs `analyze_track` with `DJAI_NEURAL_BEATS=off`, network/download flags disabled, and evaluates both candidates against the original independent beat/downbeat labels. The human/third-party labels are in the parent scoring process only, **never** in child model inference; inference receives only audio path and checkpoint. The 70 ms timestamp score and count of reference events lacking a 25 ms match are research diagnostics, **not** the production continuous phase-integrity gate. Reports per-track F1 and regressions plus aggregate mean F1, timings, model weight fingerprint, and no-production/no-render flags. Report output refuses overwrite; CLI will not auto-acquire an audio collection or model checkpoint. No model authority change or automatic transition render.
+
+**Mac run**, if the previously reviewed research permission still applies to the intended local noncommercial evaluation (no new download; the historical manifest's rights flag is an attestation only, not a license grant):
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q \
+  tests/test_m1_beat_this_final0_fasttrack_pilot.py \
+  tests/test_m1_beat_this_fast_track_rollback.py
+
+python scripts/m1-beat-this-final0-fasttrack-pilot.py \
+  --manifest /tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json \
+  --audio-root /tmp/saund-m1-ballroom-pilot/audio \
+  --beat-this-cli /tmp/saund-m1-beat-this-venv/bin/beat_this \
+  --checkpoint "$HOME/.cache/torch/hub/checkpoints/beat_this-final0.ckpt" \
+  --output-dir /tmp/saund-m1-final0-fasttrack-8-01
+```
+
+The pilot writes a report in `/tmp/saund-m1-final0-fasttrack-8-01/report.json`. It prints the most useful summaries, avoiding raw copyrighted audio and labels. **Neither this new test suite nor the actual pilot has yet been run on the owner's Mac; report no scores until observed.** The baseline uses the project's original `.venv` executable, while external final0 model inference uses the separate `beat_this` venv.
+
+**Possible blocker:** the approved Ballroom manifest may not exist in the current Mac filesystem; the checkpoint cache path can differ on alternative Torch/Python environments. Verify locally with `ls`, do not invent another source or set `rights_confirmed=true` without documented review. A missing/failing local model, absent rights clearance or invalid labels must stop the pilot with no fallback to a public download.
+
+**In parallel, before a controlled real feature-flag release:** verify the SHA256-pinned actual final0 checkpoint and license/provenance, actual inference latency and peak RAM on deployment target, offline behavior, and deployed/whole-analysis opt-out/restart safety. The already existing `src/djai/intelligence/neural_ears.py` adapter defaults to **small0** and can replace both beats AND downbeats when `used=true`—a high-scoring final0 *beat-only* result does not validate this complete production path. Do not simply flip model registry authority or automatically trust surplus downbeat labels. Candidate-grid/phrase/cue-dependent features must be recomputed *before* compiling a TransitionPlan; do not mutate already analyzed TrackAnalysis fields in place. Keep production and the hard continuous **25 ms** planner phase gate unchanged and PR #28 draft.
