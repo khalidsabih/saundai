@@ -534,3 +534,49 @@ python scripts/m1-demo-phase-index-replay.py \
 ```
 
 Compare the mean and median per-deck intervals and the signed cumulative biases. Fail-closed planner behavior and the 25 ms phase residual limit remain unchanged.
+
+## Owner mean-versus-median replay: validated scalar-tempo inconsistency on synthetic demo
+
+The owner ran the extended phase replay on the 111 rejected generated-demo configurations. No rows were skipped, and the median absolute replay-versus-trace discrepancy remained **0.000 ms**. In the representative outgoing 36.176689 s / incoming 9.705941 s overlap:
+
+| Quantity | Outgoing | Incoming |
+|---|---:|---:|
+| Mean observed beat interval | **492.113 ms** | **483.991 ms** |
+| Mean implied BPM | **121.92315** | **123.96926** |
+| Median observed beat interval | **487.619 ms** | **487.619 ms** |
+| Median implied BPM | **123.04689** | **123.04689** |
+| Sum of complete-interval deviations from plan beat period | +139.324 ms | −116.096 ms |
+
+The mean values are close to the known synthetic generator's **122 and 124 BPM**, whereas the common median aligns with the prior scalar estimate **123.0469 BPM**. This provides concrete evidence for a synthetic **scalar BPM versus aggregate beat-grid-clock mismatch**. It does not prove that replacing BPM with a mean is safe on real variable-tempo or irregular music.
+
+### Important existing capability: opt-in onset-backed tempo consistency
+
+Source inspection found `src/djai/analysis.py` initially derives deterministic BPM from the `librosa.beat.beat_track` scalar, with the beat timestamps separately determined by its detected frames. The neural model's BPM replaces that scalar only if its grid is selected. Crucially, SAUND **already has** `src/djai/music/tempo_consistency.py:reconcile_bpm`, enabled only when `DJAI_TEMPO_CONSISTENCY=1`. It retains the original scalar unless the complete grid span and **three independent audio-onset autocorrelation windows** agree, have sufficient confidence, and satisfy conservative dance-tempo checks. It never edits beat timestamps. No new production estimator is justified before this existing experimental path is tested.
+
+The read-only `scripts/m1-demo-meter-audit.py` now includes `grid_span_bpm`, `scalar_to_grid_span_difference_bpm`, and `tempo_consistency_evidence` when available, making the existing reconciler's `decision`, `reason`, and independent onset-window observations visible.
+
+Use separate output filenames for the **unchanged** synthetic guard and **guard plus tempo reconciliation**:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_demo_meter_audit.py tests/test_tempo_consistency.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-meter-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-meter-tempo-baseline-01.json
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=1 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-meter-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-meter-tempo-reconcile-01.json
+```
+
+The key comparison is `tempo_consistency_evidence.decision` and `reason`, alongside `bpm` and `grid_span_bpm` for both tracks. If either track **retains** its original BPM due to insufficient audio agreement, that is a valid fail-closed outcome, not a bug. If both scalars reconcile, repeat the **unforced** safe plan separately with both opt-in flags, then inspect the phase trace. No automatic rendering or safety-rule change is authorized. Keep the Ballroom sealed test set untouched.
