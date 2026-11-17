@@ -281,3 +281,25 @@ DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
 ```
 
 Before changing an inference model or switching phase-index policy, compare `slope_ms_per_beat` with `first_third_median_signed_ms` / `last_third_median_signed_ms` and the original phase-lock JSONL profiles. Maintain the current fail-closed continuous phase gate (25 ms default) and keep all final-test music sealed.
+
+## Owner drift decomposition: likely local slip, not uniform drift
+
+The owner reran `scripts/m1-demo-beat-index-audit.py` after the sequential-index drift extension. The outgoing generated 122 BPM track reported `end_minus_start_signed_ms=-484.957`, `slope_ms_per_beat=-2.0565`, `first_third_median_signed_ms=-203.762`, and `last_third_median_signed_ms=-217.605`. Its nearest-generator error was ~210 ms median with one duplicate nearest-event index jump. The incoming generated 124 BPM track reported `end_minus_start_signed_ms=4.111`, `slope_ms_per_beat=-0.003`, and `first_third_median_signed_ms=27.424` versus `last_third_median_signed_ms=27.286`, with no nearest-index jumps.
+
+The outgoing **~one-pulse endpoint displacement** and nearly unchanged first/last-third median errors are not a clean signature of sustained linear tempo drift. A short/long local beat interval, reference-index wrap, or beat-index slip could account for much of the global regression slope. The aggregate numbers cannot establish which event occurred. They also cannot certify the full overlap against source audio, and must not be used as a meter/beat correction oracle in production.
+
+The audit now adds `local_interval_diagnostics`: indices and timestamps of observed beat intervals deviating at least **15%** from generator period, nearest-generator index wraps, and signed-error medians for four sequential quarters. This still only reads synthetic known-tempo fixtures and never alters plans or beat grids. To run:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$M1_PYTHON" -m pytest -q tests/test_m1_demo_beat_index_audit.py
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+"$M1_PYTHON" scripts/m1-demo-beat-index-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-demo-beat-local-03.json
+```
+
+Inspect the outgoing track's `local_interval_diagnostics.first_outlier_intervals`, `nearest_index_wraps`, and `signed_sequential_error_quartile_medians_ms`, and cross-check affected positions against the 111 rejected phase-lock cue spans. Do not change `DJAI_DECK_PHASE_RESIDUAL_MAX_MS` or blindly enable `DJAI_BEAT_GAP_AWARE`. The next intervention, if evidence supports one, should retain hard abstention when confidence or phase evidence is insufficient.
