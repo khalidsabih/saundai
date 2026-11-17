@@ -124,3 +124,30 @@ def test_phase_replay_reports_per_deck_excess_and_interval_budgets():
     example = result["examples"][0]
     assert example["outgoing_complete_interval_budget"]["status"] == "measured"
     assert example["incoming_complete_interval_budget"]["status"] == "measured"
+
+
+
+def test_mean_interval_exposes_accumulated_bias_hidden_by_median():
+    m = load()
+    # Six median-500ms intervals, plus four 520ms intervals.
+    periods = [.5] * 6 + [.52] * 4
+    beats = [0.0]
+    for period in periods:
+        beats.append(beats[-1] + period)
+    budget = m.interval_budget(beats, 0.0, beats[-1], .5)
+    assert budget["status"] == "measured"
+    assert budget["complete_interval_count"] == 10
+    assert budget["median_interval_ms"] == 500.0
+    assert budget["mean_interval_ms"] == 508.0
+    assert budget["mean_minus_median_ms"] == 8.0
+    assert budget["cumulative_interval_deviation_ms"] == 80.0
+    assert budget["outlier_interval_count"] == 0
+
+
+def test_regular_intervals_have_identical_mean_and_median():
+    m = load()
+    beats = [i * .5 for i in range(20)]
+    budget = m.interval_budget(beats, 0.0, beats[-1], .5)
+    assert budget["mean_minus_median_ms"] == 0.0
+    assert budget["mean_implied_bpm"] == 120.0
+    assert budget["median_implied_bpm"] == 120.0
