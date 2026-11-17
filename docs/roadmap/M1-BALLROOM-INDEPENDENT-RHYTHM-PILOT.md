@@ -320,3 +320,15 @@ git checkout --detach FETCH_HEAD
 ```
 
 **Interpretation:** an interval exactly 2× expected with normal surrounding bars suggests a missed downbeat, while boundary-only outliers can be truncated grid coverage. Neither diagnosis is automatic; listen and confirm before any real DJ transition. This instrument is diagnostic only; no production, threshold change, training or sealed-test reveal.
+
+## Position-specific diagnostic results: edge outliers versus sustained meter mismatches
+
+Owner executed the read-only bar-interval diagnostic successfully on the validation cohort, generating a private immutable `bar-interval-diagnostic-validation.json`. **Nine** neural-selected flagged tracks had only early/late interval outliers: **seven** were exclusively at the final interval (`Media-105020` ratio .73, `Albums-Latin_Jam2-15` .75, `Media-103616` .49, `Media-105810` .67, `Albums-Secret_Garden-05` .71, `Albums-Chrisanne1-14` .78, `Media-104005` .75); **two** were at the beginning (`Media-105209` initial ratio .80; `Media-103501` first three intervals approx .50-.53). All nine had `cue_phase_ok=True` in the existing *hypothetical* last-four-bar timing check. These may be truncation/partial bar artifacts or onset-specific meter-phase interpretation; distinguish from genuine mix safety before changing acceptance logic.
+
+Three **deterministic-selected** flagged tracks exhibited sustained non-reference bar groupings and bad final cue-window duration: `Media-104008` seven predicted bars of six beat events each against reference meter 4 (ratios 1.42-1.51); `Media-105111` thirteen predicted six-beat bars against reference meter 3 (ratios ~1.98-2.07); and `Media-104915` eight predicted six-beat bars against reference meter 4 (ratios ~1.45-1.53). All three also failed the reference cue-phase check. These are systematic grid/meter interpretation differences; not isolated recording-edge intervals.
+
+`Media-103707`, a **deterministic-selected** track, exhibited zero bar-duration outliers but **failed** reference cue-phase alignment, proving that regular spacing does not guarantee correct downbeat phase. The preflight/report cannot yet prove musical correctness or safe audible transitions.
+
+Owner's repeated attempts to write the same diagnostic output returned `refusing to overwrite output` as intended; the first report already exists. Reuse the report for analysis or choose a new filename for an explicitly justified rerun. Avoid silent overwrite.
+
+**Next safety focus:** instrument SAUND's actual renderer and cue selection on *non-test* rights-approved data, verify meter and downbeat phase around real mix boundaries, and separately verify the candidate neural grids on three deterministic 6-beat problems. Do not modify the frozen 0.50 threshold or unseal the final test set yet.
