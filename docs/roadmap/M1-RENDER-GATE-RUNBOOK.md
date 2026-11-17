@@ -1462,3 +1462,40 @@ In the **predeclared outgoing 9.636281–58.305306 s failure region**, the repor
 **Important distinction:** The count `matched_outside_25ms=0` applies to one-to-one matched beat timestamps against the **ideal synthetic generator schedule**, and all 128 generated pulse references on each track have such a match. This is **not** a check of SAUND's continuous planner phase-integrity envelope (which includes relationship between two tracks, playback rate/warp and overlap behavior), and it must not be reported as an unforced planner pass. The two whole-track extra beat predictions are still unmatched. The 80 ms benchmark tolerance has never been promoted into the 25 ms planner threshold. Results are exclusively on two known synthetic tracks, and no real-song or sealed Ballroom validation has run. The supplied log includes the JSON execution but no visible separate pytest output.
 
 **Next bounded investigation:** Determine whether the surplus beat-number-1 labels arise in **raw Beat This downbeat probabilities**, the model's downbeat postprocessor or the exported `.beats` beat-number conversion; measure segment/time locations of extra downbeats and their relationship to 4/4 bar structure without assuming 4/4 for arbitrary future audio. Do this with a **read-only offline comparison** that reuses the already cached checkpoint; preserve original `.beats` and do not rewrite/normalize away surplus downbeats just to make synthetic F1 perfect. If needed, benchmark documented Beat This postprocessing modes before considering an explicit conservative bar-phase consistency check. Do not promote Beat This, modify production TrackAnalysis, touch sealed tests, replace the hard **25 ms** phase gate, or render an unsafe transition. PR #28 remains draft.
+
+## M1 Beat This! v1.1.0 origin trace: locate surplus downbeat labels before any correction
+
+The owner-run generated-demo timing audit found **256/256 beats within 25 ms of known synthetic pulse positions** and 37 extra `beat-number=1` labels (14 of 46 on opening; 23 of 55 on groove), despite recovering all 32 known bar starts on each generated song. We must distinguish the **raw downbeat head**, the **minimal peak decoder**, and the **TSV beat-number writer** instead of attempting a hardcoded four-beat suppression.
+
+**Upstream source inspected at the actual installed release tag v1.1.0:**
+- `beat_this/model/postprocessor.py`: default `minimal` route pools beats and downbeat **logits independently over 7 frames (±3 at 50 fps)**, takes positive local maxima, merges neighboring peaks within one frame, and **snaps downbeat peaks to the nearest detected beat**, removing identical duplicates. No hardcoded 4/4 meter is imposed. Alternative `--dbn` uses madmom's DBN with `beats_per_bar=[3,4]`, which is **not** the baseline we ran. Source: https://github.com/CPJKU/beat_this/blob/v1.1.0/beat_this/model/postprocessor.py .
+- `beat_this/utils.py`: `save_beat_tsv` calls `infer_beat_numbers` to assign number `1` to each postprocessed downbeat; it does not decide downbeat probabilities itself. Source: https://github.com/CPJKU/beat_this/blob/v1.1.0/beat_this/utils.py .
+- `beat_this/cli.py`: `--activations` saves the model's **raw, unsigmoided 2×frames logits** to the same output stem with `.npy`, alongside a freshly generated `.beats` file. Source: https://github.com/CPJKU/beat_this/blob/v1.1.0/beat_this/cli.py .
+
+Added `scripts/m1-beat-this-downbeat-origin-trace.py` and `tests/test_m1_beat_this_downbeat_origin_trace.py`. The tracer **does not invoke inference or import PyTorch**: it loads activation-run `.npy`, strictly parses the new `.beats` and the untouched original `.beats`, independently recreates the upstream 50 fps minimal logit peak detection and beat snapping, and compares both decoded events against the new TSV and the original TSV. It uses the generator's known **4/4 bar start times only after inference/decoding to classify extra labels**. No threshold search, post-hoc bar repair, or production change.
+
+**Mac operator steps** (reuse existing separate `beat_this` venv with soundfile installed, cached final0 checkpoint, same WAVs; never overwrite the original `...predictions-01` files):
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_beat_this_downbeat_origin_trace.py
+
+mkdir -p /tmp/saund-m1-beat-this-activations-01
+/tmp/saund-m1-beat-this-venv/bin/beat_this \
+  "$M1_AUDIO_ROOT/01_opening_122bpm_Aminor.wav" \
+  -o /tmp/saund-m1-beat-this-activations-01/01_opening_122bpm_Aminor.beats \
+  --gpu=-1 --model final0 --activations
+/tmp/saund-m1-beat-this-venv/bin/beat_this \
+  "$M1_AUDIO_ROOT/02_groove_124bpm_Eminor.wav" \
+  -o /tmp/saund-m1-beat-this-activations-01/02_groove_124bpm_Eminor.beats \
+  --gpu=-1 --model final0 --activations
+
+python scripts/m1-beat-this-downbeat-origin-trace.py \
+  --original-predictions-root /tmp/saund-m1-beat-this-predictions-01 \
+  --activation-predictions-root /tmp/saund-m1-beat-this-activations-01 \
+  --output /tmp/saund-m1-beat-this-downbeat-origin-trace-01.json
+```
+
+**Interpretation:** If activation-rerun predictions agree with original `.beats`, inference is reproducible. If independent minimal re-decoding agrees with activation-run TSV for beat and downbeat events, the **TSV label export is not fabricating the surplus downbeats**: the extra labels emerge from independent downbeat logit peaks and the permissive minimal decoder. However this does **not** tell us whether raw logits were musically wrong or a stricter *general* decoder can safely suppress spuriously high logits. If either comparison disagrees, investigate package version, output options, 50 fps assumptions, and ordering before any interpretation; do not silently fix the scorer. Do not use the generator 4/4 truth to choose a production decoder, do not modify reference beats, and do not run the sealed test or unblocked rendering. Draft PR #28 and 25 ms continuous phase gate remain unchanged.
