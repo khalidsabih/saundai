@@ -79,3 +79,21 @@ Owner independently scored all four rejected neural candidate event grids versus
 **Findings:** All four rejected Beat This! event grids outperform the retained deterministic grids on both beat F1 and downbeat F1, including tracks where neural tempo estimates differ ~2x or ~1.46x from selected scalar BPM. Current gate was over-conservative on all four examples; it may still protect other tracks, and the 8-recording Ballroom sample is not enough to retune or loosen production safeguards. In four other tracks the neural grid was accepted and earlier per-track evaluation found beat F1 1.0 / downbeat F1 1.0, but the above is NOT a complete micro-aggregated all-neural score; it reports only four rejected candidates. No production or checkpoint promotion.
 
 **Next:** create auditable, read-only candidate-versus-selected beat/downbeat F1 across a larger *non-overlapping* independently annotated Ballroom evaluation cohort, inspect length/genre/meter and neural-confidence failure cases, and preregister a gate challenger with deterministic fail-closed safeguards. Also audit internal BPM-to-beat-grid consistency before integrating any scalar-only tempo selection. Do not assume current Ballroom study permits model training or unrestricted redistribution.
+
+## Larger-cohort candidate-grid shadow evaluator available
+
+Added `scripts/m1-ballroom-grid-shadow.py` with focused tests `tests/test_m1_ballroom_grid_shadow.py`. The tool validates a rights-reviewed Ballroom manifest using the existing M1 benchmark validator, runs installed Beat This! in shadow mode with model downloads disabled, and evaluates selected vs neural candidate timestamp grids at the same 70ms/100ms event matching tolerances. Unavailable neural candidates are **excluded** from candidate score rather than treated as zero. Report includes acceptance/availability coverage and BPM-vs-median-grid BPM disagreement per track. Does not modify `analysis.py`, model registry or live behavior.
+
+Run first on eight existing approved WAVs:
+
+```sh
+cd /tmp/saund-m1-evaluator
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_grid_shadow.py
+DJAI_NEURAL_BEATS=1 DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \\
+ "$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-grid-shadow.py \\
+ --manifest /tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json \\
+ --audio-root /tmp/saund-m1-ballroom-pilot/audio \\
+ --output /tmp/saund-m1-ballroom-pilot/grid-shadow-8.json
+```
+
+Before expanding beyond eight, **inventory the user's actual local annotation files and original Ballroom archive/extraction layout** and establish a fresh disjoint track-ID manifest; do not guess paths or reconstruct annotations from predictions. Because Ballroom is evaluation-only and subject to intended-use/attribution constraints, any expanded manifest must be explicitly reviewed and approved; do not blanket-authorize additional audio. Freeze untouched final holdout separately from exploratory gate development.
