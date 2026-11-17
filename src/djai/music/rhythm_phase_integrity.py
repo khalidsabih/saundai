@@ -102,6 +102,16 @@ def phase_evidence_features(audio, sample_rate, beat_seconds):
         "high_at_midpoint": _sample_attack_energy(high * high, sample_rate, midpoints),
         "high_rise_at_beat": _sample_attack_rise(high * high, sample_rate, beats),
         "high_rise_at_midpoint": _sample_attack_rise(high * high, sample_rate, midpoints),
+        # Wider spatial evidence is strictly observational. Earlier independent
+        # WAV experiments measured median offbeat attack offsets near 32 ms,
+        # beyond the initial +/-22 ms search window. No classification vote
+        # below uses either of these fields.
+        "high_rise_wide_at_beat": _sample_attack_rise(
+            high * high, sample_rate, beats, radius_ms=55.0
+        ),
+        "high_rise_wide_at_midpoint": _sample_attack_rise(
+            high * high, sample_rate, midpoints, radius_ms=55.0
+        ),
     }
 
 
@@ -163,6 +173,34 @@ def classify_phase_window(features, *, start, count=16):
             result["high_rise_diagnostic_only"] = True
         else:
             result["high_rise_diagnostic_unavailable"] = True
+    if "high_rise_wide_at_beat" in features and "high_rise_wide_at_midpoint" in features:
+        wide_beat = np.asarray(features["high_rise_wide_at_beat"], dtype=float)[start:end]
+        wide_mid = np.asarray(features["high_rise_wide_at_midpoint"], dtype=float)[start:end]
+        if (len(wide_beat) == count and len(wide_mid) == count
+                and np.all(np.isfinite(wide_beat)) and np.all(np.isfinite(wide_mid))
+                and np.all(wide_beat >= 0) and np.all(wide_mid >= 0)):
+            absolute_floor = 1e-10
+            has_beat = wide_beat > absolute_floor
+            has_mid = wide_mid > absolute_floor
+            both_absent = ~(has_beat | has_mid)
+            wide_floor = max(absolute_floor, float(np.median(np.r_[wide_beat, wide_mid])) * .02)
+            wide_ratio = (wide_mid + wide_floor) / (wide_beat + wide_floor)
+            valid = ~both_absent
+            result["wide_high_rise_beat_evidence_count"] = int(np.count_nonzero(has_beat))
+            result["wide_high_rise_mid_evidence_count"] = int(np.count_nonzero(has_mid))
+            result["wide_high_rise_both_absent_count"] = int(np.count_nonzero(both_absent))
+            result["wide_high_rise_mid_dominant_evidence_count"] = int(
+                np.count_nonzero((wide_ratio >= 2) & valid)
+            )
+            result["wide_high_rise_beat_dominant_evidence_count"] = int(
+                np.count_nonzero((wide_ratio <= .5) & valid)
+            )
+            result["wide_high_rise_median_ratio_on_evidence"] = (
+                round(float(np.median(wide_ratio[valid])), 3) if np.any(valid) else None
+            )
+            result["wide_high_rise_diagnostic_only"] = True
+        else:
+            result["wide_high_rise_diagnostic_unavailable"] = True
     return result
 
 
