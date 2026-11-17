@@ -1646,3 +1646,24 @@ Every one of eight tracks had no beat regression and no downbeat regression, wit
 **CRITICAL dataset overlap correction, verified directly from upstream v1.1.0 source:** The official Beat This! README states `final0` was trained on **all included training datasets except GTZAN** and explicitly warns that scoring such models on their own training recordings can look unfairly good. The upstream Beat This! annotation README includes **Ballroom**. Sources: https://github.com/CPJKU/beat_this/blob/v1.1.0/README.md and https://github.com/CPJKU/beat_this_annotations/blob/v1.0/README.md . Thus Ballroom is a **KNOWN OVERLAPPING TRAINING DATASET** for this checkpoint; we cannot assume the eight development recordings are unseen. The F1 values here are valid **engineering and deterministic-vs-neural on known-dataset diagnostic measurements**, but **NOT independent unseen-audio generalization or production-release evidence**. The pilot source was updated to mark `known_training_dataset_overlap=true` and `eligible_for_unseen_music_release_gate=false` for future runs; earlier emitted JSON predates those metadata fields. Do not change the previously emitted result in place.
 
 **Next fast release gate:** evaluate the **same pinned final0 checkpoint** on an independently annotated, rights-cleared audio corpus *outside Beat This!'s training datasets*, or use an upstream sanctioned held-out model/dataset split strictly for research (ensuring exact checkpoint-to-split disjointness). The primary commercial release decision must additionally consider product rights for model weights, third-party dataset provenance, runtime/memory, missing/corrupt model fallback and the unforced planner continuous 25 ms phase-integrity gate. Keep downbeat safety separate from beat timing, and never weaken a hard render block or promote the model by flipping registry authority based on these eight scores.
+
+## Owner's first direct SAUND final0 adapter execution — successful load, selection-policy caution
+
+The owner executed `djai.intelligence.neural_ears.predict_beats(...)` with an explicitly provided existing local checkpoint `~/.cache/torch/hub/checkpoints/beat_this-final0.ckpt` in the **normal SAUND project Python virtualenv**, keeping model download flags disabled. The direct adapter output for generated fixture `01_opening_122bpm_Aminor.wav` was:
+
+```json
+{
+  "available": true,
+  "beat_count": 129,
+  "downbeat_count": 46,
+  "bpm": 120.0,
+  "confidence": 0.7579,
+  "authority": 0.2577,
+  "used": true,
+  "reason": "neural beat grid passed authority/confidence gate"
+}
+```
+
+This confirms the **actual installed SAUND adapter** can invoke `final0` successfully from the normal application venv: there is no missing Beat This! Python installation. However, it is **a direct adapter call**, not a full `analyze_track`/planner/renderer end-to-end success. The synthetic fixture's nominal BPM is 122, not the reported scalar 120; the earlier external CLI produced 129 correctly located beat events yet 46 predicted downbeats for just 32 known generated 4/4 bars (14 surplus). It is **especially significant that `used=true`**: the current adapter's model-authority and confidence checks can approve the complete neural beat+downbeat candidate even while its bar-start labels contain this known defect. The adapter's basic optional `downbeat_spacing_integrity` check only measures a median interval and does not by itself establish correct musical downbeat phase.
+
+The direct call supplied no `fallback_beats` or `fallback_downbeats` from SAUND's deterministic analysis, so its computed agreement/confidence is not necessarily the same as in the full analyzer. No production configuration was permanently changed. **Do not set a global `DJAI_BEAT_THIS_CHECKPOINT` environment variable or mark the model registry as production-approved based on this test.** Next bounded integration task is to explicitly separate beat-grid eligibility from downbeat/bar-start eligibility and test it using full analysis with existing safeguard and rollback; an accepted neural beat proposal must not silently replace inconsistent bar starts. The current 25 ms continuous planner gate remains hard and no unsafe render is authorized.
