@@ -580,3 +580,30 @@ python scripts/m1-demo-meter-audit.py \
 ```
 
 The key comparison is `tempo_consistency_evidence.decision` and `reason`, alongside `bpm` and `grid_span_bpm` for both tracks. If either track **retains** its original BPM due to insufficient audio agreement, that is a valid fail-closed outcome, not a bug. If both scalars reconcile, repeat the **unforced** safe plan separately with both opt-in flags, then inspect the phase trace. No automatic rendering or safety-rule change is authorized. Keep the Ballroom sealed test set untouched.
+
+## Owner tempo-consistency rerun — materiality gate prevents audio review
+
+The owner ran the guarded generated-demo meter audit with `DJAI_TEMPO_CONSISTENCY=1`. Both tracks correctly remained **4/4**, but both BPM values stayed at **123.0469**. The outgoing full-grid span was **122.95467 BPM** (scalar minus grid **+0.09223 BPM**); the incoming span was **123.99157 BPM** (scalar minus grid **−0.94467 BPM**). Both reconciler decisions were `retain` with `reason=no_material_global_disagreement`. The incoming relative mismatch is approximately **0.768%**, just below the reconciler's strict **0.8%** independent-onset evaluation threshold. No independent `audio_windows` evidence was computed in that original run. The neural checkpoint was not bootstrapped locally; both grids were deterministic (`neural_available=false`), so this run cannot establish neural acceptance behavior.
+
+### New opt-in read-only onset-window shadow inspection
+
+The existing `reconcile_bpm` retains exactly the same materiality threshold, decisions, numerical BPM, and beat-grid timestamps. When **both** `DJAI_TEMPO_CONSISTENCY=1` and `DJAI_TEMPO_SHADOW_AUDIO_WINDOWS=1`, it additionally evaluates the same three distributed audio-onset ACF windows on the **early-retain** branch and records `tempo_consistency.shadow_audio_windows` plus `shadow_only=true`. This is diagnosis only, not authority to select the shadow estimates. It uses the existing audio evidence routine and does not require model downloads.
+
+Run on the two **synthetic development** files with a fresh report filename:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_tempo_consistency.py tests/test_m1_demo_meter_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=1 DJAI_TEMPO_SHADOW_AUDIO_WINDOWS=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-meter-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-meter-tempo-shadow-02.json
+```
+
+Inspect each track's `tempo_consistency_evidence.shadow_audio_windows`, its three BPMs and correlation strengths, and confirm `bpm` remains **123.0469** with `decision=retain`. Weak, missing, or divergent independent windows are grounds to retain/abstain, not to lower a threshold. Even three strong windows would motivate a carefully staged policy design and multi-genre checks, **not** an immediate silent tempo change or an unsafe rendered handoff. Do not touch the sealed Ballroom final test cohort.
