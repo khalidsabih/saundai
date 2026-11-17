@@ -28,7 +28,15 @@ def test_exact_phase_position_components():
 def test_invalid_interval_abstains():
     m = load()
     assert m.position_components([0, .5, 1.5, 2.], 1.0, .5) is None
-    assert m.position_components([0, .5, 1.0], 0, .5) is None
+    # The first beat itself is a valid zero-phase sample under bisect_right.
+    first = m.position_components([0, .5, 1.0], 0, .5)
+    assert first is not None
+    assert first["index"] == 0
+    assert first["fraction"] == pytest.approx(0.0)
+    assert first["position"] == pytest.approx(0.0)
+    # Samples outside the supported grid must still abstain.
+    assert m.position_components([0, .5, 1.0], -.001, .5) is None
+    assert m.position_components([0, .5, 1.0], 1.0, .5) is None
 
 
 def _row():
