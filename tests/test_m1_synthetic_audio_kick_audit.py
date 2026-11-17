@@ -78,3 +78,32 @@ def test_rejects_invalid_grid_and_short_audio():
         mod.align_grid_to_attacks([0.5, 0.5], [])
     with pytest.raises(ValueError, match="mono audio"):
         mod.extract_kick_attacks(audio[:100], sr, 120)
+
+
+def test_region_boundaries_and_mismatch_counts():
+    mod = load()
+    grid = [0.5, 1.0, 2.0, 2.5, 3.0, 4.0]
+    events = [
+        {"index": i, "status": "measured", "audio_attack_seconds": stamp}
+        for i, stamp in enumerate([0.5, 1.0, 2.2, 2.7, 3.2, 4.0])
+    ]
+    regions = (("early", None, 2.5), ("late", 2.5, None))
+    rows = mod.regional_alignment(grid, events, regions, tolerance_ms=80)
+    assert [r["beat_count"] for r in rows] == [3, 3]
+    assert rows[0]["outside_tolerance_count"] == 1
+    assert rows[1]["outside_tolerance_count"] == 2
+    assert rows[0]["median_absolute_nearest_attack_error_ms"] == 0.0
+    assert rows[1]["median_absolute_nearest_attack_error_ms"] == 200.0
+
+
+def test_no_measured_kicks_is_not_inferred_from_generator_reference():
+    mod = load()
+    rows = mod.regional_alignment(
+        [0.5, 1.0, 1.5],
+        [{"index": 1, "status": "insufficient_low_frequency_attack"}],
+        (("all", None, None),),
+    )
+    assert rows[0]["beat_count"] == 3
+    assert rows[0]["measured_nearest_count"] == 0
+    assert rows[0]["outside_tolerance_count"] == 3
+    assert rows[0]["median_absolute_nearest_attack_error_ms"] is None
