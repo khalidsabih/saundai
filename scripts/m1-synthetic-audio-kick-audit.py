@@ -224,6 +224,73 @@ def regional_alignment(grid, events, regions, *, tolerance_ms=80.0):
     return result
 
 
+
+def index_association_regions(grid, events, regions, *, tolerance_ms=80.0):
+    """Diagnose synthetic pulse-index associations without changing any beat.
+
+    The generator index is available only for these two explicitly generated
+    fixtures. Nearest-event association may be ambiguous near the midpoint
+    between kicks and does not establish an actual missing musical beat.
+    """
+    import bisect
+    from collections import Counter
+
+    if not isinstance(grid, (list, tuple)) or len(grid) < 2 or any(
+        not math.isfinite(float(beat)) for beat in grid
+    ) or any(b <= a for a, b in zip(grid, grid[1:])):
+        raise ValueError("invalid detected beat grid")
+    measured = sorted(
+        (float(e["audio_attack_seconds"]), int(e["index"]))
+        for e in events if e.get("status") == "measured"
+    )
+    times = [pair[0] for pair in measured]
+    result = []
+    for name, start, end in regions:
+        associations = []
+        for detected_index, beat in enumerate(grid):
+            if (start is not None and beat < start) or (end is not None and beat >= end):
+                continue
+            if not measured:
+                continue
+            j = bisect.bisect_left(times, beat)
+            candidates = [measured[k] for k in (j - 1, j) if 0 <= k < len(measured)]
+            attack, pulse_index = min(candidates, key=lambda pair: abs(pair[0] - beat))
+            signed_error = 1000.0 * (float(beat) - attack)
+            associations.append({
+                "beat_index": detected_index,
+                "kick_index": pulse_index,
+                "index_offset": pulse_index - detected_index,
+                "signed_error_ms": round(signed_error, 3),
+                "within_tolerance": abs(signed_error) <= tolerance_ms,
+            })
+        reliable = [x for x in associations if x["within_tolerance"]]
+        counts = Counter(x["index_offset"] for x in reliable)
+        nearest_indices = [x["kick_index"] for x in associations]
+        result.append({
+            "region": name,
+            "beat_count": sum(
+                (start is None or b >= start) and (end is None or b < end)
+                for b in grid
+            ),
+            "associated_count": len(associations),
+            "within_tolerance_count": len(reliable),
+            "out_of_tolerance_count": len(associations) - len(reliable),
+            "reliable_index_offset_histogram": {
+                str(k): counts[k] for k in sorted(counts)
+            },
+            "nearest_kick_duplicate_steps": sum(
+                y == x for x, y in zip(nearest_indices, nearest_indices[1:])
+            ),
+            "nearest_kick_reverse_steps": sum(
+                y < x for x, y in zip(nearest_indices, nearest_indices[1:])
+            ),
+            "first_associations": associations[:4],
+            "last_associations": associations[-4:],
+            "warning": "Synthetic kick indices; out-of-tolerance associations do not establish beat identity.",
+        })
+    return result
+
+
 def audit(directory: Path, analyze) -> dict:
     tracks = []
     for name, bpm in FIXTURES:
@@ -236,6 +303,9 @@ def audit(directory: Path, analyze) -> dict:
         analysis = analyze(path)
         aligned = align_grid_to_attacks(analysis.beats_seconds, attacks)
         regional = regional_alignment(
+            analysis.beats_seconds, attacks, OUTGOING_REGIONS
+        ) if name == FIXTURES[0][0] else None
+        index_associations = index_association_regions(
             analysis.beats_seconds, attacks, OUTGOING_REGIONS
         ) if name == FIXTURES[0][0] else None
         confident = [e for e in attacks if e["status"] == "measured"]
@@ -252,6 +322,7 @@ def audit(directory: Path, analyze) -> dict:
             ),
             "grid_alignment_to_independent_audio": aligned,
             "outgoing_region_alignment": regional,
+            "outgoing_region_index_associations": index_associations,
             "first_audio_attack_examples": attacks[:8],
             "neural_grid_used": (analysis.neural_evidence.get("beat_downbeat") or {}).get("used"),
         })
