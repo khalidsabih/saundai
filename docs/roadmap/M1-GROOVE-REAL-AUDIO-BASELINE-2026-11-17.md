@@ -70,3 +70,24 @@ This supports investigating systematic estimator behavior, not a proven specific
 Owner ran the same approved 12-WAV development manifest using `DJAI_NEURAL_BEATS=1`, `--allow-neural`, with model downloads disabled. Output reported `tempo_mae_bpm=19.198308`, 12/12 tempo coverage, no beat/downbeat reference coverage, and no ledger recording. Previous deterministic MAE on the same manifest: `35.290125`. Absolute improvement `16.091817` BPM, relative MAE reduction **45.6%**.
 
 **Caveats:** `allow-neural` and environment opt-in alone do not prove that Beat This! predictions were accepted or that no fallback occurred; backend provenance is still unverified. Single drummer/session and 12 tracks: promising comparison, **not generalization evidence**, a promotion gate, or M1 completion. Next inspect per-track delta and runtime neural acceptance/rejection diagnostics, then run a drummer/style-diverse development cohort with frozen IDs. Do not touch reserved test cohort or alter production model authority.
+
+## Per-track deterministic versus neural-enabled comparisons
+
+Owner-provided report comparison from identical 12-track Groove cohort: **5 improved, 6 unchanged, 1 regressed**, deterministic MAE `35.290125`, neural-enabled MAE `19.198308` (45.6% reduction). Absolute errors in BPM:
+
+| ID suffix | Deterministic | Neural-enabled | Improvement |
+|---|---:|---:|---:|
+| 184 | 74.00 | 0.95 | +73.05 |
+| 101 | 59.91 | 0.00 | +59.91 |
+| 102 | 34.20 | 1.25 | +32.95 |
+| 1 | 27.67 | 1.08 | +26.58 |
+| 202 | 3.55 | 2.86 | +0.70 |
+| 100 | 35.20 | 35.20 | 0 |
+| 146 | 0.70 | 0.70 | 0 |
+| 176 | 38.55 | 38.55 | 0 |
+| 183 | 1.64 | 1.64 | 0 |
+| 201 | 65.20 | 65.20 | 0 |
+| 3 | 81.50 | 81.50 | 0 |
+| 47 | 1.36 | 1.45 | -0.09 |
+
+Rounding of printed rows means sums may not precisely reproduce full-precision MAE. The **unchanged six tracks** could indicate selective neural acceptance, deterministic fallback, identical predictions, or other behavior. Inspect implementation and instrumentation before attributing causality or promoting a checkpoint. The largest residual errors are suffixes 3, 201, 176, 100. This remains a single-session development smoke test, not a generalization claim.
