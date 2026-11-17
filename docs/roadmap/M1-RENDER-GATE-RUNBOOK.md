@@ -500,3 +500,37 @@ python scripts/m1-demo-phase-index-replay.py \
 ```
 
 Inspect `median_abs_outgoing_clock_excess_ms`, `median_abs_incoming_clock_excess_ms`, `median_abs_clock_excess_difference_ms`, and the first example's two `*_complete_interval_budget` objects. The phase-lock gate remains at its unchanged **25 ms** residual limit; the frozen M1 rhythm selection policy is unchanged. The new script output and tests have not been verified on the owner's Mac yet.
+
+## Owner per-deck cumulative interval replay — source of median-BPM discrepancy
+
+The owner submitted a further replay after the cumulative-budget extension. All **111** rejected synthetic configurations were evaluated, none skipped, with **0.000 ms** median absolute difference from the original phase trace. For the representative 15.603806-second overlap starting around **36.176689 s** on the outgoing track and **9.705941 s** on the incoming:
+
+| Deck | Complete intervals | Median interval | Cumulative interval deviation from target | Beat-clock excess |
+|---|---:|---:|---:|---:|
+| Outgoing | 31 | 487.619 ms | **+139.324 ms** | **−139.324 ms** |
+| Incoming | 32 | 487.619 ms | **−116.096 ms** | **+116.096 ms** |
+
+Their excess difference is **−255.420 ms**, exactly matching the measured rejected phase movement. The median absolute excess across configurations was **132.991 ms** outgoing, **139.316 ms** incoming, and **255.420 ms** difference. **No individual complete interval in this representative overlap exceeded the script's 15% anomaly threshold**; maximum absolute single-interval departure was **23.220 ms** on both decks.
+
+This establishes that *equal local median periods do not imply equal total beat advancement*. Arithmetic mean period and accumulated interval deviation capture many small consistent offsets that the median discards. The new `interval_budget` report additionally includes `mean_interval_ms`, `mean_minus_median_ms`, `mean_implied_bpm`, and `median_implied_bpm` to make the discrepancy explicit.
+
+This does **not** authorize replacing the production BPM estimator with a local mean, moving beat indices, modifying a signed plan, or weakening phase safety. Complete-interval budgets exclude partial edge intervals; production still needs independent onset evidence, broader music evaluation, and guarded integration tests.
+
+Rerun the two additional pure-unit tests and report with a **fresh filename**:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_demo_phase_index_replay.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_BEAT_GAP_AWARE=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-phase-index-replay.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --output /tmp/saund-m1-phase-mean-median-04.json
+```
+
+Compare the mean and median per-deck intervals and the signed cumulative biases. Fail-closed planner behavior and the 25 ms phase residual limit remain unchanged.
