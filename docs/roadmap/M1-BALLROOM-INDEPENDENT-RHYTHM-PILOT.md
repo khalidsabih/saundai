@@ -32,3 +32,18 @@ Owner explicitly entered `yes` after the Ballroom local rights-review prompt and
 | Downbeat annotation coverage | 8/8 | 8/8 | — |
 
 No ledger entries recorded. Neural-enabled is not proof of neural acceptance for every track: inspect per-track neural evidence `used`, `confidence`, `reason` and compare event F1 per track. These exploratory scores fall short of proposed targets (beat F1 0.90, downbeat F1 0.85). Next inspect annotation alignment/convention and per-track failure clusters, and **tempo vs median beat-grid BPM consistency** without enabling the scalar shadow tempo selector. Do not promote model or change production on eight-track pilot.
+
+## Per-track eight-track beat/downbeat diagnostic (owner result)
+
+| Track | Deterministic beat F1 | Neural-enabled beat F1 | Deterministic downbeat F1 | Neural-enabled downbeat F1 |
+|---|---:|---:|---:|---:|
+| Albums-AnaBelen_Veneo-01 | 0.925 | 1.000 | 0.000 | 1.000 |
+| Albums-AnaBelen_Veneo-02 | 0.680 | 0.680 | 0.000 | 0.000 |
+| Albums-AnaBelen_Veneo-13 | 0.340 | 0.340 | 0.087 | 0.087 |
+| Albums-Ballroom_Classics4-06 | 0.976 | 1.000 | 0.444 | 1.000 |
+| Albums-Ballroom_Classics4-18 | 0.571 | 0.571 | 0.000 | 0.000 |
+| Albums-Cafe_Paradiso-05 | 0.992 | 1.000 | 1.000 | 1.000 |
+| Albums-Cafe_Paradiso-14 | 0.619 | 0.619 | 0.000 | 0.000 |
+| Media-103511 | 0.959 | 1.000 | 0.000 | 1.000 |
+
+Four neural-enabled tracks have beat F1=1.0 and downbeat F1=1.0. Four poor-scoring tracks have **exactly unchanged** beat/downbeat F1; possible neural grid rejection or identical grid, not yet confirmed. Next capture `neural_evidence["beat_downbeat"]` for all eight and inspect backend `available`, `used`, `confidence`, `authority`, `reason` and tempo/grid ratio without modifying production. If available but rejected, score neural *candidate* beat/downbeat timestamps against independent Ballroom labels in an offline-only tool, as was done with scalar BPM. Do not lower beat grid gate based only on this pilot.
