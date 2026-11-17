@@ -54,6 +54,8 @@ def test_rate_comparison_does_not_rewrite_input():
     assert result["median_original_numeric_residual_ms"] == 210.0
     assert result["median_hypothetical_numeric_residual_ms"] == 18.0
     assert result["hypothetical_numeric_below_25ms_count"] == 1
+    assert result["hypothetical_numeric_still_exceeds_25ms_count"] == 0
+    assert result["all_paired_profiles_still_fail_25ms_numeric_limit"] is False
     assert result["new_plan_created"] is False
     assert result["production_changed"] is False
     assert trace[0] == before
@@ -78,3 +80,34 @@ def test_missing_track_skipped_not_marked_safe():
     assert result["paired_numeric_profiles"] == 0
     assert result["hypothetical_numeric_below_25ms_count"] == 0
     assert result["skipped"]["unknown_track"] == 1
+
+
+
+def test_reduced_phase_error_is_not_misrepresented_as_pass():
+    mod = load()
+    tracks = {
+        "a.wav": {"beats": list(range(100)), "bpm": 120},
+        "b.wav": {"beats": list(range(100)), "bpm": 120},
+    }
+
+    def still_rejected(beats_a, beats_b, **params):
+        return {
+            "status": "replayed",
+            "max_bounded_residual_ms": 210.42 if params["rate_b"] == 1.0 else 94.797,
+            "numeric_residual_below_25ms": False,
+        }
+
+    report = mod.compare([row()], assessment(), tracks, still_rejected)
+    assert report["median_numeric_reduction_ms"] > 100.0
+    assert report["hypothetical_numeric_below_25ms_count"] == 0
+    assert report["hypothetical_numeric_still_exceeds_25ms_count"] == 1
+    assert report["all_paired_profiles_still_fail_25ms_numeric_limit"] is True
+    assert report["new_plan_created"] is False
+    assert report["transition_rendered"] is False
+
+
+def test_no_numeric_replay_does_not_claim_all_fail():
+    mod = load()
+    report = mod.compare([row()], assessment(), {}, fake_profile)
+    assert report["paired_numeric_profiles"] == 0
+    assert report["all_paired_profiles_still_fail_25ms_numeric_limit"] is False
