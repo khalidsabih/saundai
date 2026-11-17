@@ -79,3 +79,25 @@ def test_bad_annotation_fails_closed(tmp_path):
     path.write_text("0.5 1\n1.0 0\n")
     with pytest.raises(ValueError, match="invalid beat index"):
         m.read_beats(path)
+
+
+def test_cli_multiple_exclusions_and_validation_split(tmp_path):
+    m = load()
+    root = fixture(tmp_path)
+    one = tmp_path / "old.json"
+    two = tmp_path / "c1.json"
+    one.write_text(json.dumps({"dataset_id": "ballroom", "items": [{"id": "old"}]}))
+    two.write_text(json.dumps({"dataset_id": "ballroom", "items": [{"id": "c1"}]}))
+    destination = tmp_path / "validation.json"
+    assert m.main([
+        "--source-root", str(root),
+        "--exclude-manifest", str(one),
+        "--exclude-manifest", str(two),
+        "--split", "validation",
+        "--count", "1",
+        "--output", str(destination),
+    ]) == 0
+    selected = json.loads(destination.read_text())
+    assert selected["split"] == "validation"
+    assert selected["rights_confirmed"] is False
+    assert [item["id"] for item in selected["items"]] == ["w1"]
