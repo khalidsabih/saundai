@@ -101,3 +101,37 @@ def test_infeasible_planner_reports_hard_constraints_without_forcing(track_pair,
     assert "cannot support a beatmatched blend" in message
     assert "enough bars" in message
     assert "pair(s)" in message
+
+
+
+def test_blend_gate_diagnostic_identifies_local_grid_deficit(track_pair):
+    from dataclasses import replace
+    from djai.decision import blend_gate_diagnostics
+    from djai.models import CompatibilityBreakdown
+
+    track_a, track_b = track_pair
+    track_b = replace(track_b, bpm=track_a.bpm, time_signature=track_a.time_signature)
+    breakdown = CompatibilityBreakdown(
+        tempo=1.0, harmonic=1.0, energy=1.0, texture=1.0,
+        phrase=1.0, sections=1.0, overall=1.0,
+        tempo_difference_percent=0.0, energy_delta=0.0, beat_grid=0.1,
+    )
+    reasons = blend_gate_diagnostics(track_a, track_b, breakdown, "safe", track_a.bpm)
+    assert any("local beat-grid confidence 0.100 below 0.380" in reason for reason in reasons)
+
+
+def test_blend_gate_diagnostic_reports_meter_mismatch(track_pair):
+    from dataclasses import replace
+    from djai.decision import blend_gate_diagnostics
+    from djai.models import CompatibilityBreakdown
+
+    track_a, track_b = track_pair
+    track_a = replace(track_a, time_signature=3)
+    track_b = replace(track_b, bpm=track_a.bpm, time_signature=4)
+    breakdown = CompatibilityBreakdown(
+        tempo=1.0, harmonic=1.0, energy=1.0, texture=1.0,
+        phrase=1.0, sections=1.0, overall=1.0,
+        tempo_difference_percent=0.0, energy_delta=0.0, beat_grid=1.0,
+    )
+    reasons = blend_gate_diagnostics(track_a, track_b, breakdown, "safe", track_a.bpm)
+    assert any("estimated meters incompatible" in reason for reason in reasons)
