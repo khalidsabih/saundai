@@ -75,6 +75,29 @@ def compare_to_generator(beats, bpm, duration):
                 "deviation_from_generator_period_ms": round(deviation_ms, 3),
                 "nearest_generator_index_step": jumps[i],
             })
+    # Group adjacent anomalous intervals to distinguish a small number of
+    # localized phase shifts from uniform tempo drift. This is synthetic
+    # reference evidence, never an automatic correction instruction.
+    clusters = []
+    for event in interval_events:
+        index = event["between_observed_indices"][0]
+        if not clusters or index > clusters[-1]["last_interval_index"] + 1:
+            clusters.append({
+                "first_interval_index": index,
+                "last_interval_index": index,
+                "start_seconds": event["left_seconds"],
+                "end_seconds": event["right_seconds"],
+                "interval_count": 1,
+                "cumulative_period_deviation_ms": event["deviation_from_generator_period_ms"],
+            })
+        else:
+            group = clusters[-1]
+            group["last_interval_index"] = index
+            group["end_seconds"] = event["right_seconds"]
+            group["interval_count"] += 1
+            group["cumulative_period_deviation_ms"] += event["deviation_from_generator_period_ms"]
+    for group in clusters:
+        group["cumulative_period_deviation_ms"] = round(group["cumulative_period_deviation_ms"], 3)
     # Report the complete count and bounded details; do not silently assume
     # all phase residual is physical drift.
     quartiles = []
@@ -99,6 +122,7 @@ def compare_to_generator(beats, bpm, duration):
             "expected_interval_ms": round(period * 1000.0, 3),
             "outlier_threshold_percent": 15,
             "outlier_interval_count": len(interval_events),
+            "outlier_clusters": clusters,
             "first_outlier_intervals": interval_events[:12],
             "signed_sequential_error_quartile_medians_ms": quartiles,
             "nearest_index_wraps": [
