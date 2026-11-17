@@ -130,3 +130,20 @@ cd /tmp/saund-m1-evaluator
 ```
 
 The previous 8-track research permission does **not** automatically authorize an expanded cohort. Owner must review expanded evaluation rights and explicitly attest locally before generating a *distinct* approved manifest with `rights_confirmed=true`; do not auto-approve in importer. After approval, benchmark with `--audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio"` and `scripts/m1-ballroom-grid-shadow.py` using a **new** result path. These 80 are exploratory development only; freeze a separate never-inspected holdout and do not tune against it. Zero production behavior changed.
+
+## Owner-run 80-track independent Ballroom development cohort (2026-11-17)
+
+Owner confirmed the expanded 80-track local research evaluation was permitted and generated a distinct `ballroom-diverse-80-APPROVED.json`, separate from the original eight-track cohort. Source B_1.0 contains 698 matched original beat, BPM and WAV files; seeded importer selected 80 from 690 eligible recordings (8 explicitly excluded), with representation across 10 genre directories (ChaChaCha 9, Jive 9, Quickstep 8, Rumba-American 6, Rumba-International 8, Rumba-Misc 8, Samba 8, Tango 8, VienneseWaltz 8, Waltz 8). Private manifest and source audio remain local, not committed.
+
+Executed `scripts/m1-ballroom-grid-shadow.py` with model downloads disabled against the locally approved independent beat/downbeat and BPM references. Output at `/tmp/saund-m1-ballroom-pilot/grid-shadow-80.json` (not committed):
+
+| Metric | Selected SAUND grid | Beat This! raw candidate grid |
+|---|---:|---:|
+| Beat F1 (70 ms) | **0.792782** | **0.975817** |
+| Downbeat F1 (100 ms) | **0.694564** | **0.978045** |
+| Tempo MAE (absolute, no octave folding) | **22.547576 BPM** | **2.558026 BPM** |
+| Neural candidate availability | — | **80 / 80** |
+| Neural grid currently accepted | — | **50 / 80** |
+| Neural grid currently rejected | — | **30 / 80** |
+
+Raw Beat This! candidate beat/downbeat F1 exceeds proposed 0.90/0.85 M1 gates **on exploratory development data only**. Current selected integration does not. This result strongly suggests over-conservative gating in aggregate but cannot establish whether all 30 rejected candidate grids improve independently, and is not an untouched holdout or safe transition-render certification. `production_changed=false`, `model_promoted=false`. No automatic threshold relaxation or promotion. Next analyze 80-track per-track paired selected-vs-candidate event counts and failures by genre, confidence, authority, and acceptance outcome; keep separate final untouched holdout for gate selection validation.
