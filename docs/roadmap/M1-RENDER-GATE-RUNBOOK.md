@@ -1519,3 +1519,53 @@ On the Mac, all **7 tests passed**. The owner re-ran `beat_this==1.1.0` with `--
 The extra downbeats arise **by the model-logit-plus-default-minimal-peak-decoding stage**, not by the `.beats` exporter: independent decoding reconstructs all 101 combined downbeats exactly, and positive local downbeat peaks number 46/55 *before* they are snapped to beats. This does not distinguish inherently ambiguous raw model scores from overly permissive minimal decoding. No generator reference entered inference or decoding; it was used only to score known bars afterward. The two-track synthetic result does not establish real-music performance.
 
 **Next independent test:** benchmark Beat This! v1.1.0's upstream `--dbn` mode (madmom Dynamic Bayesian Network constrained to candidate 3- or 4-beat bars) on both WAVs with **new separate output paths**, and compare it to the original minimal decoding using existing posthoc 4/4 downbeat/timing auditor. Do not use generator truth to configure or force the decoder; do not silently tune thresholds or rewrite the original TSVs. Python 3.12 may require compatibility work for madmom; if so record the blocker and avoid production dependency changes. No model promotion, sealed test, altered 25 ms planner gate or transition render; PR #28 remains draft.
+
+## M1 fast-track controlled beat-grid preview: parallel acceptance gates (do not auto-promote)
+
+**Objective:** Replace sequential bespoke rhythm-phase research with a short, reversible **Beat This! final0 beat-grid candidate** evaluation. This is a **production-candidate preparation plan**, not release authorization. No edits to the 25 ms continuous phase-integrity envelope, no force-render, no sealed Ballroom test. Keep draft PR #28 unmerged.
+
+**Already demonstrated on the two known generated demo WAVs:** external Beat This! final0 matches all 99 previously displaced outgoing kicks, all 256 generated pulse timestamps within 25 ms (maximum matched residuals 20.984 / 20.000 ms) and all 64 reference bar-start locations; however downbeat outputs have 37 extra labels total (14 + 23). The independent origin trace reproducibly locates those labels in the logit plus minimal downbeat peak decoding, not TSV export. These are **two related synthetic fixtures only**.
+
+**Existing integration discovered:** `src/djai/intelligence/neural_ears.py::predict_beats` already wraps `File2Beats` under `DJAI_NEURAL_BEATS` and `model_registry` authority, and `src/djai/analysis.py` only replaces grid when `NeuralBeatResult.used` is true. `DJAI_NEURAL_BEATS=off` disables this path. This is a potentially reversible integration; **its default checkpoint is `small0`, whereas all positive new evidence is for `final0`**. The default model registry advisory manifest is named small0. Do not treat final0 benchmark evidence as proof that existing small0 production/advisory policy is correct. Do not simply flip `authority=production`. Existing `downbeat_spacing_integrity` is structural (median downbeat interval relative to beat period), not musical validation. `DJAI_NEURAL_DOWNBEAT_INTEGRITY=1` is a trial-only guard, not a substitute for a release test.
+
+**Additional tool:** `scripts/m1-beat-this-independent-regression.py`, with `tests/test_m1_beat_this_independent_regression.py`, compares *already-saved* Beat This `.beats` and optional SAUND `.beats` against independent human/authorized beat and optional downbeat reference timestamp files. The manifest explicitly allows `split=validation` only; `train`, `test` and `sealed` are rejected. It never runs a tracker, downloads a model or edits an output grid. Annotation timestamps are used solely after inference. Reports per-track beats/downbeats, 70ms research F1, unmatched events, per-track matched error maximum, and count of independent references not matched within 25ms (diagnostic only). Rights clearance and annotation quality need operator verification: the tool cannot certify them.
+
+**Operator minimal usage:**
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_beat_this_independent_regression.py
+```
+Create a manifest at `/tmp/saund-m1-independent/manifest.json` (user-supplied *licensed* WAV and independent annotations; do not fabricate ground truth):
+```json
+{
+  "tracks": [
+    {
+      "id": "independent-track-01",
+      "split": "validation",
+      "audio": "audio/track-01.wav",
+      "reference_beats": "labels/track-01-beats.txt",
+      "reference_downbeats": "labels/track-01-downbeats.txt",
+      "beat_this_predictions": "pred/track-01.beats",
+      "saund_predictions": "pred/track-01-saund.beats"
+    }
+  ]
+}
+```
+Prediction generation is **separate** and must run using the pinned **Beat This! final0** checkpoint with no access to reference-label files; export baseline SAUND beats as a TSV with number 1 for actual SAUND downbeat times only, not inferred labels. Do not use generated fixture timing as truth for independent music. Then:
+```bash
+python scripts/m1-beat-this-independent-regression.py \
+  --manifest /tmp/saund-m1-independent/manifest.json \
+  --output /tmp/saund-m1-independent-regression-01.json
+```
+Use new output paths each run. No music/annotation corpus has been supplied in this conversation, so **independent audio validation remains UNRUN**. Use a **predeclared representative** validation set including strong and weak kicks, offbeats, syncopation, varied electronic genres, breakdowns, intros, changes of tempo and meter; do not set a magic success threshold after reading outcomes.
+
+**Parallel release checklist:**
+1. **Independent regression (BLOCKED pending real annotated WAVs):** beat timing F1 and per-track regressions against current SAUND, downbeat precision/recall, outliers, tempo drift, and representative hard cases. No sealed data.
+2. **Shadow/off/rollback (NOT YET VERIFIED):** exercise `DJAI_NEURAL_BEATS=off` with cached same fixture and compare baseline; test a separately configured experimental final0 checkpoint with model registry unchanged; prove hard fallback on missing checkpoint, absent PyTorch, corrupt result, model timeout/error, untrusted or contradictory downbeats. No silent use of extra bar-start labels.
+3. **Deployment/provenance (NOT YET APPROVED):** pin `beat-this==1.1.0`, actual `final0` checkpoint SHA256, CPU speed and peak memory on intended host, compatible `torch`, `torchaudio`, `soundfile` WAV fallback (Mac experiment previously needed soundfile, already installed in separate environment), cache location, offline behavior and explicit network policy; separately review model-weight provenance and training-data rights. The separate Mac benchmark venv is **not** a deployable package or rights signoff.
+4. **End-to-end planner (BLOCKED pending candidate wiring/measurements):** unforced planner experiment with final0 candidate beat grids and safe/downbeat-confidence handling, **hard 25ms continuous phase-integrity check unchanged** and comparisons to existing 111/111 blocked profiles; no unsafe render or default production selection. Do not infer an unforced pass from 25ms *posthoc beat-event* error.
+5. **Go/no-go (NOT APPROVED):** only after explicit evidence for the above, determine whether a limited, opt-in **beat-analysis-only** preview is justified; keep full autonomous transitions gated separately. Every failure should preserve the current deterministic behavior and be observable. Rollback must work without editing checkpoints or downgrading the planner guard.
+
+**Speed principle:** execute independent validation, rollback/deployment verification and DBN downbeat research as parallel lanes. Do not withhold positive beat-grid findings for yet another bespoke transient detector; conversely do not claim readiness from two synthetic demos alone.
