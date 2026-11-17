@@ -189,6 +189,15 @@ class TrackAnalysis:
 
     def to_dict(self, *, include_beats: bool = True) -> dict[str, Any]:
         data = asdict(self)
+        # Opt-in consumer-facing neural beat display only. Never mutates the
+        # authoritative beats/downbeats, bar features, cues, or signed plans.
+        from .intelligence.beat_preview import beat_preview_from_evidence, preview_enabled
+
+        if preview_enabled():
+            data["beat_only_preview"] = beat_preview_from_evidence(
+                self.neural_evidence.get("beat_downbeat", {}),
+                duration_seconds=self.duration_seconds,
+            )
         if not include_beats:
             data["beats_seconds"] = data["beats_seconds"][:16]
             data["downbeats_seconds"] = data["downbeats_seconds"][:16]
