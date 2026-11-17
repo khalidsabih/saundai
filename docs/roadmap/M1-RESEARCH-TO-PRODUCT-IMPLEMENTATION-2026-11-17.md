@@ -113,3 +113,15 @@ Owner ran complete `djai.analysis.analyze_track` in separate subprocesses on `01
 **Interpretation:** The complete analysis pipeline keeps the original selected grid and equal entry/exit candidate counts when `final0` is available but not used. This is valuable real-runtime fallback evidence, not evidence that the new bar-grid veto specifically fired: the reason did **not** include `neural bar-grid safety veto`, suggesting selection did not pass an earlier confidence/authority threshold. The model's full-analysis `confidence`, `agreement`, `authority` and threshold were not printed. The scalar model BPM remains 120.0 for this track despite the robust estimator, so the model's raw timestamps or estimator need inspection before claiming the nominal 122 BPM discrepancy is fixed.
 
 **Next targeted action:** print confidence/agreement/authority alongside bar-integrity check from the saved candidate arrays, without changing live acceptance thresholds. Then design a separately feature-flagged, beat-only benefit path that does not combine unmatched deterministic/neural bar phases or bypass the hard 25 ms gate. No production update or render.
+
+## Owner updated-source full-analysis diagnosis: two independent selection blockers
+
+After explicitly setting `PYTHONPATH=/tmp/saund-m1-evaluator/src` to avoid importing the older installed checkout, the owner ran `analyze_track` with cached Beat This! `final0` on the synthetic opening. Printed diagnostic evidence:
+
+- Neural confidence: **0.6599**; agreement with deterministic beat grid: **0.1938**.
+- Model registry authority: **0.0** (below default registry minimum confidence 0.66).
+- Neural grid `used=false`; reason: `neural beat grid recorded as evidence but deterministic grid retained`.
+- Independent `downbeat_bar_integrity`: **false**, reason `irregular neural bar spacing or surplus downbeat labels`.
+- Selected analyzer output remains 123.0469 BPM, **128** beats and **32** downbeats.
+
+This establishes *two* distinct safeguards on this fixture: the early authority/confidence refusal and the structural bar-grid failure. Since selection already failed the earlier threshold, the final `neural bar-grid safety veto` was not the returned `reason`; the separate validator nevertheless confirms the bar defect. The upstream model was available in the preceding successful call. This is not evidence that the new neural beat timestamps are unsafe; it is evidence that the **existing planner cannot be fed the inconsistent full beat+bar candidate**. Do not lower thresholds to force selection or silently substitute downbeat phase. Next product work is an opt-in beat-only diagnostic/perception capability and a separately validated coherent bar-phase selection before making candidate beats authoritative for transition planning.
