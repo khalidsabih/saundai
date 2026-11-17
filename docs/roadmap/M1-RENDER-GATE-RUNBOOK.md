@@ -1404,3 +1404,32 @@ The owner successfully installed **beat-this==1.1.0** and its required `soundfil
 **Do not overinterpret:** 80 ms is an **offline evaluation tolerance**, not a passed 25 ms planner gate. The median reported timing error is calculated over *matched* beats only, and the two extra beat predictions on each whole track remain unmatched; the current report cannot certify every individual beat within 25 ms. Beat This! produced **46 and 55** beat-number-1 predictions (downbeats) on the respective recordings, which is unusually numerous relative to an assumed four-beat pulse cycle; **true downbeat/bar correctness has not been measured**, and we must not invent meter or count correctness from kick labels. Neither tempo-synchronous transitions nor any overlap planner/render were run. It remains only two rights-free generated demo songs, without independent real-music generalization or licensing approval. The supplied operator log contains the comparison JSON, but no separate pytest result. Flags confirm `correct_phase_certified=false`, `ground_truth_downbeat_accuracy_measured=false`, `beat_grid_modified=false`, `neural_policy_promoted=false`, `production_changed=false`, `sealed_ballroom_test_touched=false`, `transition_rendered=false`.
 
 **Engineering recommendation:** Pivot the next M1 phase to an **external/pretrained Beat This! challenger evaluation**, not another local transient threshold sweep. First verify *predicted downbeat labels/spacing and confidence* with an independent, fixture-specific bar/downbeat reference where appropriate and independent rights-cleared nontraining audio; keep comparisons shadow-only without replacing `TrackAnalysis.beats_seconds`. Check phase-error distribution, per-beat worst case, drift across segments and explicitly whether a proposed model grid passes the unchanged production planner 25 ms gate **without force**, but do not render or authorize transitions based on this benchmark. Review upstream model-weight provenance/licensing before any distribution. Draft PR #28 stays unmerged and the frozen neural policy remains unchanged.
+
+## M1 next checkpoint: Beat This! synthetic 4/4 downbeat labels and strict timing tails
+
+Following the owner's external **Beat This! final0** benchmark (99/99 matched measured attacks in the outgoing 9.636281–58.305306 s failure region, and 127/127 measured kick attacks matched on each whole-track clip at an 80 ms **research-only** tolerance), a key remaining uncertainty is correct **downbeat/bar phase** and **worst-case beat residuals** rather than mean match quality. The model produced **46** and **55** predicted downbeat labels on the opening and groove demo respectively. Kick labels alone cannot determine whether those downbeat predictions are musically correct.
+
+The repository generator `src/djai/demo.py::generate_demo_track` explicitly computes `beat_seconds = 60/bpm`, `bar_seconds = beat_seconds * 4`, writes a kick for every one of **four beats per bar**, and begins chord accompaniment at each bar start when enabled. `generate_demo_set(..., bars=32)` generates the original 122 BPM and 124 BPM demo files. Therefore this particular rights-free fixture provides an explicit **synthetic reference of 128 beats and 32 4/4 bar starts per track**. This is valid *post-hoc evaluation* data; **never provide the generator BPM, reference beats, or bar start positions to Beat This! inference or to any production beat identity decision**.
+
+Added `scripts/m1-beat-this-downbeat-timing-audit.py` and `tests/test_m1_beat_this_downbeat_timing_audit.py`. The script reads **only** the already-generated external `.beats` files plus the WAV duration; it does not install or run Beat This!, download model checkpoints, or modify either model's predictions. It uses the strict TSV parser from the previous external benchmark. It compares Beat This! predicted **beat-number-1 downbeats** directly to the generator's known 32 bar starts and predicted beats to known 128 pulse times using **one-to-one matching at 80 ms**. It also reports **median, 95th percentile and maximum matched timing errors**, the count of reference events without a match within **25 ms**, bar-label index intervals (how often successive predicted downbeats are separated by four beat predictions), fixed **eight-second** regional beat scores, and separate scores in the previously identified failing outgoing interval.
+
+**Critical distinction:** The 25 ms value in this script is a **post-hoc beat/downbeat timestamp residual diagnostic**, and the 80 ms matching tolerance is only the research score. Neither is interchangeable with, or evidence of passing, the existing **continuous 25 ms transition-planner phase-integrity hard gate**. A good median or even all timestamps within 25 ms would not authorize rendering a transition.
+
+Mac commands:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q \
+  tests/test_m1_beat_this_downbeat_timing_audit.py \
+  tests/test_m1_beat_this_benchmark.py
+
+python scripts/m1-beat-this-downbeat-timing-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --predictions-root /tmp/saund-m1-beat-this-predictions-01 \
+  --output /tmp/saund-m1-beat-this-downbeat-timing-01.json
+```
+
+The above script does not need the Beat This! experimental Python venv because its `.beats` output files already exist. It uses the existing SAUND evaluator's NumPy/soundfile dependencies. **Mac execution has not yet been observed**; record actual results only after the user runs it. The two known generated tracks are narrow controls and do not measure generalization to independent rights-cleared tracks or commercial recordings. Regardless of outcome, PR #28 remains draft, model policy frozen, sealed Ballroom test untouched, source beat grids unchanged, and **no unsafe transition may render**.
