@@ -214,3 +214,38 @@ DJAI_PHASE_LOCK_TRACE_PATH="$M1_PHASE_TRACE" \
 The CLI is **expected to exit nonzero** on the recorded unsafe candidate; the summary command can still be run afterwards in an interactive shell. The JSONL trace includes cue positions, overlap duration, beat-grid confidence and interval CV, correction envelope and step limit, sample-by-sample `phase_error_ms` and `residual_ms`, and unmatched-point counts. The summarizer reports unique configurations and directional drift vs abrupt jumps. **Do not interpret a 999 ms insufficient-evidence sentinel as measured residual.**
 
 Before any change to timing behavior, inspect the actual trace: assess whether the issue is steady pulse drift, beat-index discontinuity/missing beats, exhausted incoming source, or insufficient reliable intervals. Neither disabling phase warp nor increasing its correction limits is an approved remedy. Use real audio only with separately approved render rights and keep the final holdout sealed.
+
+## Owner phase-lock trace: 111 rejected overlap configurations
+
+The owner reran the guarded synthetic demo pair with `DJAI_PHASE_LOCK_TRACE_PATH` and used the existing `scripts/summarize_phase_lock_trace.py`. The pasted summary reported:
+
+| Measure | Owner-observed |
+|---|---:|
+| Raw rejected plan evaluations | 111 |
+| Unique cue/rate/overlap configurations | 111 |
+| Insufficient-evidence cases | 0 |
+| Median measured residual | 210.420 ms |
+| P90 measured residual | 465.839 ms |
+| Mostly directional trajectories | 83 |
+| Irregular trajectories | 28 |
+| Reason: correction exceeds bounded phase-lock envelope | 111 |
+
+**Interpretation:** These are measured residuals in SAUND's inferred continuous phase profiles, not verified acoustic drift relative to real kick events. In particular, the baseline `_unwrapped_beat_numbers` uses each detected event's sequential index. A dropped beat may cause a permanent index-origin shift, even when the local beat period is plausible. The `DJAI_BEAT_GAP_AWARE` implementation already exists but is disabled by default. Do not enable or retune it solely from aggregate trace statistics, and do not raise the 25 ms residual safety limit.
+
+### Synthetic beat-index audit to distinguish drift from missing beats
+
+Added `scripts/m1-demo-beat-index-audit.py` and `tests/test_m1_demo_beat_index_audit.py`. The read-only diagnostic compares each estimated beat timestamp against the **known exactly timed kicks** of `src/djai/demo.py`, which generates unswung 4/4 at 122 and 124 BPM. It reports median/max event-time error, missing/doubled nearest generator beat indices and the largest index discontinuity. This ground truth is valid **only on the generated demo**, not real Ballroom music. It does not modify beat predictions, planning, or phase-lock thresholds.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$M1_PYTHON" -m pytest -q tests/test_m1_demo_beat_index_audit.py
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+"$M1_PYTHON" scripts/m1-demo-beat-index-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-demo-beat-index-01.json
+```
+
+Next inspect the resulting track-specific gap counts and event-time errors, then correlate with the original rejected trace's candidate cue spans. If detected beats are dropped or duplicated, study the phase-index problem with synthetic known events before proposing a bounded corrective policy. If event indices are intact, investigate relative phase calculations and tempo-rate assumptions. In either case, **do not force a mix** or relax the phase-integrity stop, and do not score the sealed Ballroom test cohort.
