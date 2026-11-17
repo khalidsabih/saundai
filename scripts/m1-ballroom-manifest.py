@@ -61,8 +61,8 @@ def read_duration(path):
         raise ValueError(f"{path.name}: unreadable WAV duration") from exc
 
 
-def build(source_root, exclude_ids, *, count=80, seed=20261117, min_seconds=8.0):
-    if count < 1 or min_seconds < 4:
+def build(source_root, exclude_ids, *, count=80, seed=20261117, min_seconds=8.0, split="development"):
+    if split not in {"development", "validation", "test"}:\n        raise ValueError("invalid split")\n    if count < 1 or min_seconds < 4:
         raise ValueError("count must be positive; minimum duration must be >=4 seconds")
     annotations = source_root / "annotations" / "beats"
     tempos = source_root / "annotations" / "tempo"
@@ -124,7 +124,7 @@ def build(source_root, exclude_ids, *, count=80, seed=20261117, min_seconds=8.0)
     return {
         "schema_version": "saund-m1-rhythm-v1",
         "dataset_id": "ballroom",
-        "split": "development",
+        "split": split,
         "rights_confirmed": False,
         "items": selected,
     }, {
@@ -142,11 +142,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, required=True,
                         help="existing local Ballroom B_1.0 source root")
-    parser.add_argument("--exclude-manifest", type=Path, required=True,
+    parser.add_argument("--exclude-manifest", type=Path, required=True, action="append",
                         help="previous pilot; its IDs may not appear in new sample")
     parser.add_argument("--output", type=Path, required=True,
                         help="new private unapproved manifest; no overwrite")
-    parser.add_argument("--count", type=int, default=80)
+    parser.add_argument("--count", type=int, default=80)\n    parser.add_argument("--split", choices=("development", "validation", "test"), default="development")
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--min-seconds", type=float, default=8)
     args = parser.parse_args(argv)
