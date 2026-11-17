@@ -178,3 +178,39 @@ DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
 ```
 
 A successful plan must still satisfy the planner's **existing** hard constraints and automatic safety checks. A failure may reveal a different issue (cue durations, local compatibility, boundary confidence); capture its diagnostic reason and do not force or relax constraints. Only if a valid no-force plan exists should an approved synthetic or other rights-cleared development render proceed. The structural spacing check has not yet been tested for false rejection on diverse 3/4, 6/8, or other real-music cases.
+
+## Owner safe-planner rerun: meter gate cleared; continuous phase safety abstained
+
+After enabling `DJAI_NEURAL_DOWNBEAT_INTEGRITY=1`, the owner reran the generated 4/4 demo pair with `djai plan --style safe --tempo-policy safe --no-quality-check`. The prior `estimated meters incompatible or unknown (4 vs 6)` rejection did **not** recur. Instead the CLI stopped with:
+
+```text
+Continuous beat-phase lock is outside the bounded correction envelope; automatic delivery should replan or use a structural reset.
+```
+
+This is meaningful progression: the analysis-stage meter inconsistency was fixed for the opt-in synthetic demo trial, but the planner still **cannot safely deliver** the proposed transition. No audio render, human listening verdict, threshold relaxation, forced transition, or production promotion occurred. The new message originates in `src/djai/performance/deck.py:apply_deck_performance`, which sets `requires_confirmation` when a beatmatched plan's continuous phase profile is unsafe. The measured error and exact reason **have not yet been observed** in the pasted CLI output. This is not necessarily proof of audible drift.
+
+### Capture the existing phase-lock trace without changing decisions
+
+SAUND already supports opt-in read-only rejected-plan logging through `DJAI_PHASE_LOCK_TRACE_PATH` and `scripts/summarize_phase_lock_trace.py`. Run the same no-force safe plan with the full current opt-in configuration, saving output to a **new private trace filename**:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+export M1_PHASE_TRACE="/tmp/saund-m1-demo-phase-lock-01.jsonl"
+test ! -e "$M1_PHASE_TRACE" || { echo "Choose a new private trace filename" >&2; exit 2; }
+
+PYTHONPATH="$PWD/src" \
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+DJAI_PHASE_LOCK_TRACE_PATH="$M1_PHASE_TRACE" \
+"$M1_PYTHON" -m djai plan \
+  "$M1_AUDIO_ROOT/$M1_TRACK_A" "$M1_AUDIO_ROOT/$M1_TRACK_B" \
+  --tempo-policy safe --style safe --no-quality-check
+
+"$M1_PYTHON" scripts/summarize_phase_lock_trace.py "$M1_PHASE_TRACE"
+```
+
+The CLI is **expected to exit nonzero** on the recorded unsafe candidate; the summary command can still be run afterwards in an interactive shell. The JSONL trace includes cue positions, overlap duration, beat-grid confidence and interval CV, correction envelope and step limit, sample-by-sample `phase_error_ms` and `residual_ms`, and unmatched-point counts. The summarizer reports unique configurations and directional drift vs abrupt jumps. **Do not interpret a 999 ms insufficient-evidence sentinel as measured residual.**
+
+Before any change to timing behavior, inspect the actual trace: assess whether the issue is steady pulse drift, beat-index discontinuity/missing beats, exhausted incoming source, or insufficient reliable intervals. Neither disabling phase warp nor increasing its correction limits is an approved remedy. Use real audio only with separately approved render rights and keep the final holdout sealed.
