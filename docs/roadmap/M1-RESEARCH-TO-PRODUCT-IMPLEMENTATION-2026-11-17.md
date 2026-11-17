@@ -179,3 +179,16 @@ PY
 **Expected on the known opening fixture:** preview has 129 available candidate beats at the model's measured pulse tempo, while selected grid stays at 128 beats / 32 downbeats and neural whole-grid `used=false`. Verify actual output before claiming this integration has passed. `DJAI_BEAT_ONLY_PREVIEW=0` (or unset) immediately removes the new response field; it does not download a model or change any planner safety controls.
 
 **Next genuinely musical step**: a separate experimental bar-phase resolver must establish meter and bar-origin from independent audio evidence (not a synthetic truth oracle) and run full `analyze_track`/cue/planner/renderer validation on rights-cleared music. Do not simply snap every fourth pulse to a guessed bar origin, change the model authority threshold, or weaken the continuous 25 ms render gate.
+
+## Owner verification: beat-only preview regression fix passed
+
+Owner fetched PR #28 branch at commit `166bc70` into `/tmp/saund-m1-evaluator` and executed:
+
+```sh
+python -m pytest -q \
+  tests/test_m1_beat_only_preview.py \
+  tests/test_m1_neural_bar_safety_promotion.py \
+  tests/test_m1_beat_this_fast_track_rollback.py
+```
+
+Terminal result: `........................ [100%]` (**24/24 passed**, no failures). This confirms the isolated long-/short-interval regression fixes alongside previous mocked adapter safety tests in the owner's normal Python environment. The actual offline `final0` checkpoint has **not yet been run against the newly exposed `beat_only_preview` response**; do not claim end-to-end feature validation until that smoke result is observed. The authoritative planner grid and 25 ms phase gate remain unchanged.
