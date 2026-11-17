@@ -85,3 +85,41 @@ def test_missing_track_skipped_and_invalid_audit_rejected():
     assert result["skipped"]["trace_track_not_in_audit"] == 1
     with pytest.raises(ValueError, match="generated-demo"):
         mod.correlate([], {})
+
+
+
+def test_phase_trajectory_evidence_splits_crossing_and_non_crossing():
+    mod = _module()
+    crossing = _row(exit_a=8.0, residual=170.0)
+    crossing["points"] = [
+        {"fraction": 0.0, "phase_error_ms": 0.0},
+        {"fraction": .25, "phase_error_ms": 5.0},
+        {"fraction": .5, "phase_error_ms": 180.0},
+        {"fraction": .75, "phase_error_ms": 182.0},
+        {"fraction": 1.0, "phase_error_ms": 185.0},
+    ]
+    outside = _row(exit_a=14.0, residual=210.0)
+    outside["points"] = [
+        {"fraction": 0.0, "phase_error_ms": 0.0},
+        {"fraction": .25, "phase_error_ms": 30.0},
+        {"fraction": .5, "phase_error_ms": 60.0},
+        {"fraction": .75, "phase_error_ms": 90.0},
+        {"fraction": 1.0, "phase_error_ms": 120.0},
+    ]
+    result = mod.correlate([crossing, outside], _audit())
+    cross = result["groups"]["crosses_anomaly"]
+    other = result["groups"]["does_not_cross_anomaly"]
+    assert cross["median_abs_start_to_end_phase_change_ms"] == 185.0
+    assert cross["median_largest_sample_phase_step_ms"] == 175.0
+    assert cross["phase_trajectory_patterns"]["abrupt_phase_jump"] == 1
+    assert other["median_abs_start_to_end_phase_change_ms"] == 120.0
+    assert other["phase_trajectory_patterns"]["mostly_directional_drift"] == 1
+
+
+def test_missing_phase_samples_do_not_invent_trajectory():
+    mod = _module()
+    result = mod.correlate([_row(exit_a=14.0)], _audit())
+    group = result["groups"]["does_not_cross_anomaly"]
+    assert group["median_abs_start_to_end_phase_change_ms"] is None
+    assert group["median_largest_sample_phase_step_ms"] is None
+    assert group["phase_trajectory_patterns"]["insufficient_trajectory"] == 1
