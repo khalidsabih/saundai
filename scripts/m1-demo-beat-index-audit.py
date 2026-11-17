@@ -59,6 +59,29 @@ def compare_to_generator(beats, bpm, duration):
     implied_period = period + slope_ms_per_beat / 1000.0
     first_third = signed_errors[: max(1, len(signed_errors) // 3)]
     last_third = signed_errors[-max(1, len(signed_errors) // 3):]
+    # Inspect local intervals independently of the global fitted slope. A
+    # single too-short/long interval can move the sequential beat index by one
+    # pulse and make ordinary linear regression look like tempo drift.
+    interval_events = []
+    for i, (left, right) in enumerate(zip(observed, observed[1:])):
+        interval = right - left
+        deviation_ms = 1000.0 * (interval - period)
+        if abs(deviation_ms) >= 0.15 * 1000.0 * period:
+            interval_events.append({
+                "between_observed_indices": [i, i + 1],
+                "left_seconds": round(left, 6),
+                "right_seconds": round(right, 6),
+                "interval_ms": round(interval * 1000.0, 3),
+                "deviation_from_generator_period_ms": round(deviation_ms, 3),
+                "nearest_generator_index_step": jumps[i],
+            })
+    # Report the complete count and bounded details; do not silently assume
+    # all phase residual is physical drift.
+    quartiles = []
+    for part in range(4):
+        start = part * len(signed_errors) // 4
+        end = (part + 1) * len(signed_errors) // 4
+        quartiles.append(round(statistics.median(signed_errors[start:end]), 3))
     ideal_total = len(range(0, int((duration - 0.01) / period) + 1))
     return {
         "generator_bpm": bpm,
@@ -71,6 +94,20 @@ def compare_to_generator(beats, bpm, duration):
             "implied_bpm_from_linear_fit": round(60.0 / implied_period, 4) if implied_period > 0 else None,
             "end_minus_start_signed_ms": round(signed_errors[-1] - signed_errors[0], 3),
             "index_assumption": "consecutive beats from first nearest-generator pulse; diagnose skipped/doubled beats separately",
+        },
+        "local_interval_diagnostics": {
+            "expected_interval_ms": round(period * 1000.0, 3),
+            "outlier_threshold_percent": 15,
+            "outlier_interval_count": len(interval_events),
+            "first_outlier_intervals": interval_events[:12],
+            "signed_sequential_error_quartile_medians_ms": quartiles,
+            "nearest_index_wraps": [
+                {"between_observed_indices": [i, i + 1],
+                 "event_index_step": step,
+                 "left_seconds": round(observed[i], 6),
+                 "right_seconds": round(observed[i+1], 6)}
+                for i, step in enumerate(jumps) if step != 1
+            ][:12],
         },
         "observed_count": len(observed),
         "expected_count_approx": ideal_total,
