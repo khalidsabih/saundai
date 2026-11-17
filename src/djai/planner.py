@@ -377,6 +377,23 @@ def _rank_style_plans(
             # than inflating totals across intents/techniques on the same pair.
             reasons = {reason for item in assessments for reason in item.hard_failures}
             rejection_counts.update(reasons)
+        # Distinguish shared tempo/meter/grid gates from incidental
+        # technique-specific restrictions such as absent stems.
+        from .decision import blend_gate_diagnostics
+        blend_rejections: Counter[str] = Counter()
+        for evidence in evidence_matrix.pairs:
+            if evidence.cue_signature in excluded:
+                continue
+            blend_rejections.update(blend_gate_diagnostics(
+                track_a, track_b, evidence.breakdown, tempo_policy,
+                float(effective_bpm_a or track_a.bpm),
+            ))
+        blend_detail = (
+            " Blend gate: "
+            + "; ".join(f"{reason} ({count} pair(s))" for reason, count in blend_rejections.most_common(4))
+            + "."
+            if blend_rejections else ""
+        )
         detail = (
             " Rejection diagnostics across "
             + str(examined_pairs)
@@ -392,7 +409,7 @@ def _rank_style_plans(
         raise DifficultTransitionError(
             0.0,
             "No technique-feasible transition was found for the selected cues and tempo policy."
-            + bars_detail + detail,
+            + bars_detail + blend_detail + detail,
         )
 
     ranked.sort(
