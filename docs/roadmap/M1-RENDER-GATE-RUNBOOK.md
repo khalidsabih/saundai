@@ -1208,3 +1208,26 @@ All 15 mixed waveforms returned supported 120 BPM periodicity; **the missed weak
 The nine single-source/noise-only controls did not trigger `competing_acoustic_phase_trains`, including the strong bass-only sequence; pure noise produced ACF abstention. Importantly, the stable-pulse-only control at noise standard deviation 0.005 produced **0.543 opposite coverage** from 152 globally localized events, although its weak/strong ratio was only 0.00035. This highlights a potential false-ambiguity risk if coverage or strength cutoffs were weakened to rescue the quiet-kick cases. The clean single-phase 120 BPM controls now reach comparison without the old 24-event count gate, but their `insufficient_evidence` output **still does not certify correct beat phase**.
 
 **Decision: still blocked for production.** Do not tune the 0.006 weakness threshold or 0.60 phase-coverage threshold against this same sweep. Prioritize additional independent random seeds, colored/transient noise, low-kick/high-bass timbres, timing jitter, offbeat subdivisions, and rights-cleared real music to estimate robustness beyond these fixtures. A candidate safeguard must separately establish that it can abstain on an unsafe/unknown phase *without* rejecting ordinary syncopated music or incorrectly approving a one-phase bass train. The current detector is advisory/shadow-only; the frozen neural authority, unchanged 25 ms planner phase-integrity envelope and no-render-on-reject rule remain in effect. The pasted report did not include pytest output, so no test-pass claim is made.
+
+## Shadow-only robustness matrix: independently varied noise, seeds, kick timbre and jitter
+
+The previous 24-case weak-phase sensitivity sweep detected competing phase evidence in **9/15** mixed kick-plus-offbeat-bass examples (kick amplitude >=0.12) and in **0/9** single-source/noise-only controls. At kick amplitude 0.02 and 0.06, all six mixed examples were missed despite supported 120 BPM ACF periodicity. A pulse-only noisy control had 54.3% spurious opposite-phase event coverage, close to the 60% coverage threshold, though its rival strength was only 0.00035. These are **narrow deterministic synthetic results**, not real-world sensitivity or specificity estimates.
+
+Added `scripts/m1-competing-phase-robustness.py` and `tests/test_m1_competing_phase_robustness.py`. This is a **predeclared, separate 52-case synthetic robustness matrix**; it does not change the existing detector, its thresholds or the production pipeline. The matrix crosses **two independent random seeds** (101, 907), **white versus low-pass-colored noise**, **87 Hz decaying sinusoid versus 65→125 Hz chirped low-frequency kick**, and **0 versus ±14 ms independent beat/offbeat timing jitter**. Each combination includes a mixed waveform with a weaker kick amplitude **0.06**, a mixed waveform with weaker kick amplitude **0.12** (both against offbeat bass amplitude 1.1), and a **single-pulse-only** negative control. Four additional **noise-only** negative controls cover both noise types and seeds. The noise standard deviation is fixed at 0.002 after per-waveform noise normalization.
+
+The fixture generator returns **only the synthetic waveform and sample rate**. The existing audio-only ACF period estimator, global low-band event locator and competing-phase comparison run without generated reference beat timestamps, known BPM, analyzed beat grid or source labels. The output aggregates `competing_phase_count` and `periodicity_abstain_count` separately for **32 mixed**, **16 pulse-only**, and **4 noise-only** examples. A competing-phase result is ambiguity evidence only; `insufficient_evidence` neither proves the track is safe nor identifies a correct beat. The thresholds **0.006 relative rival strength**, **0.60 per-phase coverage**, the ACF selection rules and the 25 ms planner envelope are unchanged. No setting may be chosen based on this limited matrix.
+
+To run on the Mac evaluator:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_competing_phase_robustness.py
+
+python scripts/m1-competing-phase-robustness.py \
+  --output /tmp/saund-m1-competing-phase-robustness-01.json
+```
+
+Review `summary_by_fixture` and inspect each case's `periodicity.status`, `phase_evidence.status`, `anchor_event_coverage`, `opposite_event_coverage`, and `weaker_to_stronger_median_rise_ratio`. For mixed-case misses, distinguish ambiguous ACF from failed rival-peak localization or relative-strength cutoffs. For pulse-only/noise-only cases, evaluate false competing-phase signals and abstentions, not just event counts. The tests and script have been committed but **owner execution has not yet been observed**. The complete corpus remains synthetic and insufficient for real-music correctness claims. PR #28 stays draft; neural authority, source beat grids, planner decisions, and 25 ms no-unsafe-render gate remain frozen.
