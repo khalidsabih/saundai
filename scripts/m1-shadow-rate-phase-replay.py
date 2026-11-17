@@ -92,6 +92,9 @@ def compare(trace, assessment, tracks, profile):
     paired = [x for x in outcomes if x["numeric_reduction_ms"] is not None]
     def med(values):
         return round(median(values), 3) if values else None
+    numeric_below_limit = sum(
+        x["hypothetical_below_existing_25ms_numeric_limit"] is True for x in paired
+    )
     return {
         "schema": "saund-m1-shadow-rate-phase-replay-v1",
         "trace_rows": len(trace),
@@ -102,7 +105,11 @@ def compare(trace, assessment, tracks, profile):
         "median_original_numeric_residual_ms": med([x["baseline_numeric_residual_ms"] for x in paired]),
         "median_hypothetical_numeric_residual_ms": med([x["hypothetical_numeric_residual_ms"] for x in paired]),
         "median_numeric_reduction_ms": med([x["numeric_reduction_ms"] for x in paired]),
-        "hypothetical_numeric_below_25ms_count": sum(x["hypothetical_below_existing_25ms_numeric_limit"] is True for x in paired),
+        "hypothetical_numeric_below_25ms_count": numeric_below_limit,
+        "hypothetical_numeric_still_exceeds_25ms_count": len(paired) - numeric_below_limit,
+        "all_paired_profiles_still_fail_25ms_numeric_limit": (
+            len(paired) > 0 and numeric_below_limit == 0
+        ),
         "examples": outcomes[:8],
         "counterfactual_only": True,
         "original_grid_unchanged": True,
