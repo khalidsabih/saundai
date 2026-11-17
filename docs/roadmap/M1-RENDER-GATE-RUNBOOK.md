@@ -772,3 +772,29 @@ python scripts/m1-synthetic-audio-kick-audit.py \
 ```
 
 Inspect `tracks[0].outgoing_region_index_associations`, especially `reliable_index_offset_histogram`, `out_of_tolerance_count`, and nearest-kick duplicate steps across the first and second compression regions. The 99 middle mismatches should remain **out of tolerance**, not be misreported as confident index alignment. This is only synthetic diagnostic evidence; the next permitted action depends on independent source-event identity, not forcing a transition through the **25 ms** phase-integrity stop.
+
+## Owner index-association result — 10 focused tests passed; middle remains unassociated
+
+The owner ran `tests/test_m1_synthetic_audio_kick_audit.py` successfully (**10 passed**) and the unchanged-grid acoustic index association experiment. For the outgoing 122 BPM generated track, the **17/17** initial reliably aligned detected beats matched measured acoustic kick indices at a consistent **+1** offset (the grid starts near kick #1, not kick #0). At the first compression region, one beat still associated reliably at **+1**, the next was **112.834 ms early** and exceeded the 80 ms tolerance. All **99/99** middle-section beats were out of acoustic tolerance and therefore **no middle kick-index association is reliable**. The late compression region had **0/3** reliable associations; nearest-kick matching repeated an index, but this is not proof of a physically duplicated beat. After the late cluster, **7/7** beats reliably matched measured kick indices at offset **0**. The incoming track still had zero beats beyond the 80 ms acoustic tolerance.
+
+The index evidence is consistent with a loss and subsequent recovery of rhythmic alignment, but it does not independently establish whether the middle beat tracker followed offbeat hi-hats, shifted to a different metrical phase or lost a pulse count. Crucially, midpoint timestamps are **not measured audio events**: they are mathematical midpoints between pairs of separately measured kick attacks.
+
+### Synthetic half-beat midpoint hypothesis test
+
+Added `scripts/m1-synthetic-offbeat-midpoint-audit.py` and `tests/test_m1_synthetic_offbeat_midpoint_audit.py`. It compares each original detected beat with (a) independently measured WAV kick attacks and (b) **inferred** temporal midpoints between adjacent measured kick events. It reports counts and median distances per known outgoing phase region, plus the whole incoming track. A midpoint is absent if either acoustic neighbor was unmeasured; it never fills missing onset evidence or pretends to have detected an offbeat instrument. A closer inferred midpoint supports a *half-beat displacement hypothesis*, but by itself **does not prove that SAUND is following hi-hats**. A separate actual hi-hat transient detector would be needed for that claim.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_synthetic_offbeat_midpoint_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-synthetic-offbeat-midpoint-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-synthetic-offbeat-midpoint-01.json
+```
+
+Compare `tracks[0].regions` for `between_compressions`: `closer_to_inferred_midpoint_count`, `median_distance_to_inferred_midpoint_ms`, and `within_inferred_midpoint_tolerance_count` versus corresponding measured kick counts. Synthetic-only timing evidence cannot authorize moving beat positions or override the **25 ms** phase-safety stop, frozen neural policy, rights requirements, or rendering gates.
