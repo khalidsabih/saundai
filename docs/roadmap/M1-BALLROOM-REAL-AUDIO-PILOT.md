@@ -89,3 +89,15 @@ Candidate IDs (audit normalized to lowercase, not a new source-of-truth mapping)
 Reported style folders: `chachacha`, `jive`, `quickstep`, `rumba-american`, `rumba-international`, `rumba-misc`, `samba`, `tango`.
 
 **Interpretation:** archive identity and small-sample pairing inspection passed. No WAV was extracted, usage rights were not affirmed, the independently annotated audio has not been analyzed by SAUND and no F1 or BPM metric has been measured. Next: owner reviews permitted noncommercial research use before invoking `--research-only-ack`, then prepares an explicitly reviewed development manifest for evaluation.
+
+
+## Owner's actual eight-track extraction — 2026-11-17
+
+The owner ran `scripts/m1-prepare-ballroom-pilot.py --max-tracks 8 --research-only-ack` against the checksum-verified original archive and obtained:
+
+- Private, unapproved manifest: `/tmp/saund-m1-ballroom-pilot/ballroom-development-DRAFT.json`
+- Local audio root: `/tmp/saund-m1-ballroom-pilot/audio`
+- Prepared tracks: **8**
+- Tool-reported `rights_confirmed=false`, `benchmark_ready=false`.
+
+This is an **audio preparation success, not benchmark acceptance**. No numerical beat/downbeat F1, license approval, held-out test result, model improvement or champion is evidenced. The next gate is verifying permitted local, noncommercial evaluation use and explicitly approving an independently retained copy of the development manifest; original draft should remain unchanged. After that run the existing deterministic evaluator without ledger/champion promotion initially.
