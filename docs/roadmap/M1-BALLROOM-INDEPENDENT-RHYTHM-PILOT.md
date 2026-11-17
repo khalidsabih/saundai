@@ -166,3 +166,37 @@ Owner's read-only analysis of `grid-shadow-80.json` showed **29/30 rejected raw 
 All 30 neural candidate rejections are in confidence <0.70; all 50 current neural acceptances are confidence >=0.70 on this data. This pattern is **descriptive**, not a verified implementation-wide hard threshold: multiple authority/confidence signals may influence acceptance. The zero F1 deltas in accepted cases are **tautological** because selected equals candidate, and must not be interpreted as poor neural quality. The 21/21 improvement in the 0.50–0.70 bin is substantial, but cannot justify lowering production cutoff directly: the dataset has already been inspected, the <0.50 band contains one beat regression, and other genres/source data could behave differently.
 
 **Next experiment:** preregister a conservative *shadow-only* challenger (e.g. propose acceptance for `confidence >=0.50`, no production changes), compare track-paired selected vs counterfactual selected metrics across a **new disjoint validation cohort**. Keep independent test set untouched for once policy is frozen. Check downbeat phase/bar-grid consistency and rendered DJ transitions on any candidate to be promoted. Avoid reusing these 80 development tracks as validation of the chosen cutoff.
+
+## Frozen confidence 0.50 challenger — fresh disjoint validation, shadow only
+
+**Policy frozen from the exploratory 80-track development observations:** retain the current selected grid when Beat This! was already accepted; otherwise choose the *whole* Beat This! event grid and paired BPM only when it is available, confidence **>=0.50** and |candidate BPM - median candidate beat-grid BPM| **<=2.0 BPM**. Otherwise keep the currently selected grid. This policy is **not production code**. No grid/BPM hybrid, no authority threshold change, no training or auto-promotion. The validation report includes track-paired beat/downbeat regressions and counts, micro-F1, tempo MAE and raw-candidate comparison.
+
+New `scripts/m1-ballroom-gate-challenger.py` reads private grid-shadow JSON and a **validation** (not development) rights-approved Ballroom manifest, checks manifest SHA256 and exact ID matching, evaluates the fixed policy and writes a new no-overwrite report. `scripts/m1-ballroom-manifest.py` now accepts repeatable `--exclude-manifest` flags and a `--split validation` for a distinct seeded genre-diverse cohort. Tests: `tests/test_m1_ballroom_gate_challenger.py`, `tests/test_m1_ballroom_manifest.py`.
+
+Run on the owner's Mac from PR #28 branch, with source root under `~/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0`:
+
+```sh
+cd /tmp/saund-m1-evaluator
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_gate_challenger.py tests/test_m1_ballroom_manifest.py
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-manifest.py \
+  --source-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0" \
+  --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json \
+  --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-diverse-80-APPROVED.json \
+  --split validation --count 80 --seed 20261118 \
+  --output /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-DRAFT.json
+```
+
+After a **new, explicit local rights review** of this validation cohort, create an approved copy manually with `rights_confirmed=true` (never within the importer), then run:
+
+```sh
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-grid-shadow.py \
+  --manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+  --audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio" \
+  --output /tmp/saund-m1-ballroom-pilot/grid-shadow-validation-80.json
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-gate-challenger.py \
+  --manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+  --shadow /tmp/saund-m1-ballroom-pilot/grid-shadow-validation-80.json \
+  --output /tmp/saund-m1-ballroom-pilot/frozen-gate-validation-80.json
+```
+
+Do not tune after seeing validation results and call those results holdout. Reserve a later **test** split for final one-shot review. Success requires >=0.90 beat F1, >=0.85 downbeat F1, scrutiny of any >0.10 per-track beat regression and tempo/grid consistency, and separate DJ-render transition safety. This is a research workflow only; scripts do not certify production readiness.
