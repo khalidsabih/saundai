@@ -47,3 +47,20 @@ No ledger entries recorded. Neural-enabled is not proof of neural acceptance for
 | Media-103511 | 0.959 | 1.000 | 0.000 | 1.000 |
 
 Four neural-enabled tracks have beat F1=1.0 and downbeat F1=1.0. Four poor-scoring tracks have **exactly unchanged** beat/downbeat F1; possible neural grid rejection or identical grid, not yet confirmed. Next capture `neural_evidence["beat_downbeat"]` for all eight and inspect backend `available`, `used`, `confidence`, `authority`, `reason` and tempo/grid ratio without modifying production. If available but rejected, score neural *candidate* beat/downbeat timestamps against independent Ballroom labels in an offline-only tool, as was done with scalar BPM. Do not lower beat grid gate based only on this pilot.
+
+## Full Ballroom neural-grid acceptance diagnosis (owner run)
+
+The 8-WAV pilot has exactly four neural grids accepted and four rejected. In all eight, selected scalar BPM matches median tempo of the **selected** beat grid, which establishes internal consistency but not independent correctness. Four rejected tracks are exactly the four with no improvement in beat/downbeat F1.
+
+| Track | Beat This! candidate BPM | Current selected BPM | Neural used | Confidence | Authority |
+|---|---:|---:|---|---:|---:|
+| Albums-Cafe_Paradiso-05 | 125.0000 | 125.00 | true | 0.9155 | 0.3113 |
+| Albums-Cafe_Paradiso-14 | 176.4706 | 86.13 | false | 0.6673 | 0.2269 |
+| Albums-Ballroom_Classics4-18 | 200.0000 | 99.38 | false | 0.6533 | 0.0 |
+| Albums-AnaBelen_Veneo-13 | 130.4348 | 89.10 | false | 0.6731 | 0.2288 |
+| Albums-AnaBelen_Veneo-01 | 96.7742 | 96.77 | true | 0.8890 | 0.3023 |
+| Media-103511 | 100.0000 | 100.00 | true | 0.8947 | 0.3042 |
+| Albums-AnaBelen_Veneo-02 | 100.0000 | 99.38 | false | 0.4347 | 0.0 |
+| Albums-Ballroom_Classics4-06 | 130.4348 | 130.43 | true | 0.8836 | 0.3004 |
+
+Next decisive validation: compare **candidate** neural beats/downbeats of four rejected grids with independent Ballroom annotations using existing one-to-one event matcher (70ms beat, 100ms downbeat). Do not swap the grids or alter production thresholds before independent scoring. Candidate BPM ratios alone cannot establish correct beat phase or downbeat position.
