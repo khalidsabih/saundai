@@ -107,3 +107,47 @@ def test_no_measured_kicks_is_not_inferred_from_generator_reference():
     assert rows[0]["measured_nearest_count"] == 0
     assert rows[0]["outside_tolerance_count"] == 3
     assert rows[0]["median_absolute_nearest_attack_error_ms"] is None
+
+
+def test_index_associations_preserve_detected_indices_without_correction():
+    mod = load()
+    grid = [0.51, 1.01, 1.51, 2.01]
+    events = [
+        {"index": index, "status": "measured", "audio_attack_seconds": index * .5}
+        for index in range(1, 7)
+    ]
+    original = list(grid)
+    regions = (("first", None, 1.5), ("second", 1.5, None))
+    results = mod.index_association_regions(grid, events, regions, tolerance_ms=80)
+    assert [r["beat_count"] for r in results] == [2, 2]
+    assert results[0]["reliable_index_offset_histogram"] == {"1": 2}
+    assert results[1]["reliable_index_offset_histogram"] == {"1": 2}
+    assert all(r["out_of_tolerance_count"] == 0 for r in results)
+    assert grid == original
+
+
+def test_index_associations_never_treat_large_distance_as_reliable_beat_identity():
+    mod = load()
+    grid = [0.7, 1.2, 1.7]
+    events = [
+        {"index": index, "status": "measured", "audio_attack_seconds": index * .5}
+        for index in range(1, 6)
+    ]
+    result = mod.index_association_regions(
+        grid, events, (("all", None, None),), tolerance_ms=80
+    )[0]
+    assert result["associated_count"] == 3
+    assert result["within_tolerance_count"] == 0
+    assert result["reliable_index_offset_histogram"] == {}
+
+
+def test_index_associations_abstain_when_audio_attacks_unmeasured():
+    mod = load()
+    result = mod.index_association_regions(
+        [0.5, 1.0, 1.5],
+        [{"index": 1, "status": "insufficient_low_frequency_attack"}],
+        (("all", None, None),),
+    )[0]
+    assert result["associated_count"] == 0
+    assert result["within_tolerance_count"] == 0
+    assert result["reliable_index_offset_histogram"] == {}
