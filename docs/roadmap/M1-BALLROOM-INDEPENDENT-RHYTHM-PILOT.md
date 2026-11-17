@@ -200,3 +200,17 @@ After a **new, explicit local rights review** of this validation cohort, create 
 ```
 
 Do not tune after seeing validation results and call those results holdout. Reserve a later **test** split for final one-shot review. Success requires >=0.90 beat F1, >=0.85 downbeat F1, scrutiny of any >0.10 per-track beat regression and tempo/grid consistency, and separate DJ-render transition safety. This is a research workflow only; scripts do not certify production readiness.
+
+## Pre-frozen 0.50 gate: fresh disjoint 80-track validation results (owner, 2026-11-17)
+
+After owner explicitly reviewed and approved local 80-track Ballroom validation use, the user executed `scripts/m1-ballroom-grid-shadow.py` on `ballroom-validation-80-APPROVED.json` and `scripts/m1-ballroom-gate-challenger.py` with the **previously frozen** confidence >=0.50 threshold plus <=2 BPM candidate-grid consistency guard. The validation manifest had 80 unique Ballroom recordings disjoint from the original 8 + development 80. Inputs/outputs are private local files, not committed. Tests for the importer/challenger were 9/9 passed before this run.
+
+| Metric | Existing selected grid | Frozen confidence-0.50 challenger | Raw neural candidate |
+|---|---:|---:|---:|
+| Beat F1 (70ms) | 0.850554 | **0.952999** | 0.977795 |
+| Downbeat F1 (100ms) | 0.770713 | **0.946314** | 0.981265 |
+| Tempo MAE (BPM) | 17.738065 | **3.506765** | 1.831609 |
+
+Coverage: neural candidate available **80/80**; current gate accepts **60/80**, rejects **20/80**; frozen challenger **newly accepts 16** (total neural use **76/80**). Paired per-track regression counts **0 beat F1 decreased, 0 downbeat F1 decreased, 0 beat-F1 drops exceeding 0.10**. No production changes, no model promotion, no new model weights. The frozen challenger passes the proposed beat >=0.90/downbeat >=0.85 benchmarks **on the disjoint validation set**, not as a general production safety certification. The four currently rejected candidates remaining unselected under the challenger warrant review, but **do not tune** on validation data after observing outcomes. The raw candidate exceeds the challenger in aggregate, but it has not passed cross-domain transition-safety tests; do not promote unconditional neural use.
+
+**Decision:** Freeze policy and these independent validation results; proceed to separately protected test cohort and practical DJ-render safety checks (downbeat phase stability, cue positions, bar-count quantization, first/last bar correctness, mix handoff and regressions on non-Ballroom music). Revalidate BPM/beat-grid coupling when swapping entire grid and BPM; never substitute the scalar tempo alone. Do not lower threshold further based on the validation result.
