@@ -473,3 +473,30 @@ python scripts/m1-demo-phase-index-replay.py \
 ```
 
 Compare `median_abs_integer_index_change_ms`, `median_abs_fraction_change_ms`, and `median_abs_replay_trace_difference_ms`. A small replay discrepancy would support consistency with the recorded phase implementation; a large discrepancy requires investigating environmental differences or reconstruction assumptions before interpreting the decomposition. An integer index change is *not automatically an actual missing beat*, because the fractional component may cancel it. All findings remain diagnostic and synthetic-only; no transition has been approved for rendering.
+
+## Owner exact phase-position replay: no discrepancy with production phase calculations
+
+The owner executed the read-only `m1-demo-phase-index-replay.py` on the same 111 rejected synthetic demo configurations. All **111 evaluated**, none skipped, and the median absolute replay-versus-original-trace difference was **0.000 ms**. Median absolute integer-index contribution was **487.619 ms** and median absolute fractional-beat contribution **228.328 ms**. A representative no-anomaly-overlap example contained an integer-index change of **−487.619 ms**, offset by **+232.199 ms** fractional movement, for a net **−255.420 ms** phase change. These contributions must be read together; an integer-index component is **not** proof of an undetected or additional beat.
+
+The replay exactly reproduces the deck's current sequential-index continuous-phase computation on the selected beat grids. It does not independently validate those beat grids against actual acoustic kicks and does not authorize any grid correction. No rendered audio, plan approval, or production threshold change has occurred.
+
+### Per-deck beat-clock excess and complete-interval budgets
+
+The same replay diagnostic now reports, for each rejected overlap, separate **outgoing** and **incoming** accumulated beat-position changes in excess of their ideal source-clock advancement. It also reports each deck's complete beat-interval count, summed signed deviation from the plan's expected beat period, maximum absolute deviation, and unusual intervals. This distinguishes which deck contributes to end-to-end phase movement, while avoiding the false assumption that equal median local BPM means equal cumulative phase. Complete intervals alone exclude the partially intersected edge intervals and should be interpreted together with exact replay positions.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_demo_phase_index_replay.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_BEAT_GAP_AWARE=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-phase-index-replay.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --output /tmp/saund-m1-phase-index-replay-03.json
+```
+
+Inspect `median_abs_outgoing_clock_excess_ms`, `median_abs_incoming_clock_excess_ms`, `median_abs_clock_excess_difference_ms`, and the first example's two `*_complete_interval_budget` objects. The phase-lock gate remains at its unchanged **25 ms** residual limit; the frozen M1 rhythm selection policy is unchanged. The new script output and tests have not been verified on the owner's Mac yet.
