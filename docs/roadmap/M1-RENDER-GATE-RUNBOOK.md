@@ -1004,3 +1004,21 @@ python scripts/m1-low-band-negative-controls.py \
 ```
 
 Check `cases[].settings[].primary.recall`, `distractor.recall`, and `detected_event_count` for each fixed configuration. A high false-positive / missed-event rate in any control is research evidence to continue abstaining, not a signal to optimize thresholds against the same examples. Extend evaluation on rights-cleared real music and multiple tempo/meter styles before considering any shadow gate promotion. The existing **25 ms continuous phase-integrity limit**, frozen neural selection authority, and no-render-on-unsafe policy remain unchanged.
+
+## Owner negative-control execution: 350 ms loses fast beats; 250 ms remains unvalidated
+
+The owner ran `scripts/m1-low-band-negative-controls.py` against the predeclared seven synthetic cases and five settings. The script reported `selected_configuration=null`, `generator_reference_used_in_detector=false`, `production_changed=false`, and `transition_rendered=false`. The pasted terminal output shows the report, but does **not** include the pytest invocation or its result; do not claim regression tests passed on this evidence alone.
+
+| Synthetic control | 250 ms / 0.30 primary recovery | 350 ms / 0.30 primary recovery | Other observed limitation |
+|---|---:|---:|---|
+| Stable 120 BPM | 23/23 | 23/23 | — |
+| Fast 200 BPM, 300 ms pulses | **38/38** | **17/38 (44.7%)** | 350 ms rejects 21 real pulses |
+| Accelerating | **29/29** | **25/29 (86.2%)** | Four real pulses lost at 350 ms |
+| Three-pulse accents | 24/24 | 24/24 | Synthetic accents, not a variable-meter corpus |
+| Weak/noisy kicks | 23/23 | 23/23 | 250 ms/0.30: 3 unmatched events; 350 ms/0.30: 2 unmatched |
+| Syncopated bass | 23/23 | 23/23 | 250 ms/0.30 retains one of 23 distractors; 350 ms/0.30 retains none |
+| Silence | No reference pulses; 0 detections | No reference pulses; 0 detections | Null recall correctly represents no ground truth |
+
+The 85 and 150 ms settings generally preserved primary synthetic events but retained substantially more distractor peaks or noise (e.g. weak-kick case 104/61 events for 23 true kicks, and syncopated case 46 events for 23 true kicks plus 23 distractors). The fixed **250 ms minimum spacing** retains all primary synthetic events in these seven cases, and the original 122/124 BPM pair separated correctly, but this is a narrow in-sample finding. It is **not** a recommended or production-ready cutoff, and should not be tuned against these same fixtures.
+
+**Decision:** reject fixed 350 ms event spacing for general use; retain 250 ms only as an unpromoted research comparator. A next shadow experiment may compare predeclared locally tempo-adaptive spacing with that comparator, using *independent audio-derived tempo hypotheses* and controls outside the current synthetic fixtures. Include 240+ BPM, halftime/doubletime, kick omissions, alternating bass emphasis, meter variation, tempo ramps, and rights-cleared real tracks. Any unreliable tempo estimate, conflicting phase evidence or absent events must yield an abstention rather than a beat adjustment. Keep the existing 25 ms planner phase-integrity gate and no-render-on-reject behavior unchanged.
