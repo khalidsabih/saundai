@@ -251,3 +251,14 @@ Create a **sealed rights-unapproved, unseen final test draft** without evaluatin
 Owner ran `scripts/m1-ballroom-grid-integrity.py` on the already-approved, 80-track *validation* cohort, obtaining **2 selected-grid structural integrity failures, 0 challenger-grid failures and 0 raw neural candidate failures**; frozen challenger newly accepted **16** Beat This! grids. This is structural validation only: `rendered_transition_safety_tested=false`, `production_changed=false`. The two selected-grid failure reasons and IDs were not included in the CLI summary and should be inspected from `/tmp/saund-m1-ballroom-pilot/grid-integrity-validation-80.json` before concluding the cases were repaired.
 
 Owner also generated a separate unapproved final test draft `/tmp/saund-m1-ballroom-pilot/ballroom-final-test-80-DRAFT.json` with `--split test --count 80 --seed 20261119`, excluding **168** previously examined Ballroom recordings. Source had **530** eligible after exclusions; the draft selected **80** across 9 genres (9 each ChaChaCha/Jive/Quickstep/Rumba-International/Rumba-Misc/Samba/Tango/VienneseWaltz, 8 Waltz). `rights_confirmed=false` and `evaluation_only=true`; **no test inference or approval yet**. Keep test sealed until cross-domain checks and rendered transition criteria are reviewed. This final test set is disjoint by exact source track ID, not necessarily by performer or recording-family group.
+
+## Identity and failure reason of both selected-grid integrity failures (owner Mac)
+
+The two tracks flagged in the 80-recording validation integrity report are both **existing-gate rejected** and **frozen-challenger neural accepted**. Both existing selected grids fail only the `bpm_grid_mismatch` structural check; `offgrid_downbeats=0` in both. Both neural candidate/challenger grids pass with no failures:
+
+| Source track | Genre | Selected beat-grid BPM | Absolute selected scalar-BPM vs grid discrepancy | Neural/challenger beat-grid BPM | Neural/challenger discrepancy | Selected failure | Challenger failure |
+|---|---|---:|---:|---:|---:|---|---|
+| `Media-104917` | Quickstep | 99.38415 | 3.97525 BPM | 200.0 | 0.0 BPM | `bpm_grid_mismatch` | none |
+| `Albums-Chrisanne3-09` | VienneseWaltz | 117.45384 | 5.10674 BPM | 176.47059 | 0.00001 BPM | `bpm_grid_mismatch` | none |
+
+This confirms the integrity audit’s original **2 selected failures → 0 challenger failures** on these two recordings, but it does **not** establish the musical correctness of faster grid interpretations or rendered DJ-transition stability. Independent annotated beat/downbeat F1 results remain from the earlier 80-track validation benchmark; do not conflate structural consistency with annotated accuracy. Next investigate selected scalar BPM vs actual median beat-grid BPM for these cases and implement separate offline transition/bar-cue quantization tests on **validation** tracks, while preserving unopened 80-recording test draft.
