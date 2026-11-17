@@ -98,3 +98,15 @@ def test_instability_abstains_instead_of_inventing_downbeats():
     )
     assert not output["available"]
     assert output["downbeats_authoritative"] is False
+
+
+def test_single_short_interval_abstains_even_with_regular_majority():
+    beats = [i * .5 for i in range(50)]
+    # One short interval should not be hidden by a 5th percentile aggregate.
+    beats[30:] = [x - .35 for x in beats[30:]]
+    result = beat_preview_from_evidence(
+        {**evidence(), "beats_seconds": beats}, duration_seconds=60
+    )
+    assert not result["available"]
+    assert "unstable neural beat interval" in result["reason"]
+    assert result["used_for_planning"] is False
