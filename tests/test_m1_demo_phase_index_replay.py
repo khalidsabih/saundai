@@ -94,3 +94,33 @@ def test_unknown_tracks_fail_closed_without_guessing():
     report = m.replay([_row()], {})
     assert report["evaluated"] == 0
     assert report["skipped"]["unknown_track"] == 1
+
+
+
+def test_interval_budget_exposes_cumulative_short_intervals():
+    m = load()
+    beats = [i * .5 for i in range(30)]
+    beats[10] = beats[9] + .10
+    budget = m.interval_budget(beats, 3.0, 7.0, .5)
+    assert budget["status"] == "measured"
+    assert budget["outlier_interval_count"] == 2
+    # A shortened beat bracket can be followed by a compensating long one,
+    # so raw sum can be zero even with unsafe local variation.
+    assert abs(budget["cumulative_interval_deviation_ms"]) < .01
+    assert budget["max_abs_interval_deviation_ms"] >= 399.0
+
+
+def test_phase_replay_reports_per_deck_excess_and_interval_budgets():
+    m = load()
+    beats = [i * .5 for i in range(100)]
+    tracks = {
+        "a.wav": {"beats": beats, "bpm": 120.0},
+        "b.wav": {"beats": beats, "bpm": 120.0},
+    }
+    result = m.replay([_row()], tracks)
+    assert result["median_abs_outgoing_clock_excess_ms"] == 0
+    assert result["median_abs_incoming_clock_excess_ms"] == 0
+    assert result["median_abs_clock_excess_difference_ms"] == 0
+    example = result["examples"][0]
+    assert example["outgoing_complete_interval_budget"]["status"] == "measured"
+    assert example["incoming_complete_interval_budget"]["status"] == "measured"
