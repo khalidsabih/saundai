@@ -1499,3 +1499,23 @@ python scripts/m1-beat-this-downbeat-origin-trace.py \
 ```
 
 **Interpretation:** If activation-rerun predictions agree with original `.beats`, inference is reproducible. If independent minimal re-decoding agrees with activation-run TSV for beat and downbeat events, the **TSV label export is not fabricating the surplus downbeats**: the extra labels emerge from independent downbeat logit peaks and the permissive minimal decoder. However this does **not** tell us whether raw logits were musically wrong or a stricter *general* decoder can safely suppress spuriously high logits. If either comparison disagrees, investigate package version, output options, 50 fps assumptions, and ordering before any interpretation; do not silently fix the scorer. Do not use the generator 4/4 truth to choose a production decoder, do not modify reference beats, and do not run the sealed test or unblocked rendering. Draft PR #28 and 25 ms continuous phase gate remain unchanged.
+
+## Owner-run Beat This! downbeat-origin trace: source isolated to minimal downbeat peak decoding
+
+On the Mac, all **7 tests passed**. The owner re-ran `beat_this==1.1.0` with `--gpu=-1 --model final0 --activations` for both existing generated 4/4 demo WAVs, saving new .npy logits and .beats exports separately from the original output. The independent read-only `m1-beat-this-downbeat-origin-trace.py` completed successfully.
+
+| Result | Opening 122 BPM | Groove 124 BPM |
+|---|---:|---:|
+| Raw logit frames, 50 fps | 3148 | 3097 |
+| Positive downbeat-logit frames | 59 | 61 |
+| Independent minimal decoded beat peaks | 129 | 129 |
+| Independent minimal decoded downbeat peaks before snapping | 46 | 55 |
+| Decoded downbeats after snapping | 46 | 55 |
+| Original vs rerun TSV beat/downbeat sequences | Exact (0 ms difference) | Exact (0 ms difference) |
+| Independent minimal decoded beats/downbeats vs rerun TSV | Exact (0 ms difference) | Exact (0 ms difference) |
+| Reference 4/4 bar starts (posthoc scoring only) | 32 | 32 |
+| Extra predicted downbeat labels | **14** | **23** |
+
+The extra downbeats arise **by the model-logit-plus-default-minimal-peak-decoding stage**, not by the `.beats` exporter: independent decoding reconstructs all 101 combined downbeats exactly, and positive local downbeat peaks number 46/55 *before* they are snapped to beats. This does not distinguish inherently ambiguous raw model scores from overly permissive minimal decoding. No generator reference entered inference or decoding; it was used only to score known bars afterward. The two-track synthetic result does not establish real-music performance.
+
+**Next independent test:** benchmark Beat This! v1.1.0's upstream `--dbn` mode (madmom Dynamic Bayesian Network constrained to candidate 3- or 4-beat bars) on both WAVs with **new separate output paths**, and compare it to the original minimal decoding using existing posthoc 4/4 downbeat/timing auditor. Do not use generator truth to configure or force the decoder; do not silently tune thresholds or rewrite the original TSVs. Python 3.12 may require compatibility work for madmom; if so record the blocker and avoid production dependency changes. No model promotion, sealed test, altered 25 ms planner gate or transition render; PR #28 remains draft.
