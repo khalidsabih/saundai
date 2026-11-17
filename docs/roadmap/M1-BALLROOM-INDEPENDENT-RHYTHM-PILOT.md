@@ -214,3 +214,34 @@ After owner explicitly reviewed and approved local 80-track Ballroom validation 
 Coverage: neural candidate available **80/80**; current gate accepts **60/80**, rejects **20/80**; frozen challenger **newly accepts 16** (total neural use **76/80**). Paired per-track regression counts **0 beat F1 decreased, 0 downbeat F1 decreased, 0 beat-F1 drops exceeding 0.10**. No production changes, no model promotion, no new model weights. The frozen challenger passes the proposed beat >=0.90/downbeat >=0.85 benchmarks **on the disjoint validation set**, not as a general production safety certification. The four currently rejected candidates remaining unselected under the challenger warrant review, but **do not tune** on validation data after observing outcomes. The raw candidate exceeds the challenger in aggregate, but it has not passed cross-domain transition-safety tests; do not promote unconditional neural use.
 
 **Decision:** Freeze policy and these independent validation results; proceed to separately protected test cohort and practical DJ-render safety checks (downbeat phase stability, cue positions, bar-count quantization, first/last bar correctness, mix handoff and regressions on non-Ballroom music). Revalidate BPM/beat-grid coupling when swapping entire grid and BPM; never substitute the scalar tempo alone. Do not lower threshold further based on the validation result.
+
+## Next safety stage: integrity audit on validation + sealed final test manifest
+
+The previously frozen 0.50 challenger passed the independent 80-track validation: selected beat F1 **0.850554**, challenger **0.952999**, raw neural **0.977795**; selected downbeat F1 **0.770713**, challenger **0.946314**, raw **0.981265**; selected tempo MAE **17.738065 BPM**, challenger **3.506765**, raw **1.831609**. Challenger newly accepted **16** neural grids (total 76/80) with **zero beat or downbeat F1 regressions**. Threshold stays frozen, with no production behavior change.
+
+Added `scripts/m1-ballroom-grid-integrity.py` plus `tests/test_m1_ballroom_grid_integrity.py`. This read-only validation audit performs its own existing Beat This! inference, selects an entire candidate grid + BPM with the frozen rule, then compares structural requirements for currently selected and challenger grids: nonempty increasing events, BPM-vs-median beat interval <=2 BPM, at least four beats/two downbeats, and each predicted downbeat within 100ms of a predicted beat. It produces private per-track failure reasons and counts; it **does not prove the underlying downbeats correct against annotations and does not render a DJ transition**. No alternate policy or threshold optimization is performed.
+
+To audit the already approved 80-track **validation** set:
+
+```sh
+cd /tmp/saund-m1-evaluator
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_grid_integrity.py
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-grid-integrity.py \
+ --manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+ --audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio" \
+ --output /tmp/saund-m1-ballroom-pilot/grid-integrity-validation-80.json
+```
+
+Create a **sealed rights-unapproved, unseen final test draft** without evaluating it until validation integrity and cross-domain/rendered transition safety procedures are reviewed. The importer excludes all **168** previously used Ballroom tracks (8 pilot, 80 development, 80 validation). A new seed is used:
+
+```sh
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-manifest.py \
+ --source-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0" \
+ --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json \
+ --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-diverse-80-APPROVED.json \
+ --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+ --split test --count 80 --seed 20261119 \
+ --output /tmp/saund-m1-ballroom-pilot/ballroom-final-test-80-DRAFT.json
+```
+
+**Do not inspect final test annotations/scores or approve final test use automatically.** The test set is only a final one-shot evaluation after the policy, acceptance criteria, license scope, cross-domain failure cases, and actual rendered-transition safety checks have been locked. The mere existence of a test manifest does not make it an authorized input. Ballroom remains evaluation-only. Future production promotion needs dedicated real mix render QC with bar and cue alignment, beat-grid swaps/tempo coupling and safe rollback.
