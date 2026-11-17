@@ -1068,3 +1068,34 @@ The 260 BPM case demonstrates the *specific* failure of fixed 250 ms spacing: th
 **Decision:** Keep adaptive audio-derived spacing as a **shadow research challenger** and fixed 250 ms as an explicitly unpromoted comparator. The current algorithm estimates a **global** ACF period from three six-second windows and refuses strong disagreement; it is **not** a local tempo-tracker and does not solve the accelerating control. Next experiments should add adversarial half-/double-time ambiguity, triplets, shuffled/offbeat bass, complex meter, low-kick/high-bass mixes, different sample rates, and genuinely time-varying tempo. Require independent rights-cleared real-audio validation, stable negative-control behavior and an end-to-end *unforced* safe planner pass before any production use.
 
 No playback rate or beat grid was altered; the frozen neural policy, 25 ms continuous phase-integrity limit, and no-render-on-unsafe rule remain intact.
+
+## M1 adversarial audio-period ambiguity and changing-tempo evaluation (research only)
+
+The owner completed the first 10-case audio-adaptive spacing report. Compared with fixed 250 ms spacing, an audio-derived ACF period retained **49/49** actual generated 260 BPM pulses (versus **30/49** fixed spacing), selected a 126.5 ms shadow event separation from a 230 ms waveform-period hypothesis, and preserved 23/23 primary pulses without the single extra detection for each of the syncopated/alternating-bass controls. But the **accelerating** case returned `weak_or_ambiguous_acf` and explicitly abstained; silence abstained too. This is synthetic evidence only, not an approved tempo/beat interpretation or a production safeguard.
+
+Added `scripts/m1-audio-adaptive-adversarial-controls.py` and `tests/test_m1_audio_adaptive_adversarial_controls.py` to evaluate **eight more deterministic waveform controls** without generator timing in the estimator:
+
+- `halftime_accents_120`: alternating strong/soft primary low-band beats to expose half-time aliasing
+- `doubletime_bass_120`: additional strong offbeat bass transient on every beat to expose double-time aliasing
+- `halfbeat_bass_120`: additional bass transient on alternating beat midpoints
+- `tempo_step_120_to_200`: a genuine source pulse-period change in the middle
+- `tempo_ramp_100_to_220`: a continuous pulse acceleration
+- `three_beat_accents` and `six_beat_accents`: differing accent cycles without assuming that accent grouping is musical meter
+- `low_kick_high_bass`: deliberately weak kick signals competing with stronger low-band offbeat bass
+
+The evaluator calls the **unchanged** audio-only ACF estimator and the fixed 250 ms versus audio-adaptive event locators. After the estimator has returned, it compares its period with the known generated pulse schedule to report a **post-hoc half-/double-time alias flag** (ratio near 0.5 or 2.0). The generator reference is strictly scoring-only: it never feeds the period estimator, peak finder, event-spacing selection, or production beat grid. An ACF period can still sound plausible while corresponding to the wrong musical subdivision. The report does not choose a setting or correct a beat.
+
+Run on the operator's Mac:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_audio_adaptive_adversarial_controls.py
+
+python scripts/m1-audio-adaptive-adversarial-controls.py \
+  --output /tmp/saund-m1-audio-adaptive-adversarial-01.json
+```
+
+Inspect `cases[].audio_periodicity.status`, `hypothetical_period_to_reference_ratio_posthoc`, `potential_half_or_double_time_alias_posthoc`, `strategies[].primary.recall`, `strategies[].distractor.recall`, and abstentions. Treat any confidently wrong half/double estimate, tempo-change overgeneralization, or distractor substitution as a **research gate failure**. These synthetic tests cannot certify real-world musical meter; separately validate with rights-cleared diverse audio before any opt-in policy proposal. Keep PR #28 draft, the frozen neural authority, and the unchanged 25 ms phase-integrity planner stop. No rejected transition may render.
