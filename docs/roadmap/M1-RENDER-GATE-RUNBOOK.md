@@ -1241,3 +1241,30 @@ Two failure mechanisms are visible in the detailed output. First, mixed-waveform
 The pulse-only negative controls did not trigger a false competing-phase label, but several had substantial apparent opposite-phase coverage from noise (e.g. **0.833** on one lowpass/jittered single-phase case); their much smaller rival-rise ratios (~0.00039–0.00049) prevented the false decision. This is evidence **against indiscriminately reducing the rival-strength threshold**. Zero detections on these limited controls is not a statistically established false-positive rate for real music.
 
 **Engineering decision:** Remain shadow-only and **do not promote** the waveform competing-phase detector or select thresholds based on this test. Next isolate phase-drift sensitivity without synthetic pulse timing as input to the detector: examine window-local audio-derived period/phase consistency, compare whether repeated half-period opposing attacks persist across windows, and carry out additional negative controls. Do not use fixture reference times except for post-hoc scoring, infer kick identity from low-frequency strength, correct production beat grids, relax the **25 ms** planner phase-integrity envelope, or render rejected transitions. The supplied report does not include a pytest result.
+
+## M1 research: global-versus-local phase robustness comparison, unchanged gates
+
+The owner-run 52-case waveform robustness matrix reported **12/32** competing-phase detections on known synthetic two-phase waveforms and **0/16** pulse-only plus **0/4** noise-only competing-phase flags. Some jittered cases showed supported audio periodicity approximately **0.5075 s** instead of nominal 0.500 s; cumulative global phase drift and weak transient contrast are plausible, interacting explanations for low phase coverage. These observations are descriptive, not a validated causal diagnosis.
+
+Added `scripts/m1-window-local-phase-robustness.py` and `tests/test_m1_window_local_phase_robustness.py` to test whether **time-local analysis** makes the competing-phase *evidence* more stable without making the detector more permissive. The new script reuses **exactly the same 52 previously predeclared waveform configurations** (seeds 101/907; white/lowpass noise; decaying 87 Hz/chirping 65–125 Hz kicks; 0/±14 ms timing jitter; 0.06/0.12 mixed kick amplitudes; pulse-only and noise-only negative controls). Each generated waveform is assessed once in full and again in **overlapping 8-second segments at 0–8 s and 4–12 s**. Each call runs the **original unchanged waveform-only ACF, low-band peak locator and phase comparator**, including their existing 85 ms peak spacing, 0.02 peak threshold fraction, 42 ms tolerance, 12-minimum-cycle limit, **0.60** per-phase coverage and **0.006** weaker/stronger event strength threshold. No source/reference beat grid or synthetic timing labels enter the estimator or comparator.
+
+The report explicitly separates:
+- `global.phase_evidence.status` from `local_windows[].phase_evidence.status`;
+- `local_competing_window_count` (0–2), `local_period_range_ms` (descriptive spread of supported local ACF period hypotheses) and `local_status`, which is `recurrent_competing_acoustic_evidence_shadow_only` only if **both overlapping analysis windows** report two acoustic phase trains, otherwise `insufficient_evidence`;
+- `summary_by_fixture_jitter`: whole-clip competing count, any local positive count, recurrent local count and number of fixtures where both local ACF windows support periodicity, grouped by fixture variant and nominal jitter.
+
+**Important methodological qualification:** The two overlapping windows are correlated samples of the **same** waveform. A recurrent local result is not two independent observations, not a verified kick identity, not a production decision and never automatically certifies unsafe/safe beat alignment. No numerical threshold is optimized from these fixtures; if local detection degrades, report it without changing parameter values. A lack of competing evidence remains `insufficient_evidence`, not a safe-grid pass.
+
+Run on the owner's Mac:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_window_local_phase_robustness.py
+
+python scripts/m1-window-local-phase-robustness.py \
+  --output /tmp/saund-m1-window-local-phase-robustness-01.json
+```
+
+The new tests and waveform report have **not yet been run on the owner's Mac**. No neural candidate promotion, beat-grid adjustment, planner approval, production integration or render is permitted. The original **25 ms** continuous phase-integrity hard limit and no-render-on-rejected-transition policy remain in force; PR #28 stays draft.
