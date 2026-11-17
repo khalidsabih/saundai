@@ -127,3 +127,15 @@ Owner ran `scripts/m1-neural-tempo-shadow.py` on exact previously approved 12-tr
 Owner printed all 19 neural beat-grid-rejected candidates with confidence, deterministic/neural tempo ratio, and change in absolute BPM error. In the 19 rejected tracks: 14 neural scalar BPM improvements, 5 regressions. Four **major** regressions (about -44 to -117 BPM) have confidence <0.30; the fifth (about -0.81 BPM) has confidence 0.6259. One useful +32.44 BPM improvement also has confidence 0.24, demonstrating confidence alone will not perfectly separate decisions. Ratios near 2x can signify either major recovery or major regression; 1.5x is also ambiguous.
 
 **Exploratory shadow-only selector hypothesis:** preserve currently selected tempo when the neural grid is accepted. For a rejected grid, consider the neural scalar BPM only when neural confidence >=0.45 **and** |neural-selected BPM| >=10. Otherwise keep the current selected BPM. Thresholds were motivated by these development cases and therefore **must not be validated on these same 48 tracks**. Lock them before evaluating new, non-overlapping development recordings; compare per-track regressions, coverage and aggregate MAE, including stratification by drummer/session/style and BPM range. Do not change actual scalar BPM while retaining an inconsistent beat/downbeat grid. No production safety changes authorized.
+
+## Fresh, non-overlapping 48-track development shadow cohort
+
+Owner ran `scripts/m1-neural-tempo-shadow.py` on `/tmp/saund-m1-groove/development-fresh-48-APPROVED.json`, generated with known 12-track and nine-drummer 48-track IDs excluded; no audio or local result JSON committed. The run reported:
+
+- Reference and neural candidate coverage **48/48**; neural beat-grid accepted **24**, rejected **24**; unavailable 0.
+- SAUND-selected tempo MAE **17.154150 BPM**.
+- Beat This! candidate scalar tempo MAE **2.764012 BPM**; **83.88% lower** than currently selected MAE on this cohort.
+- Rejected-only subset: selected tempo MAE **33.695983 BPM**, neural candidate tempo MAE **4.915708 BPM**.
+- Model promotion false; production changes false.
+
+This fresh development cohort is a meaningful replication of the original neural candidate advantage, **not independent held-out test**, and the above is unconditional neural candidate comparison rather than evaluation of the **previously preregistered conditional selector** (confidence >= 0.45 and |candidate-selected BPM| >= 10, rejected grid only). Next compute frozen selector MAE on this fresh cohort, number of switches, improvements/regressions and maximum per-track regression. Do not choose or retune rule based on this cohort and then report same cohort as an unbiased validation; note the prior cohorts selected the rule. Ensure any eventual tempo-only production change preserves consistency with beat/downbeat grid, bar durations, cue timings and transitions.
