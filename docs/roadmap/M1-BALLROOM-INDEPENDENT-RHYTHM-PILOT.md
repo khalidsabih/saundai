@@ -300,3 +300,23 @@ From `transition-timing-validation-80.json`, all **12/80** frozen-challenger fai
 Four challenger hypothetical cue starts were **not** within 100 ms of an independently annotated downbeat: `Media-104008` (Rumba-Misc, deterministic), `Media-103707` (Samba, **neural accepted**, even though it passed bar-duration preflight), `Media-105111` (VienneseWaltz, deterministic), `Media-104915` (Quickstep, deterministic). Note that a cue-start phase miss can occur without an irregular bar flag. Thus neither structural consistency nor bar-duration checks alone certify correct bar *phase*.
 
 Next inspect per-bar downbeat intervals by position, especially intros/outros and missing predicted downbeats; compare predicted downbeats against independent annotations near the proposed cue start and assess meter-specific conventions. Distinguish legitimate gaps and variable recording boundaries from sustained bar-grid errors. Do not assume the strict `any bar outside 20% tolerance` preflight is an actual rendered-mix safety guarantee. Do not revise the frozen 0.50 confidence policy from these validation observations. No test split inspection or production changes.
+
+## Per-bar diagnostic after owner inspected final cue-window durations
+
+The owner's printed validation report confirmed that **9 neural-selected irregular-bar tracks did not fail the last 4-bar cue-window duration check**, whereas all **3** tracks failing the last cue-window duration check used the original deterministic grid (`Media-104008`, `Media-105111`, `Media-104915`). This does not establish that each of the other nine has a safe cue start; the remaining independent downbeat-phase miss on neural `Media-103707` also needs inspection. No threshold or production policy change.
+
+Added `scripts/m1-ballroom-bar-interval-diagnostic.py` and four unit tests. It runs already-installed, no-download inference **only on validation tracks flagged in the existing preflight**, recomputes the frozen whole-grid selection, and reports **every predicted downbeat interval**, interval/expected-bar ratio, counted beat events, nearest independent annotated downbeat distance and whether outliers lie within the first or last two predicted bars. It requires the exact rights-approved **validation** manifest matching the preflight hash and refuses overwrite. No final-test input and no renders. Owner command:
+
+```sh
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_bar_interval_diagnostic.py
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-bar-interval-diagnostic.py \
+  --manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+  --preflight /tmp/saund-m1-ballroom-pilot/transition-timing-validation-80.json \
+  --audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio" \
+  --output /tmp/saund-m1-ballroom-pilot/bar-interval-diagnostic-validation.json
+```
+
+**Interpretation:** an interval exactly 2× expected with normal surrounding bars suggests a missed downbeat, while boundary-only outliers can be truncated grid coverage. Neither diagnosis is automatic; listen and confirm before any real DJ transition. This instrument is diagnostic only; no production, threshold change, training or sealed-test reveal.
