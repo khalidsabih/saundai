@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import asdict,dataclass
 import os
+import hashlib
 from pathlib import Path
 from typing import Sequence
 import numpy as np
@@ -25,9 +26,73 @@ def _agreement(a,b):
     tol=0.07; matches=sum(float(np.min(np.abs(a-x)))<=tol for x in b)
     return float(matches/max(1,len(b)))
 def _estimate_bpm(beats):
-    b=np.asarray(beats,dtype=float)
-    if len(b)<2:return 0.0
-    m=float(np.median(np.diff(b))); return 60.0/m if m>1e-8 else 0.0
+    """Use multi-beat slopes to reduce Beat This!'s 20ms frame quantization.
+
+    Single adjacent frame intervals can round a 122 BPM pulse to 120 BPM.
+    A robust 8-beat span preserves long-term tempo without trusting nominal
+    synthetic BPM or a reference label.
+    """
+    b = np.asarray(beats, dtype=float)
+    if b.size < 2 or not np.isfinite(b).all() or np.any(np.diff(b) <= 0):
+        return 0.0
+    stride = min(8, max(1, b.size // 4))
+    intervals = (b[stride:] - b[:-stride]) / stride
+    median = float(np.median(intervals))
+    return 60.0 / median if median > 1e-8 else 0.0
+
+
+def downbeat_bar_integrity(beats: Sequence[float], downbeats: Sequence[float]) -> tuple[bool, str]:
+    """Conservative meter/phase-coherence veto before neural bars enter planning.
+
+    Structural evidence only: regular bar spacing cannot prove the correct
+    downbeat phase. Irregular/variable-meter music abstains by design.
+    """
+    b = np.asarray(beats, dtype=float)
+    d = np.asarray(downbeats, dtype=float)
+    if b.size < 12 or d.size < 3 or not np.isfinite(b).all() or not np.isfinite(d).all():
+        return False, "insufficient or nonfinite neural beat/downbeat evidence"
+    if np.any(np.diff(b) <= 0) or np.any(np.diff(d) <= 0):
+        return False, "unordered neural beat/downbeat timestamps"
+    period = float(np.median(np.diff(b)))
+    if period <= 0:
+        return False, "invalid neural beat period"
+    positions = np.searchsorted(b, d)
+    left = np.clip(positions - 1, 0, b.size - 1)
+    right = np.clip(positions, 0, b.size - 1)
+    nearest = np.where(np.abs(b[left] - d) <= np.abs(b[right] - d), left, right)
+    tolerance = min(0.07, 0.20 * period)
+    if np.any(np.abs(b[nearest] - d) > tolerance):
+        return False, "neural downbeats are not aligned to predicted beats"
+    jumps = np.diff(nearest)
+    if np.any(jumps <= 0):
+        return False, "duplicate or unordered neural bar-start beat indices"
+    # A constant 3/4/6 pulse bar length is the only proven-safe structure
+    # for this trial; we do not invent/correct bars from unstable predictions.
+    if int(jumps[0]) not in (3, 4, 6) or np.any(jumps != jumps[0]):
+        return False, "irregular neural bar spacing or surplus downbeat labels"
+    return True, "regular neural bar spacing and beat alignment passed"
+
+
+def _checkpoint_integrity(path: str, expected_sha256: str) -> tuple[bool, str]:
+    """Optional release pin; reject path/name-based models when a hash is required."""
+    if not expected_sha256:
+        return True, "checkpoint hash not requested"
+    expected = expected_sha256.strip().lower()
+    if len(expected) != 64 or any(ch not in "0123456789abcdef" for ch in expected):
+        return False, "invalid DJAI_BEAT_THIS_SHA256 (must be 64 hex characters)"
+    source = Path(path).expanduser()
+    if not source.is_file():
+        return False, "SHA256 pin requires an explicit local checkpoint file"
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return False, "unable to read pinned Beat This! checkpoint"
+    if digest.hexdigest() != expected:
+        return False, "Beat This! checkpoint SHA256 mismatch"
+    return True, "Beat This! checkpoint SHA256 verified"
 
 
 def downbeat_spacing_integrity(beats:Sequence[float],downbeats:Sequence[float])->tuple[bool,str]:
@@ -56,6 +121,8 @@ def predict_beats(path,*,fallback_beats:Sequence[float]=(),fallback_downbeats:Se
     if enabled in {"0","off","false","no","disabled"}: return NeuralBeatResult("none","none",False,(),(),0,0,0,0,False,"neural beats disabled")
     checkpoint=os.environ.get("DJAI_BEAT_THIS_MODEL","small0"); explicit=os.environ.get("DJAI_BEAT_THIS_CHECKPOINT","").strip(); allow=_truthy(os.environ.get("DJAI_MODEL_ALLOW_DOWNLOAD")) or _truthy(os.environ.get("DJAI_BEAT_THIS_ALLOW_DOWNLOAD")); value=explicit or checkpoint
     if explicit and not Path(explicit).expanduser().exists(): return NeuralBeatResult("beat_this",value,False,(),(),0,0,0,0,False,"explicit Beat This! checkpoint is missing")
+    integrity_ok, integrity_reason = _checkpoint_integrity(value, os.environ.get("DJAI_BEAT_THIS_SHA256", ""))
+    if not integrity_ok: return NeuralBeatResult("beat_this",value,False,(),(),0,0,0,0,False,integrity_reason)
     marker=config_path(os.environ.get("DJAI_BEAT_THIS_READY_MARKER","neural/beat-this-ready.json"))
     if not explicit and not allow and not marker.exists(): return NeuralBeatResult("beat_this",value,False,(),(),0,0,0,0,False,"checkpoint not bootstrapped; run `djai models-bootstrap` or provide DJAI_BEAT_THIS_CHECKPOINT")
     try: from beat_this.inference import File2Beats
@@ -82,5 +149,15 @@ def predict_beats(path,*,fallback_beats:Sequence[float]=(),fallback_downbeats:Se
         if not valid:
             used=False
             reason="opt-in neural downbeat integrity rejected grid: "+integrity_reason
+    # Default-on safety: do not promote a neural bar grid into structure/cue
+    # planning when the model emits inconsistent bar starts. An explicit
+    # research-only override exists for paired comparisons; never use it as
+    # a production shortcut. Candidate timestamps remain observable in evidence.
+    strict = os.environ.get("DJAI_NEURAL_BAR_SAFETY", "1").strip().lower()
+    if used and strict not in {"0", "off", "false", "no"}:
+        coherent, bar_reason = downbeat_bar_integrity(bv, dv)
+        if not coherent:
+            used = False
+            reason = "neural bar-grid safety veto: " + bar_reason
     return NeuralBeatResult("beat_this",value,True,bv,dv,round(_estimate_bpm(bv),4),round(confidence,4),round(agreement,4),round(authority,4),used,reason)
 
