@@ -359,3 +359,34 @@ python scripts/m1-correlate-phase-anomaly-overlaps.py \
 ```
 
 Use the locally saved private phase trace and synthetic audit from prior steps; choose a fresh output path if a report already exists. This utility does not call a neural model, evaluate audio or trigger rendering. Compare `groups.crosses_anomaly.rejected_configurations` against `groups.does_not_cross_anomaly.rejected_configurations`. If a substantial number of unsafe overlaps **do not** cross either timing cluster, localized compression alone cannot explain every rejection. Do not change the 25 ms phase residual envelope or silently promote the model on the basis of this analysis. Future experiments should separately validate real 3/4 and six-pulse material and authorized development renders.
+
+## Owner overlap-to-anomaly correlation — localized clusters are insufficient alone
+
+The owner correlated the existing **111 rejected-only** phase-lock trace configurations with the two confirmed outgoing demo beat-compression windows:
+
+| Rejected overlap class | Configurations | Median measured residual |
+|---|---:|---:|
+| Crosses a detected local beat anomaly | 28 | 396.179 ms |
+| Does not cross a detected anomaly | **83** | **210.420 ms** |
+
+All 111 trace rows were eligible; none were skipped. **83/111 (74.8%) rejected configurations do not actually traverse either locally anomalous interval**, so fixing only those two short segments is not a demonstrated complete remedy. The early compression can, however, shift later sequential phase indices even when the corresponding overlap does not include the compressed interval. This is a rejected-only analysis with no acceptance-rate denominator and cannot establish causality.
+
+The trace's continuous phase algorithm subtracts each overlap's **initial phase error**, so an *unchanging* global offset by itself cannot explain within-overlap drift. Other hypotheses still requiring differentiation include index-origin discontinuity, beat-clock mismatch within the overlap, incoming/outgoing render-rate assumptions, and accumulated timing inconsistency.
+
+The read-only `scripts/m1-correlate-phase-anomaly-overlaps.py` now additionally summarizes, separately for crossing and non-crossing rejected configurations: median absolute start-to-end sampled phase change, median largest sample-to-sample change and directional/jump/irregular trajectory categories. These fields use existing rejected JSONL `points` and cannot change planning or safety.
+
+To obtain the newly expanded report on the operator machine, run the focused tests and reuse existing evidence with a fresh output filename:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_phase_anomaly_overlap.py
+
+python scripts/m1-correlate-phase-anomaly-overlaps.py \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --beat-audit /tmp/saund-m1-demo-beat-clusters-05.json \
+  --output /tmp/saund-m1-phase-anomaly-trajectory-02.json
+```
+
+Compare `groups.crosses_anomaly.phase_trajectory_patterns` with `groups.does_not_cross_anomaly.phase_trajectory_patterns`, plus each group's sampled phase-change metrics, rather than declaring any phase correction authorized. Continue rejecting plans over the existing **25 ms phase residual envelope**. No real transition has been rendered or accepted.
