@@ -199,6 +199,10 @@ class TrackAnalysis:
                 duration_seconds=self.duration_seconds,
             )
         if not include_beats:
+            if "beat_only_preview" in data:
+                preview = data["beat_only_preview"]
+                preview["beat_count"] = len(preview["beats_seconds"])
+                preview["beats_seconds"] = preview["beats_seconds"][:16]
             data["beats_seconds"] = data["beats_seconds"][:16]
             data["downbeats_seconds"] = data["downbeats_seconds"][:16]
             data["beat_count"] = len(self.beats_seconds)
