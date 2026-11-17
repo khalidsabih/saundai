@@ -159,6 +159,71 @@ def align_grid_to_attacks(grid, events, *, tolerance_ms: float = 80.0) -> dict:
     }
 
 
+
+# Fixed source-time windows diagnosed in the earlier synthetic beat-index audit.
+OUTGOING_REGIONS = (
+    ("before_first_compression", None, 8.823583),
+    ("first_compression", 8.823583, 9.636281),
+    ("between_compressions", 9.636281, 58.305306),
+    ("second_compression", 58.305306, 59.535964),
+    ("after_second_compression", 59.535964, None),
+)
+
+
+def regional_alignment(grid, events, regions, *, tolerance_ms=80.0):
+    """Report nearest measured acoustic kick errors by predefined source window.
+
+    Nearest proximity does not prove the generator beat index was preserved.
+    """
+    import bisect
+
+    if len(grid) < 2 or any(not math.isfinite(float(v)) for v in grid) or any(
+        b <= a for a, b in zip(grid, grid[1:])
+    ):
+        raise ValueError("invalid beat grid")
+    measured = sorted(
+        (float(e["audio_attack_seconds"]), int(e["index"]))
+        for e in events if e.get("status") == "measured"
+    )
+    positions = [pair[0] for pair in measured]
+    result = []
+    for name, start, end in regions:
+        subset = [float(beat) for beat in grid
+                  if (start is None or beat >= start) and (end is None or beat < end)]
+        residuals = []
+        mismatches = []
+        for beat in subset:
+            if not measured:
+                continue
+            j = bisect.bisect_left(positions, beat)
+            candidates = [measured[k] for k in (j - 1, j) if 0 <= k < len(measured)]
+            kick_seconds, kick_index = min(candidates, key=lambda p: abs(beat - p[0]))
+            offset_ms = (beat - kick_seconds) * 1000.0
+            residuals.append(offset_ms)
+            if abs(offset_ms) > tolerance_ms and len(mismatches) < 4:
+                mismatches.append({
+                    "beat_seconds": round(beat, 6),
+                    "nearest_audio_kick_index": kick_index,
+                    "signed_error_ms": round(offset_ms, 3),
+                })
+        result.append({
+            "region": name,
+            "start_seconds": start,
+            "end_seconds": end,
+            "beat_count": len(subset),
+            "measured_nearest_count": len(residuals),
+            "outside_tolerance_count": (
+                sum(abs(offset) > tolerance_ms for offset in residuals)
+                + len(subset) - len(residuals)
+            ),
+            "tolerance_ms": tolerance_ms,
+            "median_absolute_nearest_attack_error_ms": _median([abs(x) for x in residuals]),
+            "median_signed_nearest_attack_error_ms": _median(residuals),
+            "first_mismatches": mismatches,
+        })
+    return result
+
+
 def audit(directory: Path, analyze) -> dict:
     tracks = []
     for name, bpm in FIXTURES:
@@ -170,6 +235,9 @@ def audit(directory: Path, analyze) -> dict:
         attacks = extract_kick_attacks(samples, sr, bpm)
         analysis = analyze(path)
         aligned = align_grid_to_attacks(analysis.beats_seconds, attacks)
+        regional = regional_alignment(
+            analysis.beats_seconds, attacks, OUTGOING_REGIONS
+        ) if name == FIXTURES[0][0] else None
         confident = [e for e in attacks if e["status"] == "measured"]
         tracks.append({
             "filename": name,
@@ -183,6 +251,7 @@ def audit(directory: Path, analyze) -> dict:
                 [e["attack_minus_generator_ms"] for e in confident]
             ),
             "grid_alignment_to_independent_audio": aligned,
+            "outgoing_region_alignment": regional,
             "first_audio_attack_examples": attacks[:8],
             "neural_grid_used": (analysis.neural_evidence.get("beat_downbeat") or {}).get("used"),
         })
