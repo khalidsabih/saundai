@@ -192,3 +192,22 @@ python -m pytest -q \
 ```
 
 Terminal result: `........................ [100%]` (**24/24 passed**, no failures). This confirms the isolated long-/short-interval regression fixes alongside previous mocked adapter safety tests in the owner's normal Python environment. The actual offline `final0` checkpoint has **not yet been run against the newly exposed `beat_only_preview` response**; do not claim end-to-end feature validation until that smoke result is observed. The authoritative planner grid and 25 ms phase gate remain unchanged.
+
+## Owner real-model full-analysis verification — beat-only preview works
+
+Owner fetched the branch at `2e2a9ac`, ran the full `djai.analysis.analyze_track()` path against the generated `01_opening_122bpm_Aminor.wav` using the cached locally pinned Beat This! `final0` checkpoint with downloads disabled, `PYTHONPATH=/tmp/saund-m1-evaluator/src` and `DJAI_BEAT_ONLY_PREVIEW=1`. Output:
+
+```json
+{
+  "preview_available": true,
+  "preview_beats": 129,
+  "preview_bpm": 121.8274,
+  "preview_reason": "neural pulses available for beat-only preview; bar safety not assessed",
+  "preview_used_for_planning": false,
+  "selected_beats": 128,
+  "selected_downbeats": 32,
+  "neural_selected": false
+}
+```
+
+**Result:** First actual, owner-confirmed `final0` → `analyze_track` → `TrackAnalysis.to_dict(include_beats=False)` → `beat_only_preview` end-to-end feature integration **passed**. The robust wide-span preview BPM of **121.8274** is within 0.173 BPM of the generated fixture's nominal 122 BPM; this does not by itself validate multi-genre tempo accuracy. All model timestamps remain non-authoritative for planner/bar/cue computations; the original selected beat/downbeat counts remain 128/32 and neural whole-grid acceptance remains false. The separate librosa pitch-tuning warning is not an inference failure. User-facing product deployment, normal workspace update, rights approval and rendered transition safety remain outstanding. No production setting changed.
