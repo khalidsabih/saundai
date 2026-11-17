@@ -115,7 +115,26 @@ def assess_case(name, *, adaptive, locator, scorer):
     # This post-hoc comparison is not an input to the estimator.
     estimated_ratio = (float(estimated) / expected_median
                        if estimated is not None else None)
+    adaptive_rows = [row for row in result["strategies"]
+                     if row.get("name") == "audio_adaptive"]
+    adaptive_row = adaptive_rows[0] if adaptive_rows else {}
+    primary = adaptive_row.get("primary") or {}
+    distractor = adaptive_row.get("distractor") or {}
+    confident_wrong_phase = (
+        estimate.get("status") == "supported_audio_periodicity"
+        and adaptive_row.get("status") == "measured"
+        and len(true_beats) >= 8
+        and len(distractors) >= 8
+        and primary.get("recall") is not None
+        and distractor.get("recall") is not None
+        and float(primary["recall"]) <= .2
+        and float(distractor["recall"]) >= .8
+    )
     return {
+        "posthoc_confident_wrong_phase_event_selection": bool(confident_wrong_phase),
+        "posthoc_research_gate": ("fail_wrong_phase_event_selection"
+                                  if confident_wrong_phase else
+                                  "not_demonstrated_by_this_case"),
         "name": name,
         "reference_event_count": len(true_beats),
         "distractor_reference_count": len(distractors),
@@ -147,6 +166,15 @@ def run():
         "schema": "saund-m1-audio-adaptive-adversarial-controls-v1",
         "cases": cases,
         "selected_configuration": None,
+        "any_posthoc_confident_wrong_phase_selection": any(
+            case["posthoc_confident_wrong_phase_event_selection"] for case in cases
+        ),
+        "research_gate": (
+            "failed_confident_wrong_phase_counterexample"
+            if any(case["posthoc_confident_wrong_phase_event_selection"] for case in cases)
+            else "not_validated"
+        ),
+        "posthoc_gate_is_scoring_only": True,
         "generator_reference_used_for_period": False,
         "beat_grid_used_for_period": False,
         "reference_used_only_for_posthoc_scoring": True,
