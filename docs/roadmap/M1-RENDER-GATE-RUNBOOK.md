@@ -711,3 +711,32 @@ python scripts/m1-synthetic-audio-kick-audit.py \
 ```
 
 Check `tracks[].measured_audio_pulses`, `missing_audio_attack_evidence`, `median_audio_attack_minus_generator_ms`, and `grid_alignment_to_independent_audio`. If acoustic events agree with known generated pulses while the beat grid does not, the beat estimator is suspect. If the acoustic attack detector lacks support, diagnose that instead; do not report a false beat-grid failure. No plan, rendering, neural authority, tempo policy, or 25 ms phase-integrity envelope changes in this experiment.
+
+## Owner acoustic-kick audit confirms severe outgoing grid misalignment
+
+The owner ran the read-only synthetic waveform-kick audit. Both tracks had **127/128 measurable acoustic attacks** under the fixed low-frequency envelope detector; the first t=0 pulse failed measurement because the preceding-window analysis is boundary-sensitive. The method uses known synthetic pulse windows, and so does not establish a general-purpose real-music onset detector.
+
+| Generated track | Detected beats | Measured kick attacks | Grid beats farther than 80 ms from measured kick | Median absolute nearest-kick error |
+|---|---:|---:|---:|---:|
+| Opening 122 BPM | 128 | 127 | **103 / 128** | **219.637 ms** |
+| Groove 124 BPM | 126 | 127 | **0 / 126** | **21.780 ms** |
+
+The opening beat tracker first has a clear acoustic miss near **9.241542 s** (112.834 ms early relative to the nearest measured kick), then roughly **209.887 ms early** by 9.636281 s and **234.989 ms early** by 12.561995 s. This is consistent with the earlier early-compression cluster. The incoming 124 BPM grid remains close to acoustic attacks over the evaluated range. Both were deterministic beat grids; `neural_grid_used=false`. None of these measurements gives the synthetic kick oracle authority to change production beat timestamps or sign a transition.
+
+Extended `scripts/m1-synthetic-audio-kick-audit.py` with `outgoing_region_alignment` to segment **nearest measured kick alignment** into the previously identified source windows: before 8.823583 s; 8.823583–9.636281 s; 9.636281–58.305306 s; 58.305306–59.535964 s; and after 59.535964 s. The report separates mismatch counts and median absolute/signed errors. Region selection is from prior detected-grid diagnostics; acoustic attack timestamps are measured separately from the WAV. Nearest-kick alignment does **not** prove a correct musical beat index, and no segment is automatically relabeled or corrected.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_synthetic_audio_kick_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-synthetic-audio-kick-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-synthetic-audio-kick-regions-02.json
+```
+
+The next engineering decision should be based on the regional mismatch counts, including whether timing error persists between the compressed clusters. Keep the existing 25 ms phase-lock limit, hard rejection of unsafe overlaps, and frozen neural selection policy intact. No transition render has passed the gate.
