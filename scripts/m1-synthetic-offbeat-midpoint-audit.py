@@ -24,7 +24,7 @@ import soundfile as sf
 ROOT = Path(__file__).resolve().parents[1]
 for location in (ROOT, ROOT / "src"):
     if str(location) not in sys.path:
-        sys.path.insert(0, str(location)
+        sys.path.insert(0, str(location))
 
 import importlib.util
 
