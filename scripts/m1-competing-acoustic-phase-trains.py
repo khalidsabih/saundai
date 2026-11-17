@@ -40,7 +40,8 @@ def load_script(filename, name):
 
 def compare_phase_trains(events, period_seconds, duration_seconds, *,
                          radius_ms=42.0, min_cycles=12, min_coverage=.60,
-                         min_secondary_to_primary=.006):
+                         min_secondary_to_primary=.006,
+                         anchor_phase_seconds=None):
     """Measure repeated opposite-phase audio attacks without deciding identity.
 
     An anchor is inferred from the strongest peaks' modulo-period clustering.
@@ -82,7 +83,16 @@ def compare_phase_trains(events, period_seconds, duration_seconds, *,
     vector = np.sum(weights[top] * np.exp(1j * angles))
     if abs(vector) <= 1e-12:
         return {"status": "insufficient_evidence", "reason": "unclear_phase_anchor"}
-    origin = (float(np.angle(vector)) % (2 * np.pi)) * period / (2 * np.pi)
+    learned_origin = (float(np.angle(vector)) % (2 * np.pi)) * period / (2 * np.pi)
+    # Research-only optional locked anchor; default remains EXACTLY as before.
+    # A held anchor must come from independent waveform analysis, never labels.
+    if anchor_phase_seconds is None:
+        origin = learned_origin
+    else:
+        locked = float(anchor_phase_seconds)
+        if not math.isfinite(locked):
+            return {"status": "insufficient_evidence", "reason": "invalid_locked_anchor"}
+        origin = locked % period
     radius = radius_ms / 1000.
     # Ignore edges: all compared slots must fall inside the actual WAV.
     cycles = np.arange(math.ceil((radius - origin) / period),
@@ -121,6 +131,8 @@ def compare_phase_trains(events, period_seconds, duration_seconds, *,
                    else "not_enough_independent_opposite_phase_support"),
         "period_seconds": round(period, 6),
         "anchor_phase_seconds": round(origin, 6),
+        "anchor_source": ("waveform_local" if anchor_phase_seconds is None
+                          else "held_waveform_global"),
         "complete_cycles": count,
         "anchor_event_coverage": round(cover_first, 3),
         "opposite_event_coverage": round(cover_second, 3),
