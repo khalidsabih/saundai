@@ -331,3 +331,31 @@ DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
 ```
 
 Do **not** remove the older report just to rerun the audit. Phase-lock planning and real rendering remain blocked/unverified until evidence supports a safe remedy.
+
+## Owner-confirmed beat-compression clusters and phase-overlap correlation
+
+The owner reran the generated demo audit with the opt-in neural downbeat gate and confirmed the two outgoing track clusters:
+
+| Cluster | Window | Interval count | Sum of local interval departures from the generator period |
+|---|---|---:|---:|
+| Early | 8.823583–9.636281 s | 2 | −170.908 ms |
+| Late | 58.305306–59.535964 s | 3 | −244.751 ms |
+
+The incoming track had **no detected interval outlier clusters** at the same 15% synthetic reference criterion. The owner's rerun completed successfully and did not modify production behavior or render a transition.
+
+The next task is to establish whether either cluster intersects the 111 independently traced phase-lock *rejections*. A new **read-only** script, `scripts/m1-correlate-phase-anomaly-overlaps.py`, compares each rejected trace's outgoing and incoming source windows (including actual render rates and incoming phase nudge) with the synthetic beat-index audit's cluster windows. It summarizes counts and median *rejected-only* residuals for overlaps that intersect an anomaly versus those that do not, and preserves a small set of example cue positions. **Even a strong association is not proof that timing compression caused a rejected overlap; the trace contains only rejected candidates, and no acceptance-rate denominator.**
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_phase_anomaly_overlap.py
+
+python scripts/m1-correlate-phase-anomaly-overlaps.py \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --beat-audit /tmp/saund-m1-demo-beat-clusters-05.json \
+  --output /tmp/saund-m1-phase-anomaly-correlation-01.json
+```
+
+Use the locally saved private phase trace and synthetic audit from prior steps; choose a fresh output path if a report already exists. This utility does not call a neural model, evaluate audio or trigger rendering. Compare `groups.crosses_anomaly.rejected_configurations` against `groups.does_not_cross_anomaly.rejected_configurations`. If a substantial number of unsafe overlaps **do not** cross either timing cluster, localized compression alone cannot explain every rejection. Do not change the 25 ms phase residual envelope or silently promote the model on the basis of this analysis. Future experiments should separately validate real 3/4 and six-pulse material and authorized development renders.
