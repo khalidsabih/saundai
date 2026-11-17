@@ -1569,3 +1569,19 @@ Use new output paths each run. No music/annotation corpus has been supplied in t
 5. **Go/no-go (NOT APPROVED):** only after explicit evidence for the above, determine whether a limited, opt-in **beat-analysis-only** preview is justified; keep full autonomous transitions gated separately. Every failure should preserve the current deterministic behavior and be observable. Rollback must work without editing checkpoints or downgrading the planner guard.
 
 **Speed principle:** execute independent validation, rollback/deployment verification and DBN downbeat research as parallel lanes. Do not withhold positive beat-grid findings for yet another bespoke transient detector; conversely do not claim readiness from two synthetic demos alone.
+
+## M1 fast-track existing neural adapter rollback contract — added regression coverage
+
+After the owner confirmed **8/8 independent-regression runner unit tests passed**, a targeted regression suite `tests/test_m1_beat_this_fast_track_rollback.py` was added to validate the **existing** `src/djai/intelligence/neural_ears.py` controls through mocked inference only. This suite tests: `DJAI_NEURAL_BEATS=off` never constructs a model; an explicit missing checkpoint yields unused/unavailable evidence; external inference failure yields unused/unavailable evidence; zero registry authority cannot select a candidate even with strong evidence; the opt-in downbeat-integrity guard accepts regular four-beat spacing but rejects every-two-beat downbeat predictions; and lowering threshold cannot bypass zero authority. **No checkpoint/model run** is performed, nor is the model registry changed. Unit tests have been committed, but the operator must run them on Mac and capture output.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q \
+  tests/test_m1_beat_this_fast_track_rollback.py \
+  tests/test_m1_beat_this_independent_regression.py \
+  tests/test_m1_neural_downbeat_integrity.py
+```
+
+**Release limitation:** These unit tests prove isolated adapter off/fallback behavior, **not** end-to-end analysis/cache/transition-planner rollback, deployed checkpoint integrity, model timeout protection or correct beat/downbeat selection on independent recordings. The adapter's `DJAI_BEAT_THIS_MODEL` defaults to `small0`; the validated external CLI used `final0`, so a release candidate must explicitly pin the tested checkpoint. The model registry's `advisory` weight does not constitute a final production signoff. Do not modify `DJAI_NEURAL_BEATS`, `DJAI_MODEL_REGISTRY` or neural model authority in a deployed environment based only on unit tests. No 25 ms planner safety limit changes and no unsafe render.
