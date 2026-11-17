@@ -986,3 +986,21 @@ python scripts/m1-low-band-event-robustness.py \
 ```
 
 Next inspect whether event counts approach a plausible number of primary kick attacks and whether **both** the correct incoming beat and incorrect outgoing middle regions retain clean directional separation across multiple predeclared settings. Failing that, remain in diagnostic abstention and prioritize explicit negative-control and instrument-separation tests rather than choose an opportunistic threshold. No production classifier or rendering gate changes are authorized.
+
+## Negative controls: reject premature 250-350 ms event-spacing promotion
+
+The operator executed the fixed five-setting low-band event robustness sweep. The two synthetic tracks showed strong separation at the **three** configurations with minimum spacing **250 or 350 ms**: both returned **128** globally localized low-band events. The outgoing middle had **0/99** beat matches and **99/99** between-grid midpoint matches (median beat/midpoint errors **222.766/22.675 ms**); the incoming had **125/125** beat matches and **0/125** midpoint matches (median errors **18.503/223.129 ms**). The outgoing start and end remained grid-aligned. The original 85/150 ms settings generated hundreds of secondary low-band peaks and many false proximity matches, so apparent success is highly dependent on reasonable event selection.
+
+This does **not** authorize selecting the 250-350 ms spacing as a general-purpose detector. Added `scripts/m1-low-band-negative-controls.py` with `tests/test_m1_low_band_negative_controls.py` to show the implications of such spacing on a **predeclared** deterministic synthetic set: 120 BPM stable pulses, **200 BPM / 300 ms beats**, acceleration, three-pulse accents, weak/noisy kicks, syncopated bass distractors, and silence. All five spacing/threshold settings are reported for every control, with one-to-one post-hoc matching of globally localized peaks against known control-event timestamps. The ground-truth timestamps **never enter the detector**; they are only used to quantify recovery and interference. There is no parameter selection, beat repair, or rendered transition. A focused regression verifies that the **350 ms spacing loses at least some legitimate 300 ms-spaced events**, preventing false blanket approval of that rule.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_low_band_negative_controls.py
+
+python scripts/m1-low-band-negative-controls.py \
+  --output /tmp/saund-m1-low-band-negative-controls-01.json
+```
+
+Check `cases[].settings[].primary.recall`, `distractor.recall`, and `detected_event_count` for each fixed configuration. A high false-positive / missed-event rate in any control is research evidence to continue abstaining, not a signal to optimize thresholds against the same examples. Extend evaluation on rights-cleared real music and multiple tempo/meter styles before considering any shadow gate promotion. The existing **25 ms continuous phase-integrity limit**, frozen neural selection authority, and no-render-on-unsafe policy remain unchanged.
