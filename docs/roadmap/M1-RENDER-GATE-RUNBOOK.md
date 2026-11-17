@@ -1022,3 +1022,26 @@ The owner ran `scripts/m1-low-band-negative-controls.py` against the predeclared
 The 85 and 150 ms settings generally preserved primary synthetic events but retained substantially more distractor peaks or noise (e.g. weak-kick case 104/61 events for 23 true kicks, and syncopated case 46 events for 23 true kicks plus 23 distractors). The fixed **250 ms minimum spacing** retains all primary synthetic events in these seven cases, and the original 122/124 BPM pair separated correctly, but this is a narrow in-sample finding. It is **not** a recommended or production-ready cutoff, and should not be tuned against these same fixtures.
 
 **Decision:** reject fixed 350 ms event spacing for general use; retain 250 ms only as an unpromoted research comparator. A next shadow experiment may compare predeclared locally tempo-adaptive spacing with that comparator, using *independent audio-derived tempo hypotheses* and controls outside the current synthetic fixtures. Include 240+ BPM, halftime/doubletime, kick omissions, alternating bass emphasis, meter variation, tempo ramps, and rights-cleared real tracks. Any unreliable tempo estimate, conflicting phase evidence or absent events must yield an abstention rather than a beat adjustment. Keep the existing 25 ms planner phase-integrity gate and no-render-on-reject behavior unchanged.
+
+## M1 research-only audio-adaptive low-band event-spacing comparison
+
+The operator's completed seven-control negative-control report showed that fixed 350 ms event spacing retained only **17/38** reference events at 200 BPM and **25/29** under acceleration, versus **38/38** and **29/29** at fixed 250 ms. At fixed 250 ms with 0.30 threshold, the existing controls also retained **23/23** stable 120 BPM, **24/24** three-pulse accent, **23/23** weak-kick, and **23/23** syncopated-bass primary attacks. That restricted sample does not validate a general rhythm integrity policy.
+
+Added `scripts/m1-audio-adaptive-event-spacing.py` and `tests/test_m1_audio_adaptive_event_spacing.py` as a controlled **research-only comparator**, not a production replacement. It estimates one candidate pulse interval from positive **low-band WAV energy-rise autocorrelation** in overlapping six-second audio windows (three-second stride). No analysis beat grid, BPM label, synthetic reference schedule, or generator oracle is used in period estimation. Weak, ambiguous or inconsistent window evidence returns `insufficient_evidence` and the adaptive comparator **abstains**. When supported, exploratory spacing is `clip(0.55 * audio_period_ms, 90, 320)`. The unchanged fixed **250 ms** comparator always runs; no configuration is chosen.
+
+The script uses seven previous controls plus three new synthetic controls: **260 BPM**, **every-fifth kick omitted**, and **alternating offbeat bass distractors**. All reference pulse times enter only **post-hoc one-to-one recovery scoring**. Compare `primary.recall`, `distractor.recall`, event counts, audio-period support and abstention per case; do not infer acceptable musical meter from an ACF pulse. ACF can be confused by half/double-time harmonics, weak kick/bass balance, swing, complex meters, and tempo ramps. A false or confident-looking tempo estimate is not proof of a correct beat, and the eight-second or six-second window selection does not imply real-world validation. The chosen audio periodicity is a **single global comparator**; genuinely local changing-tempo adaptation is future research and is **not** claimed here.
+
+Mac test and research report:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_audio_adaptive_event_spacing.py
+
+python scripts/m1-audio-adaptive-event-spacing.py \
+  --output /tmp/saund-m1-audio-adaptive-spacing-01.json
+```
+
+The six tests include abstention, no oracle/beat-grid input, deterministic extra controls, both strategies with missing evidence, and explicit no-production-change assertions. Tests and report **must be run by the operator** before any performance claims; do not substitute expectations for results. Any unsupported/contradictory evidence remains a no-decision, not a correction or safe planner bypass. No existing production tempo selection, neural authority, 25 ms transition phase gate, or render output is changed.
