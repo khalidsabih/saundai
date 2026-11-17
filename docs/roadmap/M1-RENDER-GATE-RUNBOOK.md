@@ -1120,3 +1120,13 @@ python -m pytest -q tests/test_m1_audio_adaptive_adversarial_controls.py
 python scripts/m1-audio-adaptive-adversarial-controls.py \
   --output /tmp/saund-m1-audio-adaptive-adversarial-02.json
 ```
+
+## Owner re-run confirms explicit post-hoc wrong-phase research gate failure
+
+The owner executed the updated `m1-audio-adaptive-adversarial-controls.py` report and confirmed the expected scoring-only safety fields: `any_posthoc_confident_wrong_phase_selection=true`, `research_gate=failed_confident_wrong_phase_counterexample`, `posthoc_gate_is_scoring_only=true`, `selected_configuration=null`, `production_changed=false`, `beat_grid_modified=false`, and `transition_rendered=false`.
+
+For `low_kick_high_bass`, audio autocorrelation reported a supported **120 BPM / 500 ms** periodicity (strength 1.0), but both the fixed 250 ms and audio-adaptive 275 ms selectors recovered **0/35** primary kick events and **35/35** offbeat bass distractors. The case now reports `posthoc_confident_wrong_phase_event_selection=true` and `posthoc_research_gate=fail_wrong_phase_event_selection`, even though the half-/double-time alias flag remains false. This is a confirmed **research gate failure**, not a detected production-safe beat phase.
+
+The five adversarial cases `halftime_accents_120`, `doubletime_bass_120`, `halfbeat_bass_120`, `tempo_step_120_to_200`, and `tempo_ramp_100_to_220` continued to abstain. The three-/six-beat accent cases returned supported 120 BPM and 35/35 synthetic primary-event recovery, without implying meter certification. The supplied evidence confirms the script report only; **pytest execution was not included** in this paste.
+
+**Do not promote.** The explicit wrong-phase check is calculated from known synthetic reference timestamps **after** selection. Real tracks do not supply these labels, so it cannot serve as a runtime phase-integrity guard. The next research requirement is an audio-only ambiguous-phase detector that recognizes competing kick/bass event sequences and abstains without relying on those synthetic labels. No automatic beat rewrite, safe transition authorization, neural policy promotion, or 25 ms planner phase threshold change.
