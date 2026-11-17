@@ -1099,3 +1099,24 @@ python scripts/m1-audio-adaptive-adversarial-controls.py \
 ```
 
 Inspect `cases[].audio_periodicity.status`, `hypothetical_period_to_reference_ratio_posthoc`, `potential_half_or_double_time_alias_posthoc`, `strategies[].primary.recall`, `strategies[].distractor.recall`, and abstentions. Treat any confidently wrong half/double estimate, tempo-change overgeneralization, or distractor substitution as a **research gate failure**. These synthetic tests cannot certify real-world musical meter; separately validate with rights-cleared diverse audio before any opt-in policy proposal. Keep PR #28 draft, the frozen neural authority, and the unchanged 25 ms phase-integrity planner stop. No rejected transition may render.
+
+## M1 owner adversarial ACF result: confident wrong-phase event selection blocks promotion
+
+The owner executed `scripts/m1-audio-adaptive-adversarial-controls.py` on all eight adversarial generated-audio controls. Its most consequential counterexample is `low_kick_high_bass`: the waveform-only period estimator reported **supported_audio_periodicity**, **120.0 BPM**, **0.5 s** and median ACF strength **1.0**, yet both fixed 250 ms and the 275 ms audio-adaptive event selector matched **0/35 true kick pulses** and **35/35 stronger offbeat bass distractors**. Therefore **correct estimated periodicity does not imply correct acoustic beat phase**. The post-hoc ACF half-/double-time alias flag was false, and is not a sufficient phase-integrity diagnostic.
+
+The remaining adversarial results showed adaptive **abstention** on `halftime_accents_120`, `doubletime_bass_120`, `halfbeat_bass_120`, `tempo_step_120_to_200`, and `tempo_ramp_100_to_220`; the latter tempo-step case reported `variable_or_conflicting_audio_periodicity` and all others reported `weak_or_ambiguous_acf`. `three_beat_accents` and `six_beat_accents` produced supported 120 BPM and each retained 35/35 primary pulses on both strategies. Those accent cases do **not** independently certify musical meter.
+
+**Engineering gate: failed.** Neither audio-adaptive nor fixed-spacing transient selection may be promoted to a production rhythm integrity detector, used as an automatic beat correction, or allowed to sign a transition. Updating the adversarial report now provides explicit *post-hoc scoring-only* fields: `posthoc_confident_wrong_phase_event_selection` and `posthoc_research_gate` per case, plus `research_gate=failed_confident_wrong_phase_counterexample` and `any_posthoc_confident_wrong_phase_selection=true` in the overall report when a supported period accompanies <=20% true-pulse recall and >=80% distractor recall with adequate reference events. These labels use **known synthetic reference events only after evaluation**; they are *not production-available detections*, and their absence never means the model is validated. Regression tests cover correct-period/wrong-phase triggering and safe abstention.
+
+The next research question is **waveform-only phase ambiguity**: how to identify two competing rhythmic event sequences and decline a single confident source identity when low-frequency bass emphasizes offbeats while weaker kicks retain the primary pulse. Any candidate must be challenged against independent waveforms, syncopation, changing meter, tempo ramps, kick dropouts and rights-cleared real music. A global autocorrelation period by itself is insufficient. Keep the original beat grid unchanged, frozen neural promotion rules, **25 ms planner phase envelope**, and no-render-on-rejected overlap policy.
+
+Re-run on Mac:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_audio_adaptive_adversarial_controls.py
+python scripts/m1-audio-adaptive-adversarial-controls.py \
+  --output /tmp/saund-m1-audio-adaptive-adversarial-02.json
+```
