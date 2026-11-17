@@ -64,3 +64,9 @@ Owner confirmed the three recordings have different SHA-256 prefixes and duratio
 | drummer1/session1/201 | 64 | 129.20 | 112.50 s | `c336210485cf` |
 
 This supports investigating systematic estimator behavior, not a proven specific root cause. Next compare against neural evidence on the same 12-track cohort if an already installed checkpoint can run without downloads. A neural run must be treated as an experiment, not model promotion or definitive model-quality evidence.
+
+## Same-cohort neural-enabled result (owner's Mac)
+
+Owner ran the same approved 12-WAV development manifest using `DJAI_NEURAL_BEATS=1`, `--allow-neural`, with model downloads disabled. Output reported `tempo_mae_bpm=19.198308`, 12/12 tempo coverage, no beat/downbeat reference coverage, and no ledger recording. Previous deterministic MAE on the same manifest: `35.290125`. Absolute improvement `16.091817` BPM, relative MAE reduction **45.6%**.
+
+**Caveats:** `allow-neural` and environment opt-in alone do not prove that Beat This! predictions were accepted or that no fallback occurred; backend provenance is still unverified. Single drummer/session and 12 tracks: promising comparison, **not generalization evidence**, a promotion gate, or M1 completion. Next inspect per-track delta and runtime neural acceptance/rejection diagnostics, then run a drummer/style-diverse development cohort with frozen IDs. Do not touch reserved test cohort or alter production model authority.
