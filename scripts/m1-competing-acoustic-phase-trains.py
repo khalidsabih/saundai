@@ -64,7 +64,11 @@ def compare_phase_trains(events, period_seconds, duration_seconds, *,
             return {"status": "insufficient_evidence", "reason": "invalid_acoustic_events"}
         if 0 <= t < duration_seconds and strength > 0:
             clean.append((t, strength))
-    if len(clean) < 2 * min_cycles:
+    # A *single* acoustic train may contain just one event per cycle. Requiring
+    # two events per cycle rejects valid single-train negative controls before
+    # we can inspect opposite-phase support. This gate is only an opportunity
+    # to inspect; passing it never certifies the detected phase as correct.
+    if len(clean) < min_cycles:
         return {"status": "insufficient_evidence", "reason": "too_few_localized_events",
                 "localized_event_count": len(clean)}
     clean.sort()
