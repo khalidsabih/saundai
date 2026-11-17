@@ -125,3 +125,57 @@ After explicitly setting `PYTHONPATH=/tmp/saund-m1-evaluator/src` to avoid impor
 - Selected analyzer output remains 123.0469 BPM, **128** beats and **32** downbeats.
 
 This establishes *two* distinct safeguards on this fixture: the early authority/confidence refusal and the structural bar-grid failure. Since selection already failed the earlier threshold, the final `neural bar-grid safety veto` was not the returned `reason`; the separate validator nevertheless confirms the bar defect. The upstream model was available in the preceding successful call. This is not evidence that the new neural beat timestamps are unsafe; it is evidence that the **existing planner cannot be fed the inconsistent full beat+bar candidate**. Do not lower thresholds to force selection or silently substitute downbeat phase. Next product work is an opt-in beat-only diagnostic/perception capability and a separately validated coherent bar-phase selection before making candidate beats authoritative for transition planning.
+
+## M1 implementation: opt-in Beat This! beat-only preview in the actual SAUND analysis response
+
+**Motivation:** The owner confirmed the original `final0` beat candidate is available in full analysis but rejected (confidence 0.6599 / registry authority 0.0) and its 46 candidate downbeats fail bar integrity. This is a real product gap: the model's accurate beat timestamps remained buried in raw neural evidence, while product output continued to show the deterministic beat grid. We must not force the rejected full beat/downbeat grid into planner context.
+
+**Changes committed in draft PR #28:**
+- New `src/djai/intelligence/beat_preview.py` provides `beat_preview_from_evidence` with finite and ordered time checks, clip duration bounds, plausible pulse spacing, a multi-beat BPM estimate and explicit abstention on invalid or unstable beats. It never emits predicted bar starts and never claims correct musical phase.
+- `TrackAnalysis.to_dict()` includes a separate **`beat_only_preview`** field only when `DJAI_BEAT_ONLY_PREVIEW=1`. It exposes `available`, timestamps, BPM, confidence, refusal reason and two explicit safeguards: `used_for_planning=false`, `downbeats_authoritative=false`. Existing authoritative `beats_seconds`, `downbeats_seconds`, cue and bar structures remain **unchanged** and are never edited. Default preview flag is **off**. `to_dict(include_beats=False)` limits the new beat list to 16 with a `beat_count` for compact responses.
+- Six unit tests in `tests/test_m1_beat_only_preview.py` check default-disabled behavior, real output field, compact shape, rollback via feature flag, invalid input abstention and unchanged selected beat/bar/cue fields. Tests were committed; **owner Mac execution is pending**. No tests imply planner safety.
+- **Important:** This is a usable public *analysis-response* improvement, **not an automatic beat-grid replacement in DJ cue selection**. SAUND's actual planner will continue using the coherent selected grid until musical downbeat phase can be established and 25 ms continuous safety is passed. Cached analyses may have been computed without neural inference: if `neural_evidence.beat_downbeat.available` is false or missing, preview correctly abstains. When testing the actual local model, call `analyze_track` directly (no cache) so neural evidence is captured.
+
+**Verification with current local `final0` checkpoint — no persistent environment modification:**
+
+```sh
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q \
+  tests/test_m1_beat_only_preview.py \
+  tests/test_m1_neural_bar_safety_promotion.py \
+  tests/test_m1_beat_this_fast_track_rollback.py
+
+PYTHONPATH=/tmp/saund-m1-evaluator/src \
+DJAI_BEAT_ONLY_PREVIEW=1 \
+DJAI_NEURAL_BEATS=1 \
+DJAI_BEAT_THIS_CHECKPOINT="$HOME/.cache/torch/hub/checkpoints/beat_this-final0.ckpt" \
+DJAI_BEAT_THIS_SHA256=8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python - <<'PY'
+import json
+import os
+from djai.analysis import analyze_track
+
+path = os.path.join(os.environ["M1_AUDIO_ROOT"], "01_opening_122bpm_Aminor.wav")
+a = analyze_track(path)
+p = a.to_dict(include_beats=False)["beat_only_preview"]
+print(json.dumps({
+    "preview_available": p["available"],
+    "preview_beat_count": p.get("beat_count", 0),
+    "preview_bpm": p["bpm"],
+    "preview_reason": p["reason"],
+    "preview_used_for_planning": p["used_for_planning"],
+    "preview_downbeats_authoritative": p["downbeats_authoritative"],
+    "selected_beat_count": len(a.beats_seconds),
+    "selected_downbeat_count": len(a.downbeats_seconds),
+    "neural_selected": a.neural_evidence["beat_downbeat"]["used"]
+}, indent=2))
+PY
+```
+
+**Expected on the known opening fixture:** preview has 129 available candidate beats at the model's measured pulse tempo, while selected grid stays at 128 beats / 32 downbeats and neural whole-grid `used=false`. Verify actual output before claiming this integration has passed. `DJAI_BEAT_ONLY_PREVIEW=0` (or unset) immediately removes the new response field; it does not download a model or change any planner safety controls.
+
+**Next genuinely musical step**: a separate experimental bar-phase resolver must establish meter and bar-origin from independent audio evidence (not a synthetic truth oracle) and run full `analyze_track`/cue/planner/renderer validation on rights-cleared music. Do not simply snap every fourth pulse to a guessed bar origin, change the model authority threshold, or weaken the continuous 25 ms render gate.
