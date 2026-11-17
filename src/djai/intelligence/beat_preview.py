@@ -57,9 +57,12 @@ def beat_preview_from_evidence(
     median = float(np.median(intervals))
     # Quality criterion only: plausible music tempo and no pronounced
     # half/double-time hops or long interruptions in this preview v1.
+    # Percentiles alone can miss one discontinuity (e.g. one 4.5-second
+    # gap among 49 intervals); examine every interval before displaying
+    # the proposed grid.
     if (not 0.18 <= median <= 2.0
-            or float(np.percentile(intervals, 95)) > 1.7 * median
-            or float(np.percentile(intervals, 5)) < 0.55 * median):
+            or float(np.max(intervals)) > 1.7 * median
+            or float(np.min(intervals)) < 0.55 * median):
         return {**unavailable, "reason": "unstable neural beat interval; preview abstained"}
     stride = min(8, max(1, beats.size // 4))
     wide = (beats[stride:] - beats[:-stride]) / stride
