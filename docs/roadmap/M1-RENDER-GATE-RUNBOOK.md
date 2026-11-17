@@ -1130,3 +1130,23 @@ For `low_kick_high_bass`, audio autocorrelation reported a supported **120 BPM /
 The five adversarial cases `halftime_accents_120`, `doubletime_bass_120`, `halfbeat_bass_120`, `tempo_step_120_to_200`, and `tempo_ramp_100_to_220` continued to abstain. The three-/six-beat accent cases returned supported 120 BPM and 35/35 synthetic primary-event recovery, without implying meter certification. The supplied evidence confirms the script report only; **pytest execution was not included** in this paste.
 
 **Do not promote.** The explicit wrong-phase check is calculated from known synthetic reference timestamps **after** selection. Real tracks do not supply these labels, so it cannot serve as a runtime phase-integrity guard. The next research requirement is an audio-only ambiguous-phase detector that recognizes competing kick/bass event sequences and abstains without relying on those synthetic labels. No automatic beat rewrite, safe transition authorization, neural policy promotion, or 25 ms planner phase threshold change.
+
+## M1 shadow audio-only competing-phase evidence (no synthetic oracle)
+
+Following the owner's confirmed `low_kick_high_bass` failure — **supported 120 BPM waveform periodicity but 0/35 true kick events and 35/35 strong offbeat bass events chosen** — a standalone research-only `scripts/m1-competing-acoustic-phase-trains.py` evaluates whether the waveform contains **two independent periodic low-band attack trains roughly half an audio-derived pulse period apart**. The goal is **ambiguity detection and abstention**, not selection of a musically correct phase.
+
+The experiment first calls the existing *waveform-only* ACF estimator. If its period is unsupported/ambiguous, it immediately abstains. Otherwise it globally localizes low-band peaks with a short minimum distance (**85 ms**) to retain potential secondary peaks, then uses a circular phase anchor inferred from acoustic peak strengths to check event coverage near an anchor and an opposite half-period phase across complete cycles. It reports rival/primary coverage, relative acoustic rise strength, event counts and the status `competing_acoustic_phase_trains` when a sustained secondary phase is observed. If not, the result is `insufficient_evidence` — **never “correct phase confirmed”**. The report passes neither TrackAnalysis beat-grid timestamps nor synthetic generator beat labels to this detector, and the generated control labels are used only to select controlled WAVs. This is a deliberately limited heuristic, not kick-source separation.
+
+The tests in `tests/test_m1_competing_acoustic_phase_trains.py` cover an explicit secondary event train, a clean single train, weak/sparse second trains, invalid periods and no peaks, lack of mutation, waveform-ACF abstention, and the report's shadow-only authority. The eight prior adversarial cases plus stable 120 BPM, fast 200 BPM, syncopated bass, and silence are included in the Mac run. Critically, **the owner has not yet executed the new tests or report**. The desired first challenge is whether `low_kick_high_bass` raises competing evidence instead of presenting a single phase as validated, without spuriously claiming that the primary kick train is identified.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_competing_acoustic_phase_trains.py
+
+python scripts/m1-competing-acoustic-phase-trains.py \
+  --output /tmp/saund-m1-competing-acoustic-phase-trains-01.json
+```
+
+This diagnostic **must not be promoted** based on controlled synthetic fixtures. It can miss quiet kick trains, detect false competing patterns from non-drum bass, and cannot resolve correct musical beat identity. Require negative-control sensitivity, rights-cleared variable-meter and syncopation examples, and a subsequent unforced safe-planner evaluation before any operational policy. The production beat grid, neural authority and immutable **25 ms** transition phase-safety requirement remain unchanged; rejected transitions are never rendered.
