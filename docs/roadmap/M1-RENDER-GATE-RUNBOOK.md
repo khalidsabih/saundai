@@ -1190,3 +1190,21 @@ python scripts/m1-competing-phase-sensitivity.py \
 ```
 
 **Status:** New script/tests have been committed but owner Mac run results are still needed. This remains a **shadow-only abstention experiment**; no beat-grid repair, neural authority change, plan/render permission or modification of the **25 ms** continuous phase-integrity requirement is authorized. Require broader audio and independently rights-cleared music before any proposal for production veto integration.
+
+## Owner 24-case competing-phase sensitivity results: 9/15 mixed detections, 0/9 negative flags
+
+The owner executed `scripts/m1-competing-phase-sensitivity.py` on its predeclared 24 synthetic cases. The result is **not** uniform success: the shadow-only two-phase detector reported `competing_acoustic_phase_trains` in **9/15** mixed kick-plus-offbeat-bass examples, covering all three noise conditions at kick amplitudes **0.12, 0.25 and 0.5**. At weaker amplitudes **0.02 and 0.06**, it reported `insufficient_evidence` in **all six** cases. It did not report competing phases in **any of nine** stable-pulse-only, offbeat-bass-only, or noise-only controls. These are measured fixture outcomes, not population rates or a validated confusion matrix.
+
+| Kick amplitude against offbeat bass 1.1 | Noise 0 | Noise 0.001 | Noise 0.005 | Median weaker/stronger event-rise examples |
+|---|---|---|---|---|
+| 0.02 | insufficient | insufficient | insufficient | 0 or approximately 0.00027 |
+| 0.06 | insufficient | insufficient | insufficient | approximately 0.00244-0.00246 |
+| 0.12 | competing | competing | competing | approximately 0.00980-0.00983 |
+| 0.25 | competing | competing | competing | approximately 0.04261-0.04269 |
+| 0.50 | competing | competing | competing | approximately 0.17057-0.17074 |
+
+All 15 mixed waveforms returned supported 120 BPM periodicity; **the missed weak rival phases therefore cannot be explained as ACF abstentions**. At 0.02/no noise, the event finder returned only 35 peaks, 0.000 opposite coverage, and the weak acoustic train was absent from the selected peaks. At 0.02 with noise, it returned 105 peaks and 1.000 opposite coverage but the weaker/stronger ratio was merely 0.00027, well under the research heuristic's fixed 0.006 relative-strength minimum. At 0.06, opposite event coverage was 1.000 yet the ratio 0.00244-0.00246 remained below the minimum. **Event presence alone cannot override inadequate signal evidence.**
+
+The nine single-source/noise-only controls did not trigger `competing_acoustic_phase_trains`, including the strong bass-only sequence; pure noise produced ACF abstention. Importantly, the stable-pulse-only control at noise standard deviation 0.005 produced **0.543 opposite coverage** from 152 globally localized events, although its weak/strong ratio was only 0.00035. This highlights a potential false-ambiguity risk if coverage or strength cutoffs were weakened to rescue the quiet-kick cases. The clean single-phase 120 BPM controls now reach comparison without the old 24-event count gate, but their `insufficient_evidence` output **still does not certify correct beat phase**.
+
+**Decision: still blocked for production.** Do not tune the 0.006 weakness threshold or 0.60 phase-coverage threshold against this same sweep. Prioritize additional independent random seeds, colored/transient noise, low-kick/high-bass timbres, timing jitter, offbeat subdivisions, and rights-cleared real music to estimate robustness beyond these fixtures. A candidate safeguard must separately establish that it can abstain on an unsafe/unknown phase *without* rejecting ordinary syncopated music or incorrectly approving a one-phase bass train. The current detector is advisory/shadow-only; the frozen neural authority, unchanged 25 ms planner phase-integrity envelope and no-render-on-reject rule remain in effect. The pasted report did not include pytest output, so no test-pass claim is made.
