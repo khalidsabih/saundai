@@ -850,3 +850,31 @@ Stop trying arbitrary rate adjustments on this pair: a shadow playback-rate coun
 - Keep the M1 Balloom development-validation vs sealed final-test boundaries, frozen neural confidence selection, rights constraints and default 25 ms continuous phase-lock rejection unchanged.
 
 This wave-based synthetic source evidence closes the diagnostic question of whether actual offbeat transients exist. It **does not** close the M1 safe-render gate; no plan has passed, no transition was rendered, and the challenger has not been promoted.
+
+## M1 shadow-only generator-independent two-band phase integrity prototype
+
+Following owner-confirmed measured high-band WAV attacks at **99/99** displaced outgoing middle beats (9.636281–58.305306 s, median absolute timing error **31.882 ms**) and **0/126** incoming kick-aligned beats matching offbeat attacks, the M1 branch now contains a non-oracle shadow prototype:
+
+- `src/djai/music/rhythm_phase_integrity.py`: filters independently into 35–155 Hz low and 2.5–9 kHz high bands, then samples short energy windows on **detected beat timestamps and the midpoint of each adjacent detected-beat pair**. No known generator BPM, synthetic pulse positions, track names, or annotated beats enter the detector. A 16-beat window requires ≥75% paired low/high contrast support, and a sustained run requires at least three overlapping windows. Weak, mixed, unsupported, or silently invalid evidence abstains. Output labels `kick_aligned_with_support`, `sustained_offbeat_phase_inconsistency`, or `insufficient_evidence` are strictly *shadow research labels*, not production track authorization.
+- `scripts/m1-shadow-rhythm-phase-integrity.py`: reads the two existing rights-free generated WAV fixtures and the **current unchanged** `analyze_track` beat grids. The two filenames only identify files, not BPM or meter references. It writes the standalone shadow decision, time windows, support counts and runs while explicitly declaring no grid adjustment, new plan, or render.
+- `tests/test_rhythm_phase_integrity.py`: focused unit and generated-audio checks for clean kick-vs-hat alignment, half-beat-shifted grid, weak/ambiguous evidence, isolated phase blips, grid bounds, and three-/six-pulse annotation independence. These are limited fixtures; they do not establish generalization to real variable-meter music.
+
+**Critical caveat:** this uses *band-energy concentration*, not a learned kick/hi-hat instrument classifier. Many valid songs can lack a strong kick, have syncopated low-frequency sounds, or emphasize offbeats. The prototype must not be wired to production rejection, neural-grid promotion, beat fixing, tempo reconciliation or rendering approval unless independent multi-genre, variable-tempo, non-4/4 and weak-accent validation demonstrates safe behavior.
+
+Owner Mac command:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_rhythm_phase_integrity.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-shadow-rhythm-phase-integrity.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-shadow-rhythm-phase-01.json
+```
+
+Inspect each `tracks[].phase_integrity.decision`, `windows[]`, and `sustained_offbeat_runs`. A useful first diagnostic is whether the outgoing track gets sustained offbeat evidence in its middle and the incoming track stays kick-aligned or abstains. **No specific classification is guaranteed until the owner's local run.** The frozen neural confidence policy, 25 ms phase gate, 0.8% BPM reconciliation materiality and all rights restrictions remain unchanged.
