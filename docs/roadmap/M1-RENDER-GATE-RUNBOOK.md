@@ -303,3 +303,31 @@ DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
 ```
 
 Inspect the outgoing track's `local_interval_diagnostics.first_outlier_intervals`, `nearest_index_wraps`, and `signed_sequential_error_quartile_medians_ms`, and cross-check affected positions against the 111 rejected phase-lock cue spans. Do not change `DJAI_DECK_PHASE_RESIDUAL_MAX_MS` or blindly enable `DJAI_BEAT_GAP_AWARE`. The next intervention, if evidence supports one, should retain hard abstention when confidence or phase evidence is insufficient.
+
+## Owner's local beat-interval results — two outgoing compression clusters
+
+The owner ran the read-only generated-demo beat-index audit and **7 focused tests passed**. The outgoing 122 BPM track has five detected intervals at least 15% shorter than the generator's exact 491.803 ms beat period:
+
+- **8.823583–9.636281 s:** two successive 417.959 and 394.739 ms intervals (indices 17–19).
+- **58.305306–59.535964 s:** three successive 417.959, 394.740 and 417.959 ms intervals (indices 118–121); the nearest-generator event index repeats at 118→119.
+- Signed sequential phase-error quartile medians: **−4.714, −214.545, −212.362, −219.491 ms**. The first cluster aligns with the first sustained shift; the last cluster may affect a short tail segment.
+
+The incoming 124 BPM track has **zero >15% interval outliers** and stable signed-error quartile medians near +27 ms. These figures narrow the suspected timing problem to localized **beat-tracker compression** rather than persistent musical tempo drift. The inferred +/− timing deviations are *relative to synthetic generator truth only*; don't treat them as proof that source audio changes tempo or use them to edit real-music grids.
+
+The diagnostic now additionally emits `local_interval_diagnostics.outlier_clusters`, grouping consecutive anomalous beat intervals and reporting their cumulative departure from the known generator period. This provides a bounded, reproducible target for subsequent phase-drift analysis; it does **not** apply any correction, set `DJAI_BEAT_GAP_AWARE`, or weaken the 25 ms residual envelope.
+
+The owner's second attempt to write `/tmp/saund-m1-demo-beat-local-03.json` failed solely because the report already existed. This is intentional no-overwrite behavior. To examine the new cluster fields, use a **fresh** output filename:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$M1_PYTHON" -m pytest -q tests/test_m1_demo_beat_index_audit.py
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+"$M1_PYTHON" scripts/m1-demo-beat-index-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-demo-beat-clusters-04.json
+```
+
+Do **not** remove the older report just to rerun the audit. Phase-lock planning and real rendering remain blocked/unverified until evidence supports a safe remedy.
