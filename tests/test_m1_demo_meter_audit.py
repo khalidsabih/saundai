@@ -71,3 +71,24 @@ def test_audit_requires_expected_fixture_files(tmp_path):
         assert "Missing expected generated fixture" in str(exc)
     else:
         raise AssertionError("Missing demo fixtures should be rejected")
+
+
+
+def test_audit_exposes_scalar_vs_grid_span_without_changing_meter():
+    m = load()
+    track = fake_track(4)
+    result = m.measure(track)
+    assert result["bpm"] == 120.0
+    assert result["grid_span_bpm"] == 120.0
+    assert result["scalar_to_grid_span_difference_bpm"] == 0.0
+    assert result["tempo_consistency_evidence"] is None
+
+
+def test_audit_preserves_existing_reconciliation_evidence():
+    m = load()
+    track = fake_track(4)
+    original = {"decision": "retain", "reason": "audio_and_beat_grid_disagree"}
+    track.neural_evidence["tempo_consistency"] = original
+    result = m.measure(track)
+    assert result["tempo_consistency_evidence"] == original
+    assert result["bpm"] == 120.0
