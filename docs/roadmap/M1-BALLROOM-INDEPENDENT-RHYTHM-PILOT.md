@@ -262,3 +262,20 @@ The two tracks flagged in the 80-recording validation integrity report are both 
 | `Albums-Chrisanne3-09` | VienneseWaltz | 117.45384 | 5.10674 BPM | 176.47059 | 0.00001 BPM | `bpm_grid_mismatch` | none |
 
 This confirms the integrity audit’s original **2 selected failures → 0 challenger failures** on these two recordings, but it does **not** establish the musical correctness of faster grid interpretations or rendered DJ-transition stability. Independent annotated beat/downbeat F1 results remain from the earlier 80-track validation benchmark; do not conflate structural consistency with annotated accuracy. Next investigate selected scalar BPM vs actual median beat-grid BPM for these cases and implement separate offline transition/bar-cue quantization tests on **validation** tracks, while preserving unopened 80-recording test draft.
+
+## Offline bar-aware transition-cue timing preflight (validation only)
+
+Added `scripts/m1-ballroom-transition-timing-shadow.py` and six focused tests `tests/test_m1_ballroom_transition_timing_shadow.py`. Unlike the earlier simple grid integrity check, this script uses the **independently annotated number of beats per bar** from Ballroom `.beats` position 1 downbeat markers to avoid mistakenly imposing 4/4 on VienneseWaltz/Waltz. It runs the already-installed neural inference in shadow mode with downloads disabled, derives a hypothetical **4-bar transition cue window**, and checks: beat and downbeat ordering, >=5 downbeats, BPM vs beat-grid agreement <=2 BPM, downbeat-to-beat snap <=100ms, bar-duration plausibility (within 20% of median beat interval × annotated meter), cue-span plausibility (within 20% of 4 expected bars), and whether the hypothetical cue start is within 100ms of independent annotated downbeat. It evaluates current selected, frozen 0.50 challenger, and raw neural candidate on the existing **approved 80-track validation cohort only**. The stored final 80-track test draft remains sealed/unapproved. No production changes.
+
+```sh
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_transition_timing_shadow.py
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-transition-timing-shadow.py \
+  --manifest /tmp/saund-m1-ballroom-pilot/ballroom-validation-80-APPROVED.json \
+  --audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio" \
+  --output /tmp/saund-m1-ballroom-pilot/transition-timing-validation-80.json
+```
+
+The report is deliberately labeled **`rendered_transitions_tested=false`, `cross_domain_tested=false`**. Hypothetical cue boundaries and reference downbeat proximity do not establish actual DJ render safety, any concrete SAUND cue policy, usable musical phrases, audible mix continuity, source rights beyond local authorized evaluation, or reliability outside Ballroom. Failing records must be diagnosed before a real mix-render canary can be designed and executed. **No final test inference until those checks and final evaluation criteria are frozen.**
