@@ -76,3 +76,19 @@ For an additional read-only **actual checkpoint** smoke test of coherent-bar sel
 5. Shadow -> limited opt-in -> expanded roll-out with feature-flag rollback, audit logs, monitored failures and explicit release owner signoff.
 
 **Recommendation:** Accept the guarded code improvements for testing, not unconditional `final0` production authority. Complete the above gates, then ship the smallest approved beat-analysis feature before full autonomous transitions.
+
+## Owner verification — 33 focused tests passed on Mac
+
+Owner refreshed `/tmp/saund-m1-evaluator` to commit `f8d2745` and ran:
+
+```sh
+python -m pytest -q \
+  tests/test_m1_neural_bar_safety_promotion.py \
+  tests/test_m1_beat_this_fast_track_rollback.py \
+  tests/test_m1_neural_downbeat_integrity.py \
+  tests/test_neural_brain_5.py
+```
+
+Actual terminal output: `................................. [100%]` — **33/33 passed**, no failures reported. This verifies unit-level neural bar veto, robust multi-beat BPM, checkpoint pin behavior, existing off/fallback controls and related neural tests against mocks and fixtures. It does **not** yet verify actual `final0` inference through `analyze_track()` after the changes, downstream cue reconstruction, production deployment or the 25 ms continuous planner gate.
+
+**Next end-to-end validation:** run the entire `analyze_track` pipeline with the exact SHA256-pinned local `final0` checkpoint on the previously generated opening fixture, compare against `DJAI_NEURAL_BEATS=off`, and inspect `neural_evidence['beat_downbeat']` `available`, `used`, `reason`, beat/downbeat event counts and BPM. Expect the known irregular 46-downbeat candidate to be **rejected** for grid replacement while remaining recorded in diagnostics, with complete analysis retaining deterministic selected grid and cues. Use an ephemeral subprocess-only environment; do not export settings globally. Do not render or relax the gate.
