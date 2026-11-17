@@ -686,3 +686,28 @@ python -m pytest -q tests/test_m1_shadow_rate_phase_replay.py
 ```
 
 Do not rerender or bypass the phase-integrity stop. Only a separate, explicitly safe development plan that passes all existing gates could lead to an authorized synthetic test render.
+
+## Next M1 experiment — independent waveform kick attacks versus detected beats
+
+Following the confirmed **0/111** safe transitions in the shadow-rate-only phase experiment, the next blocker is identifying whether the beat timestamps correspond to real acoustic kicks in the two rights-free synthetic tracks. The new **read-only** `scripts/m1-synthetic-audio-kick-audit.py` measures low-frequency audio energy attacks directly from the WAV (30–155 Hz bandpass, preceding/following short-window energy difference). It uses the generator's **known 122/124 BPM schedule solely to define bounded candidate search windows** and does **not** use the beat tracker output to select attack locations. Missing/weak audio onset evidence is explicitly reported as missing; it is never filled from the generator oracle. It separately aligns the unchanged estimated beat timestamps to measured acoustic events and reports unmatched beats, signed timing deviations, sample examples, detected-event coverage and the audio attack–generator offset.
+
+This is *independently measured waveform timing but not a fully reference-independent onset detector*: the generator schedule narrows the windows. Do not generalize this diagnostic or its oracle to arbitrary music. Unreliable or missing kick attacks cannot authorize changing the production beat grid.
+
+The new `tests/test_m1_synthetic_audio_kick_audit.py` exercises synthetic pulse audio, missing kick abstention, mismatch rejection, invalid grids, and short audio. Run on the operator's Mac with the existing generated demo files:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+
+python -m pytest -q tests/test_m1_synthetic_audio_kick_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-synthetic-audio-kick-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-synthetic-audio-kick-audit-01.json
+```
+
+Check `tracks[].measured_audio_pulses`, `missing_audio_attack_evidence`, `median_audio_attack_minus_generator_ms`, and `grid_alignment_to_independent_audio`. If acoustic events agree with known generated pulses while the beat grid does not, the beat estimator is suspect. If the acoustic attack detector lacks support, diagnose that instead; do not report a false beat-grid failure. No plan, rendering, neural authority, tempo policy, or 25 ms phase-integrity envelope changes in this experiment.
