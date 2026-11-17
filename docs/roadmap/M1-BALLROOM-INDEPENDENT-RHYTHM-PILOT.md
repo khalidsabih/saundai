@@ -18,3 +18,17 @@
 5. **Grid/tempo consistency must be assessed separately**: compare `analysis.bpm` and robust median beat-grid tempo `60 / median(diff(beats_seconds))` and report disagreement. A shadow neural BPM candidate from Groove cannot be blindly paired with a deterministic grid. For a rigorous DJ safety claim, inspect bar lengths/cue quantization and real rendered transitions, not only event F1.
 
 Do not treat an eight-track exploratory pilot as statistically sufficient for production; freeze a larger rights-reviewed independent Ballroom holdout without tuning on it. Consult original annotation conventions before interpreting downbeats. No audio or rights-approved private manifest is committed.
+
+## First owner-run independent eight-track results (2026-11-17)
+
+Owner explicitly entered `yes` after the Ballroom local rights-review prompt and generated a separate local `ballroom-development-APPROVED.json` manifest. All eight tracks had independently annotated beats and downbeats. Local audio root `/tmp/saund-m1-ballroom-pilot/audio`. No audio or private manifest is committed. Rights attestation is specific to owner's permitted local research evaluation; this does not establish general redistribution or training rights.
+
+| Metric | Deterministic | Neural-enabled | Difference |
+|---|---:|---:|---:|
+| Beat F1 (70ms) | 0.753846 | 0.773073 | +0.019227 |
+| Downbeat F1 (100ms) | 0.221154 | 0.532110 | +0.310956 |
+| Tempo MAE | null | null | n/a (no reference BPM in manifest) |
+| Beat annotation coverage | 8/8 | 8/8 | — |
+| Downbeat annotation coverage | 8/8 | 8/8 | — |
+
+No ledger entries recorded. Neural-enabled is not proof of neural acceptance for every track: inspect per-track neural evidence `used`, `confidence`, `reason` and compare event F1 per track. These exploratory scores fall short of proposed targets (beat F1 0.90, downbeat F1 0.85). Next inspect annotation alignment/convention and per-track failure clusters, and **tempo vs median beat-grid BPM consistency** without enabling the scalar shadow tempo selector. Do not promote model or change production on eight-track pilot.
