@@ -878,3 +878,29 @@ python scripts/m1-shadow-rhythm-phase-integrity.py \
 ```
 
 Inspect each `tracks[].phase_integrity.decision`, `windows[]`, and `sustained_offbeat_runs`. A useful first diagnostic is whether the outgoing track gets sustained offbeat evidence in its middle and the incoming track stays kick-aligned or abstains. **No specific classification is guaranteed until the owner's local run.** The frozen neural confidence policy, 25 ms phase gate, 0.8% BPM reconciliation materiality and all rights restrictions remain unchanged.
+
+## Owner generator-independent two-band detector: correct abstention, high-band rise follow-up
+
+The owner ran the first shadow `m1-shadow-rhythm-phase-integrity.py` report on both synthetic WAVs. The detector **abstained** (`decision=insufficient_evidence`) for both the outgoing 122 BPM and incoming 124 BPM tracks; no sustained offbeat or kick runs were declared. This is an important validation result, not an accepted beat grid or a safe transition.
+
+The outgoing middle windows exhibited strong **low-band** discrepancy: median low beat-versus-midpoint energy ratios often **0.02–0.03**, consistent with low-frequency kick energy being much stronger between the displaced detected beats. But the high-band energy contrast did not support the required paired event evidence. In particular, high-band midpoint/beat energy ratios were often around **0.6–0.8** in the displaced middle and **1.1–1.2** on the incoming track. No 16-beat window achieved the required 12/16 *paired* low/high contrast votes. Crucially, the standalone generator-window-guided audio attack experiment had independently measured 99/99 high-frequency offbeat events near the displaced grid; the generator-independent shadow energy features did **not** provide equally strong phase discrimination, so the research conclusion must remain abstention.
+
+Added **read-only high-frequency transient-rise diagnostics** to `src/djai/music/rhythm_phase_integrity.py`: short-window (6 ms) *before-versus-after* high-band energy increases near each detected beat and midpoint. Each 16-beat shadow window now optionally reports `median_high_rise_mid_to_beat_ratio`, `high_rise_mid_dominant_count`, `high_rise_beat_dominant_count` and `high_rise_diagnostic_only=true`. These new values are **not incorporated into classification or decisions**; they allow targeted inspection of whether attack rise, rather than ongoing energy, distinguishes the phases.
+
+The tests additionally check that adding contradictory high-rise evidence does **not** change an existing classification, and that sustained energy without a new attack does not create an onset. Preserve all original evidence thresholds and the existing 25 ms phase safety envelope.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_rhythm_phase_integrity.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-shadow-rhythm-phase-integrity.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-shadow-rhythm-phase-rise-02.json
+```
+
+Inspect the high-rise ratios in the outgoing windows spanning **9.64–58.31 s** and compare with the incoming. If contrast is still weak, do not force a decision by reducing thresholds; instead consider independent transient localization and controlled negative controls before a policy proposal. No production grid change, signed transition, or rendering is authorized.
