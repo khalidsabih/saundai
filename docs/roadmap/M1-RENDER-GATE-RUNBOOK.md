@@ -414,3 +414,35 @@ python scripts/m1-demo-phase-clock-counterfactual.py \
 ```
 
 Because the outgoing global fitted BPM can be biased by local compressed beat intervals, this is a **hypothesis test, not a production BPM correction**. Compare predicted and measured change and how much remains unexplained, then consider segment-local rate estimation and independent audio-onset evidence before any controlled proposal. The phase-lock stop, current 25 ms limit, frozen neural policy, and rights constraints remain unchanged.
+
+## Owner global-clock counterfactual: 101 of 111 directional matches
+
+The owner ran the synthetic demo's read-only `m1-demo-phase-clock-counterfactual.py` and observed 111 evaluable, zero skipped trace rows. Both tracks still showed the identical **123.0469 BPM** scalar in SAUND's analyses, but their **whole-track fitted beat clocks** were approximately **122.5123 BPM** (outgoing, biased by local compression) and **124.0008 BPM** (incoming). Existing rejected plans used `render_rate_a=1.0` and `render_rate_b=1.0` in the supplied examples. The global-clock counterfactual reported:
+
+- **101/111** observed phase-change directions matching its prediction.
+- Median predicted uncontrolled change **−188.759 ms**, observed **−255.420 ms**.
+- Median absolute unexplained change **89.881 ms**.
+
+This supports the diagnosis that scalar BPM equality does **not** establish beat-clock agreement. It is not a proof of a production fix: the outgoing clock fit is contaminated by compressed intervals and the counterfactual does not reproduce the continuous phase warp or all indexing discontinuities.
+
+### Cue-local clock experiment — no planning authority
+
+A new **read-only** `scripts/m1-demo-local-clock-audit.py` analyzes the two known synthetic demo files with the current opt-in neural downbeat integrity configuration, then measures the local beat-period median inside **each actual rejected trace window**. It separately counts discarded >15% local interval outliers; they remain unsafe and are **never silently corrected** in a plan. For each rejection, the report compares the *planned* output rate to cue-local output clocks, predicts uncorrected phase change, and records the remaining unexplained end-to-end change. It cannot replan, render, rescore or change the frozen rhythm policy or phase residual limits.
+
+Run it on the Mac with the existing private JSONL rejection trace; choose a new output filename:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_demo_local_clock_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-demo-local-clock-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --trace /tmp/saund-m1-demo-phase-lock-01.jsonl \
+  --output /tmp/saund-m1-demo-local-clock-01.json
+```
+
+Compare `median_absolute_unexplained_ms`, `median_predicted_local_clock_change_ms`, `matching_direction_count`, and `non_evaluable_count` with the global-clock counterfactual. The new results should be compared by cue interval and inspected for any local timing anomalies. Do not treat filtered BPM evidence as authorization to interpolate across a bad beat or force a long transition. Validation must later include independent real audio onset references and both non-4/4 meters before any production proposal.
