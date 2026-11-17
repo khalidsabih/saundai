@@ -211,3 +211,59 @@ Owner fetched the branch at `2e2a9ac`, ran the full `djai.analysis.analyze_track
 ```
 
 **Result:** First actual, owner-confirmed `final0` → `analyze_track` → `TrackAnalysis.to_dict(include_beats=False)` → `beat_only_preview` end-to-end feature integration **passed**. The robust wide-span preview BPM of **121.8274** is within 0.173 BPM of the generated fixture's nominal 122 BPM; this does not by itself validate multi-genre tempo accuracy. All model timestamps remain non-authoritative for planner/bar/cue computations; the original selected beat/downbeat counts remain 128/32 and neural whole-grid acceptance remains false. The separate librosa pitch-tuning warning is not an inference failure. User-facing product deployment, normal workspace update, rights approval and rendered transition safety remain outstanding. No production setting changed.
+
+## Experimental neural bar-phase resolution for real DJ cues (opt-in only)
+
+**Implemented (not yet executed on owner Mac):** `src/djai/intelligence/neural_bar_phase.py`, `tests/test_m1_neural_bar_phase_trial.py`, and a guarded integration path in `src/djai/analysis.py`. This is the first candidate path where a coherent **neural beat grid plus independently resolved bar grid** can influence the *actual* downstream `_aggregate_bar_features`, `_structural_boundaries`, entry/exit cues, and therefore an unforced planner. It does **not** bypass the 25 ms continuous phase-integrity gate or modify renderer/planner source.
+
+**Opt-in:** `DJAI_NEURAL_BAR_PHASE_TRIAL=1`. The default is `0`, so no behavior change in current installs. The trial uses neural predictions only if the existing registry did *not* already select them, and only if all of the following are satisfied:
+
+1. The existing time-signature estimator is confident (`time_signature_confidence >= 0.80`) and suggests 3, 4 or 6 beats per bar; no assumed 4/4.
+2. Candidate neural beats are finite, ordered, within track bounds, cover >=75% of the audio, and have no >35% long / >30% short local pulse discontinuity.
+3. The actual acoustic onset envelope has a single dominant accent phase across **all four** separated track regions, with >=22% per-region winner-to-runner-up margin. No known synthetic meter, annotated beat phase or raw permissive neural downbeat labels are used to *derive* the selected origin.
+4. At least eight existing deterministic bar landmarks overlap; >=90% agree within min(70 ms, 15% of beat period) with the independently inferred acoustic-phase bar starts.
+5. The resolver returns a *complete* candidate beat grid, downbeat grid and BPM. The full analyzer updates these simultaneously **before** generating bar/structure/cue features. It never patches a signed `TransitionPlan` or merges incompatible bar positions.
+
+**Abstention:** A refusal is recorded in `analysis.neural_evidence["bar_phase_trial"]` with a plain-English reason and limited diagnostics; the original selected rhythm grid, cues and BPM are retained. Even a pass is only a conservative engineering indication, **not** certified musical downbeat identity or production safety; requiring agreement with the baseline bar detector intentionally sacrifices recall and may reject the original failing synthetic demo. There is no silent phase snapping to every fourth beat, and no 0.50 confidence promotion.
+
+**Do not globally enable or deploy this trial** until validation on rights-cleared non-training-overlap audio, sample-level transition audits, and commercial-use review. The existing Beat This! upstream model's Ballroom training overlap still disqualifies Ballroom-only production claims.
+
+### Owner commands: first unit and guarded real-model test
+
+```sh
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q \
+  tests/test_m1_neural_bar_phase_trial.py \
+  tests/test_m1_beat_only_preview.py \
+  tests/test_m1_neural_bar_safety_promotion.py \
+  tests/test_m1_beat_this_fast_track_rollback.py
+
+# No cache; observe whether the phase resolver abstains on the known demo.
+PYTHONPATH=/tmp/saund-m1-evaluator/src \
+DJAI_BEAT_ONLY_PREVIEW=1 \
+DJAI_NEURAL_BAR_PHASE_TRIAL=1 \
+DJAI_NEURAL_BEATS=1 \
+DJAI_BEAT_THIS_CHECKPOINT="$HOME/.cache/torch/hub/checkpoints/beat_this-final0.ckpt" \
+DJAI_BEAT_THIS_SHA256=8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331 \
+DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python - <<'PY'
+import json, os
+from djai.analysis import analyze_track
+
+a = analyze_track(os.path.join(os.environ["M1_AUDIO_ROOT"], "01_opening_122bpm_Aminor.wav"))
+p = a.neural_evidence.get("bar_phase_trial", {})
+print(json.dumps({
+    "phase_trial": p,
+    "selected_bpm": a.bpm,
+    "selected_beats": len(a.beats_seconds),
+    "selected_bars": len(a.downbeats_seconds),
+    "entry_candidates": len(a.entry_candidates),
+    "exit_candidates": len(a.exit_candidates),
+}, indent=2))
+PY
+```
+
+**Interpretation:** `phase_trial.eligible=false` means a correct safety abstention. `eligible=true` means the analysis rebuilt its grid-dependent structures from the resolved candidate, **not** that a real DJ transition has been rendered or passed the 25 ms gate. Compare outputs with the same command **without** `DJAI_NEURAL_BAR_PHASE_TRIAL=1` before selecting any test music for an unforced planner/render canary. For any render, use only separately licensed pair audio and `force=False`, with existing hard integrity checks intact. This trial is not enabled by `DJAI_BEAT_ONLY_PREVIEW` alone.
