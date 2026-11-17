@@ -824,3 +824,29 @@ python scripts/m1-synthetic-audio-offbeat-attack-audit.py \
 ```
 
 Inspect `tracks[0].measured_offbeat_events` and `tracks[0].regional_measured_offbeat_alignment`, in particular `between_compressions.within_80ms_count` and `median_absolute_attack_error_ms`. Confirm the detector measures enough actual offbeat WAV transients before drawing a conclusion; weak or missing events must be treated as insufficient evidence, not filled with hypothetical midpoints. No plan or render is produced, no production code or frozen neural policy is changed.
+
+## Owner high-frequency offbeat WAV experiment — confirms actual synthetic offbeat transients
+
+The owner executed `scripts/m1-synthetic-audio-offbeat-attack-audit.py` on the two generated copyright-free tracks. This measurements is **not** generated midpoint interpolation: a high-frequency (2.5–9 kHz) WAV energy-rise estimator identified **127/127** synthetic offbeat attacks on both fixtures, with median attack-time offsets from the expected generator half-beat pulse of **+0.385 ms** (opening) and **+0.091 ms** (incoming).
+
+| Source region | Detected beats within 80 ms of measured high-frequency offbeat attack | Median absolute offbeat attack error |
+|---|---:|---:|
+| Outgoing before first compression | 0/17 | 220.362 ms |
+| Outgoing first compression | 0/2 | 179.716 ms |
+| **Outgoing 9.636281–58.305306 s** | **99/99** | **31.882 ms** |
+| Outgoing second compression | 2/3 | 47.619 ms |
+| Outgoing after second compression | 0/7 | 218.526 ms |
+| Incoming entire track | 0/126 | 214.740 ms |
+
+The earlier independent low-frequency kick audit measured **99/99 middle-section outgoing beats beyond 80 ms from kick attacks**. In this high-frequency audit, **all 99 are within 80 ms of actually detected offbeat high-frequency attacks**, versus 0/17 and 0/7 near the beginning and end. Together, these are convergent, source-waveform-based observations of a temporary **kick-to-offbeat rhythmic phase switch** in the deterministic beat grid, followed by re-lock on kicks near the end. The real presence of offbeat high-frequency attacks is now supported; it remains unproven that the internals of librosa's beat tracker *causally chose* those events rather than shifting through its own dynamic programming/tempo phase mechanism.
+
+### M1 next engineering gate — non-oracle integrity detector
+
+Stop trying arbitrary rate adjustments on this pair: a shadow playback-rate counterfactual still failed the 25 ms numeric phase gate on **111/111** rejected configurations. The next candidate should use **audio features independent of the generator's known 122/124 BPM pulse schedule** to detect a sustained kick-to-offbeat inconsistency in the already estimated beat grid. It should run only as a separate research/shadow evaluator initially, and report either (a) supported sustained phase inconsistency, (b) supported stable rhythm, or (c) insufficient/ambiguous evidence. In particular:
+
+- Use onset/energy measurements at grid beats and half-beat-shifted alternatives without assuming the generator's BPM or accepting a known kick template.
+- Require extended contiguous support and comparable independent low-/high-band attacks, rather than interpreting every offbeat hi-hat as a wrong beat or using absolute bass energy alone. Test correct kick-aligned beats with audible offbeat hats, true offbeat-locked beats, weak-kick/ambient material, tempo variation, halftime/doubletime, and real 3/4 and 6-pulse material.
+- Preserve the existing `TrackAnalysis.beats_seconds`, downbeats, scalar BPM and all production gates. An uncertain detector should abstain, **never silently shift or synthesize beats**. Any eventual opt-in veto needs independent validation and tests showing it cannot green-light or render a transition.
+- Keep the M1 Balloom development-validation vs sealed final-test boundaries, frozen neural confidence selection, rights constraints and default 25 ms continuous phase-lock rejection unchanged.
+
+This wave-based synthetic source evidence closes the diagnostic question of whether actual offbeat transients exist. It **does not** close the M1 safe-render gate; no plan has passed, no transition was rendered, and the challenger has not been promoted.
