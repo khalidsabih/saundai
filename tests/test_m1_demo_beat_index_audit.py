@@ -61,3 +61,26 @@ def test_nearest_grid_error_can_wrap_even_with_linear_drift():
     report = mod.compare_to_generator(beats, bpm=120, duration=65)
     assert report["sequential_index_drift"]["slope_ms_per_beat"] == 2.0
     assert report["max_absolute_grid_error_ms"] <= 250.0
+
+
+
+def test_local_interval_diagnostics_locate_single_short_interval():
+    mod = load()
+    beats = [i * .5 for i in range(20)]
+    # Introduce a single anomalous short interval without relying on
+    # fitted global slope to identify the location.
+    beats[10] = beats[9] + .10
+    report = mod.compare_to_generator(beats, bpm=120, duration=10)
+    local = report["local_interval_diagnostics"]
+    assert local["outlier_interval_count"] == 2
+    assert local["first_outlier_intervals"][0]["between_observed_indices"] == [9, 10]
+    assert local["first_outlier_intervals"][1]["between_observed_indices"] == [10, 11]
+    assert len(local["signed_sequential_error_quartile_medians_ms"]) == 4
+
+
+def test_regular_offset_grid_does_not_create_interval_outliers():
+    mod = load()
+    beats = [i * .5 + .2 for i in range(60)]
+    local = mod.compare_to_generator(beats, bpm=120, duration=31)["local_interval_diagnostics"]
+    assert local["outlier_interval_count"] == 0
+    assert local["nearest_index_wraps"] == []
