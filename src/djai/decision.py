@@ -467,6 +467,7 @@ def assess_transition(
     stems_available: bool = False,
     allow_fallback: bool = False,
     exact_bars: bool = False,
+    diagnostics: list[TechniqueAssessment] | None = None,
 ) -> TransitionDecision | None:
     effective_a = float(effective_bpm_a or track_a.bpm)
     render_rate_a = max(0.01, float(render_rate_a))
@@ -582,6 +583,10 @@ def assess_transition(
             if best_payload is None or payload[0] > best_payload[0]:
                 best_payload = payload
 
+    # Surface the already-computed hard failure evidence to opt-in callers.
+    # This is diagnostic only: it does not change candidate feasibility or ranking.
+    if diagnostics is not None:
+        diagnostics.extend(assessments)
     if best_payload is None:
         return None
 
