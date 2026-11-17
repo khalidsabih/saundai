@@ -1287,3 +1287,38 @@ Both 8-second local segments returned **supported audio periodicity** for all 32
 One individual jittered example is diagnostically useful: seed **907**, lowpass noise, **87 Hz decaying kick**, **0.12** kick amplitude, **±14 ms** jitter. The whole-clip audio period was **507.5 ms** with **0.565/0.565** coverage and `insufficient_evidence` (rival rise ratio **0.0118**, above the fixed 0.006 strength floor). Its 0–8 s window estimated **505 ms**, saw **0.933/0.800** coverage and ratio **0.01246**; the 4–12 s window estimated **495 ms**, saw **0.938/0.938** coverage and ratio **0.01142**. Both local windows reported `competing_acoustic_phase_trains`. These observations support the **possibility** that shorter windows reduce some global alignment drift, but they do not prove the underlying cause; window ACF period error, jitter and anchor-phase shifts may interact. Crucially, this local rescue does **not** improve overall detection counts because other cases remain missed.
 
 **Conclusion:** The global-vs-local candidate has **no demonstrated aggregate benefit** on this matrix. Keep **12/32** mixed detections and **0/20** negative flags as empirical fixture counts only. Do not relax fixed research coverage (0.60), rival strength (0.006), or 42 ms tolerance based on this evaluation. If pursuing local analysis further, isolate the period bias versus anchor-phase drift with explicitly diagnostic (non-authoritative) per-window observations and independent audio controls, especially quiet kicks and timing jitter. Do not promote the global or local detector, infer the true kick phase, rewrite source beats, or authorize rejected transitions. The 25 ms phase-integrity hard gate and draft status of PR #28 remain unchanged. The pasted report alone does not establish a pytest pass.
+
+## M1 experimental 2x2 waveform-only period-vs-anchor attribution
+
+The owner's global-versus-overlapping-window evaluation showed **12/32** mixed-waveform acoustic phase detections under either strategy, **0/20** negative-control detections, and one individually recovered jittered waveform despite no aggregate improvement. The next bounded diagnostic is intended to distinguish **audio-period estimation drift** from **acoustic phase-anchor drift** without synthetic timing as a decision input.
+
+Added standalone `scripts/m1-period-anchor-attribution.py` and `tests/test_m1_period_anchor_attribution.py` plus an optional `anchor_phase_seconds` argument to the existing **shadow-only** `compare_phase_trains` comparator in `scripts/m1-competing-acoustic-phase-trains.py`. The default `anchor_phase_seconds=None` retains **exactly the original waveform-derived local-anchor behavior**. This change does not affect production music analysis, neural authority or planner policy.
+
+For each of the **same predeclared 52 synthetic waveform configurations** and **the same detected acoustic events in an 8-second local window**, compare a fixed four-arm attribution matrix:
+
+| Research arm | Period candidate | Acoustic anchor |
+|---|---|---|
+| `global_period_local_anchor` | ACF hypothesis estimated from entire input WAV | inferred from local window's audio peaks |
+| `global_period_held_anchor` | same full-WAV ACF hypothesis | held whole-WAV audio-peaks anchor at that candidate period |
+| `local_period_local_anchor` | ACF hypothesis estimated from the current window | inferred from current window's audio peaks |
+| `local_period_held_anchor` | same window ACF hypothesis | held whole-WAV audio-peaks anchor at that candidate period |
+
+For held-anchor arms, the whole-WAV anchor is **estimated from acoustic peaks at the same period candidate**; the anchor is then translated from global to local time using `(global_anchor - window_start_seconds) % candidate_period`. This is necessary because the local comparator consumes **window-relative event timestamps**. All arms use the same local detected event list, the same original **42 ms timing radius, 12-cycle minimum, 0.60 coverage and 0.006 acoustic-rise ratio**, and the existing waveform-only ACF and 85 ms / 0.02 candidate-peak localization rules. A missing or unsupported audio-derived period or anchor must **abstain**; no synthetic true-pulse timestamps, generated BPM or track analysis grids are supplied to the estimator, comparator or anchor inference. Fixture parameters exist only to synthesize waveform test controls and group post-hoc results.
+
+The output lists per-window `period_delta_local_minus_global_ms`, all four arms' status/coverage/relative strength, and `summary_by_fixture_jitter` with `any_window_competing_count` and `both_windows_competing_count` per arm. Windows 0–8 s and 4–12 s **overlap** and are not independent validation trials. A difference between arms provides only **descriptive attribution evidence**: locked anchors estimated on the entire waveform also share information with local windows; these are not causal interventions on real beats or grounds to select one arm for production. In particular, a "competing" result never identifies which train is the true musical kick, and a lack of competing evidence never establishes a correct beat.
+
+Run the six new tests plus the prior companion suite on Mac:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q \
+  tests/test_m1_period_anchor_attribution.py \
+  tests/test_m1_competing_acoustic_phase_trains.py
+
+python scripts/m1-period-anchor-attribution.py \
+  --output /tmp/saund-m1-period-anchor-attribution-01.json
+```
+
+**Execution status:** committed research source, tests and runbook only; owner-run report and pytest evidence are pending. Do not adjust detector thresholds based on this matrix, merge or promote PR #28, touch the sealed Ballroom test, correct any production beat grids, or render unsafe transitions. The original hard **25 ms** continuous phase-integrity gate and frozen neural selection remain intact.
