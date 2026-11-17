@@ -740,3 +740,35 @@ python scripts/m1-synthetic-audio-kick-audit.py \
 ```
 
 The next engineering decision should be based on the regional mismatch counts, including whether timing error persists between the compressed clusters. Keep the existing 25 ms phase-lock limit, hard rejection of unsafe overlaps, and frozen neural selection policy intact. No transition render has passed the gate.
+
+## Owner regional acoustic replay — long displaced section and restored ending
+
+The owner executed `m1-synthetic-audio-kick-audit.py` with the 5-window outgoing diagnostic. The independently measured WAV kick windows exposed a distinct temporary alignment failure:
+
+| Outgoing source region | Beats | >80ms from measured kick | Median absolute nearest kick error |
+|---|---:|---:|---:|
+| Before 8.823583 s | 17 | 0 | 22.358 ms |
+| 8.823583–9.636281 s | 2 | 1 | 75.895 ms |
+| **9.636281–58.305306 s** | **99** | **99** | **222.449 ms** |
+| 58.305306–59.535964 s | 3 | 3 | 193.174 ms |
+| After 59.535964 s | 7 | 0 | 22.313 ms |
+
+This is a near-half-beat acoustic displacement across almost the entire middle segment, with restored proximity at the end. It **does not yet establish** whether the tracker followed a wrong subdivision, whether its sequential beat indices slipped, or whether the two boundary clusters changed timestamp phase; nearest-kick distance can alias when two neighboring kicks are similarly close. The incoming grid had **0 / 126** beats more than 80 ms from independently measured kick windows. The first t=0 kick's measurement remains unsupported by the preceding/following energy difference method, and is not filled with the generator reference.
+
+Extended the same read-only audit with `outgoing_region_index_associations`. For each original region it reports the nearest **measured** WAV kick's synthetic generator index, the difference to the detected beat event index, and that offset's histogram **only when acoustic timing is within 80 ms**. It also reports nearest-kick duplicate/reverse index steps and first/last examples. Out-of-tolerance associations are *not* counted as reliable index identity and no beat timestamp, neural authority, BPM, signed transition or render safety limit is changed.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_synthetic_audio_kick_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-synthetic-audio-kick-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-synthetic-audio-kick-indices-03.json
+```
+
+Inspect `tracks[0].outgoing_region_index_associations`, especially `reliable_index_offset_histogram`, `out_of_tolerance_count`, and nearest-kick duplicate steps across the first and second compression regions. The 99 middle mismatches should remain **out of tolerance**, not be misreported as confident index alignment. This is only synthetic diagnostic evidence; the next permitted action depends on independent source-event identity, not forcing a transition through the **25 ms** phase-integrity stop.
