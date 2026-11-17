@@ -78,3 +78,14 @@ Four tests are included for official archive checksum refusal, bounded selection
 - Prior tooling: 27 / 27 focused tests passed on the owner's Mac.
 - Pilot implementation: source committed; **new 4 focused tests pending**.
 - No local music was accessed by the assistant; **no real rhythm accuracy result or champion has been recorded**.
+
+
+## Actual owner archive inspection — 2026-11-17
+
+The owner successfully ran `scripts/m1-prepare-ballroom-pilot.py --inspect-only --max-tracks 8` from `/tmp/saund-m1-evaluator`. Output confirmed `source_integrity_passed=true`, eight proposed candidate IDs, eight distinct reported ballroom genre folders, `extracted=false` and `rights_confirmed=false`.
+
+Candidate IDs (audit normalized to lowercase, not a new source-of-truth mapping): `albums-cafe_paradiso-05`, `albums-cafe_paradiso-14`, `albums-ballroom_classics4-18`, `albums-anabelen_veneo-13`, `albums-anabelen_veneo-01`, `media-103511`, `albums-anabelen_veneo-02`, `albums-ballroom_classics4-06`.
+
+Reported style folders: `chachacha`, `jive`, `quickstep`, `rumba-american`, `rumba-international`, `rumba-misc`, `samba`, `tango`.
+
+**Interpretation:** archive identity and small-sample pairing inspection passed. No WAV was extracted, usage rights were not affirmed, the independently annotated audio has not been analyzed by SAUND and no F1 or BPM metric has been measured. Next: owner reviews permitted noncommercial research use before invoking `--research-only-ack`, then prepares an explicitly reviewed development manifest for evaluation.
