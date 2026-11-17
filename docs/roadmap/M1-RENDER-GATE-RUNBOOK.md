@@ -1585,3 +1585,18 @@ python -m pytest -q \
 ```
 
 **Release limitation:** These unit tests prove isolated adapter off/fallback behavior, **not** end-to-end analysis/cache/transition-planner rollback, deployed checkpoint integrity, model timeout protection or correct beat/downbeat selection on independent recordings. The adapter's `DJAI_BEAT_THIS_MODEL` defaults to `small0`; the validated external CLI used `final0`, so a release candidate must explicitly pin the tested checkpoint. The model registry's `advisory` weight does not constitute a final production signoff. Do not modify `DJAI_NEURAL_BEATS`, `DJAI_MODEL_REGISTRY` or neural model authority in a deployed environment based only on unit tests. No 25 ms planner safety limit changes and no unsafe render.
+
+## Owner Mac execution: all 19 M1 fast-track adapter/regression tests passed
+
+On the user's Mac checkout refreshed at commit `8cc5f7a`, the following command completed with **19 passing pytest tests, zero reported failures**:
+
+```bash
+python -m pytest -q \
+  tests/test_m1_beat_this_fast_track_rollback.py \
+  tests/test_m1_beat_this_independent_regression.py \
+  tests/test_m1_neural_downbeat_integrity.py
+```
+
+The grouping is **7 adapter flag/fallback/rollback tests**, **8 independent regression-runner tests**, and **4 structural downbeat-integrity tests**. This verifies mocked failure paths, off-switch behavior, zero-authority constraints, the research runner's validation-only split handling and structural downbeat checks. It **does not** establish end-to-end deployed rollback, actual `final0` adapter behavior on independent tracks, independent corpus performance, commercial license approval, host performance, or an unforced continuous 25ms planner gate pass. Keep draft PR #28 unmerged and production settings unchanged.
+
+**Fastest next meaningful evidence:** prepare one fixed, independently annotated, rights-cleared validation set and run `scripts/m1-beat-this-independent-regression.py` with the same **final0** checkpoint tested on the generated demos; in parallel check SHA256/runtime/commercial rights and test the full integration's off-switch in a nonproduction run. Do not substitute synthesized BPM/kick references for independent annotations or invoke the sealed Ballroom test.
