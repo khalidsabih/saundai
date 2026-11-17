@@ -139,3 +139,19 @@ Owner ran `scripts/m1-neural-tempo-shadow.py` on `/tmp/saund-m1-groove/developme
 - Model promotion false; production changes false.
 
 This fresh development cohort is a meaningful replication of the original neural candidate advantage, **not independent held-out test**, and the above is unconditional neural candidate comparison rather than evaluation of the **previously preregistered conditional selector** (confidence >= 0.45 and |candidate-selected BPM| >= 10, rejected grid only). Next compute frozen selector MAE on this fresh cohort, number of switches, improvements/regressions and maximum per-track regression. Do not choose or retune rule based on this cohort and then report same cohort as an unbiased validation; note the prior cohorts selected the rule. Ensure any eventual tempo-only production change preserves consistency with beat/downbeat grid, bar durations, cue timings and transitions.
+
+## Predefined conditional tempo selector on fresh 48-track development cohort
+
+Owner evaluated the rule **locked before viewing this cohort** (on rejected beat grids only: confidence >= 0.45 and |neural BPM - currently selected BPM| >= 10 BPM) using the same fresh, nonoverlapping 48 development records as the immediately preceding section. This is an offline score calculation only; actual analysis output, beat grids, cue timing and production engine were unchanged.
+
+Reported results:
+- Current selected tempo MAE: **17.1541 BPM**.
+- Frozen conditional selector tempo MAE: **4.2385 BPM**.
+- Relative MAE reduction: **~75.29%**.
+- Switched **11/48**; all **11 improved**, zero worsened (by >0.01 BPM).
+- Smallest improvement among switched tracks: **+11.03 BPM** (recording `drummer6/session1/3`). The script prints `Worst regression: 11.03` but that is misleading: its calculation returns the minimum *gain*, which was positive. No regression was observed in switched tracks.
+
+Selected large wins include `drummer10/session1/4` and `/6` (+106.62 BPM absolute error reduction each), `drummer1/session2/5` (+100.62), and `drummer1/session1/76` (+87.37); all in the owner's pasted output, no audio reanalysis here.
+
+**Interpretation:** this pre-specified selector improved a fresh development cohort and avoided observed regressions in 11 switches, which is valuable evidence but **not a production promotion gate**. Confidence and track-split selection still need robustness checks on truly untouched drummers/sessions and non-drum-only audio. A tempo-only scalar replacement can break consistency with retained beat positions, bar duration and cue quantization. Implement an explicit audit of BPM/grid disagreement and validate annotated beat/downbeat ground truth on appropriately licensed independent recordings before even opt-in production evaluation. Do not use this fresh cohort to retune thresholds and then count it as a new holdout.
+
