@@ -35,12 +35,25 @@ def measure(track) -> dict:
     neural = track.neural_evidence.get("beat_downbeat", {})
     if not isinstance(neural, dict):
         neural = {}
+    tempo_evidence = track.neural_evidence.get("tempo_consistency")
+    if not isinstance(tempo_evidence, dict):
+        tempo_evidence = None
+    grid_span_bpm = (
+        60.0 * (len(beats) - 1) / (beats[-1] - beats[0])
+        if len(beats) >= 2 and beats[-1] > beats[0] else None
+    )
     return {
         "predicted_meter": track.time_signature,
         "meter_confidence": track.time_signature_confidence,
         "expected_meter": REFERENCE_METER,
         "meter_matches_generator": track.time_signature == REFERENCE_METER,
         "bpm": track.bpm,
+        "grid_span_bpm": round(grid_span_bpm, 5) if grid_span_bpm is not None else None,
+        "scalar_to_grid_span_difference_bpm": (
+            round(track.bpm - grid_span_bpm, 5)
+            if grid_span_bpm is not None else None
+        ),
+        "tempo_consistency_evidence": tempo_evidence,
         "beat_grid_confidence": track.beat_grid_confidence,
         "downbeat_confidence": track.downbeat_confidence,
         "beat_count": len(beats),
