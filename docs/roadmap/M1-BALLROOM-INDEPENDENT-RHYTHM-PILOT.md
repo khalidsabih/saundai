@@ -112,3 +112,21 @@ After fetching PR branch at `430843c`, owner executed `tests/test_m1_ballroom_gr
 | Rejected by current gate | — | 4/8 |
 
 `production_changed=false`, `model_promoted=false`. **This pilot exceeds proposed M1 beat/downbeat thresholds for raw candidate grids, not the production-selected grid**, and the sample of eight exploratory recordings is insufficient for representative performance or safety certification. Owner's inventory of `/tmp` found neither the specifically named Ballroom beat-annotation file examples nor `data1.tar.gz`, and `/tmp/saund-m1-ballroom-pilot` contains only its `audio` subdirectory. Next locate original annotation/archive files in the owner's actual acquisition directory rather than inventing paths or regenerating labels from SAUND. For a larger research-only set, freeze non-overlapping IDs and conduct separate applicable rights review; preserve a final untouched holdout.
+
+## Full local corpus verified; reproducible 80-track draft importer
+
+Owner inventory of original `B_1.0` reported **698 beat .beats files, 698 tempo .bpm files, 698 WAVs, exact basename intersection 698**. Sample `.beats` rows have two fields (seconds, beat-in-bar index), e.g. `0.3000000000 1` followed by positions 2–4; `1` marks downbeat. Example .bpm is `124`. Audio directories and WAV counts: ChaChaCha 111, Jive 60, Quickstep 82, Rumba-American 7, Rumba-International 51, Rumba-Misc 40, Samba 86, Tango 86, VienneseWaltz 65, Waltz 110 (plus empty `nada`). Source root is under user's private local `~/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0`.
+
+New `scripts/m1-ballroom-manifest.py` scans original files, requires exact audio+annotations by basename, validates monotonic beat timestamps and separate positive BPM, derives downbeats only from **source beat-position labels**, excludes old 8 pilot IDs and <8s files, selects a seeded genre-round-robin sample (default 80), produces a private `rights_confirmed=false` *development draft*, and refuses to overwrite results. No audio copying, generated beat labels, source downloads, or training.
+
+```sh
+cd /tmp/saund-m1-evaluator
+"$DJAI_WORKSPACE/.venv/bin/python" -m pytest -q tests/test_m1_ballroom_manifest.py
+"$DJAI_WORKSPACE/.venv/bin/python" scripts/m1-ballroom-manifest.py \\
+  --source-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0" \\
+  --exclude-manifest /tmp/saund-m1-ballroom-pilot/ballroom-development-APPROVED.json \\
+  --count 80 \\
+  --output /tmp/saund-m1-ballroom-pilot/ballroom-diverse-80-DRAFT.json
+```
+
+The previous 8-track research permission does **not** automatically authorize an expanded cohort. Owner must review expanded evaluation rights and explicitly attest locally before generating a *distinct* approved manifest with `rights_confirmed=true`; do not auto-approve in importer. After approval, benchmark with `--audio-root "$HOME/Downloads/lab/SAUND_AI/data/beat-benchmark/ballroom/B_1.0/audio"` and `scripts/m1-ballroom-grid-shadow.py` using a **new** result path. These 80 are exploratory development only; freeze a separate never-inspected holdout and do not tune against it. Zero production behavior changed.
