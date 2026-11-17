@@ -17,6 +17,8 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
+from scripts.summarize_phase_lock_trace import classify_phase_motion
+
 
 def _finite_number(value):
     return isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(float(value))
@@ -72,19 +74,47 @@ def correlate(trace_rows: list[dict], audit: dict) -> dict:
             and "insufficient" not in str(item.get("reason", "")).lower()
         )
         key = "crosses_anomaly" if crossed else "does_not_cross_anomaly"
+        points = item.get("points")
+        points = points if isinstance(points, list) else []
+        finite_phase = [
+            (float(p["fraction"]), float(p["phase_error_ms"]))
+            for p in points if isinstance(p, dict)
+            and _finite_number(p.get("fraction"))
+            and _finite_number(p.get("phase_error_ms"))
+        ]
+        finite_phase.sort(key=lambda point: point[0])
+        # The phase controller explicitly subtracts initial phase; a stable
+        # offset before the overlap cannot alone explain within-overlap drift.
+        start_to_end = (
+            round(finite_phase[-1][1] - finite_phase[0][1], 3)
+            if len(finite_phase) >= 2 else None
+        )
+        max_step = (
+            round(max(abs(b[1] - a[1]) for a, b in zip(finite_phase, finite_phase[1:])), 3)
+            if len(finite_phase) >= 2 else None
+        )
         groups[key].append({
             "exit_time_a_seconds": exit_a,
             "entry_time_b_seconds": entry_b,
             "residual_ms": float(residual) if valid_residual else None,
             "crossed_clusters": crossed,
+            "phase_trajectory_class": classify_phase_motion(points),
+            "start_to_end_phase_error_ms": start_to_end,
+            "largest_sample_to_sample_phase_step_ms": max_step,
+            "matched_phase_samples": len(finite_phase),
         })
     summarized = {}
     for name, rows in groups.items():
         measured = [row["residual_ms"] for row in rows if row["residual_ms"] is not None]
+        displacements = [r["start_to_end_phase_error_ms"] for r in rows if r["start_to_end_phase_error_ms"] is not None]
+        steps = [r["largest_sample_to_sample_phase_step_ms"] for r in rows if r["largest_sample_to_sample_phase_step_ms"] is not None]
         summarized[name] = {
             "rejected_configurations": len(rows),
             "measured_residual_count": len(measured),
             "median_rejected_residual_ms": round(median(measured), 3) if measured else None,
+            "median_abs_start_to_end_phase_change_ms": round(median([abs(v) for v in displacements]), 3) if displacements else None,
+            "median_largest_sample_phase_step_ms": round(median(steps), 3) if steps else None,
+            "phase_trajectory_patterns": dict(Counter(r["phase_trajectory_class"] for r in rows).most_common()),
             "example_rejected_cues": rows[:4],
         }
     return {
@@ -96,6 +126,8 @@ def correlate(trace_rows: list[dict], audit: dict) -> dict:
         "causal_attribution": False,
         "notes": [
             "Correlation is not causation. Rejected traces lack accepted-candidate denominators.",
+            "Phase profiles subtract the initial phase offset; persistent offset alone does not explain within-overlap motion.",
+            "Directional phase motion may arise from beat-index slips, mismatched render rates, or tracker clock errors; this report does not distinguish them conclusively.",
             "The audit's generator beat references are synthetic-only and must never influence production planning.",
             "Does not change beat indexes, phase-lock safety limits, renderer or rhythm policy.",
         ],
