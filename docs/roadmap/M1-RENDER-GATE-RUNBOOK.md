@@ -904,3 +904,25 @@ python scripts/m1-shadow-rhythm-phase-integrity.py \
 ```
 
 Inspect the high-rise ratios in the outgoing windows spanning **9.64–58.31 s** and compare with the incoming. If contrast is still weak, do not force a decision by reducing thresholds; instead consider independent transient localization and controlled negative controls before a policy proposal. No production grid change, signed transition, or rendering is authorized.
+
+## Owner high-rise waveform follow-up: narrow +/-22 ms windows remain non-discriminative
+
+The owner ran `m1-shadow-rhythm-phase-integrity.py` after adding diagnostic-only 6 ms high-frequency transient-rise sampling. Both tracks again returned `insufficient_evidence`, with zero sustained beat-phase runs; no production change or transition was authorized. Across **all** reported windows, the median `high_rise_mid_to_beat_ratio` was **1.0**, even though individual beat/midpoint dominance counts varied. The outgoing middle low-band beat/midpoint ratios stayed approximately **0.01–0.03**, strongly favoring the opposite beat phase, while the incoming low band favored ordinary kick alignment. This does **not** warrant lowering paired-evidence thresholds.
+
+The new diagnostic readout adds **wider +/-55 ms high-band transient-rise searches** at the same detected beat and between-beat midpoint coordinates, compared with the prior +/-22 ms narrow rise windows. The already independently measured synthetic offbeat attack proximity was a median **31.882 ms** from middle-section outgoing beats, so a fixed narrow search could exclude real transient evidence. This is a hypothesis, not a measured explanation yet. The augmented window report contains `wide_high_rise_beat_evidence_count`, `wide_high_rise_mid_evidence_count`, `wide_high_rise_both_absent_count`, `wide_high_rise_mid_dominant_evidence_count`, `wide_high_rise_beat_dominant_evidence_count`, and `wide_high_rise_median_ratio_on_evidence`. A pair with neither measurable attack must appear as **absent** rather than as positive 1.0-ratio evidence. These fields are **diagnostic only**, excluded from classification and policy; the original classifier, its thresholds, generator independence, and 25 ms transition phase-integrity gate are unchanged.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_rhythm_phase_integrity.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-shadow-rhythm-phase-integrity.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-shadow-rhythm-phase-wide-03.json
+```
+
+Inspect the wider-window evidence counts across the displaced outgoing middle versus the incoming track. If many windows still lack support or have indistinguishable rise ratios, do not promote this contrast detector or relax safety: the next step is independently localized transients and stronger negative controls. The output remains a shadow-only report and never renders a transition.
