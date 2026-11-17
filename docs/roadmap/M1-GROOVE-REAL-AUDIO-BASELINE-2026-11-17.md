@@ -108,3 +108,16 @@ The owner reran the six selected tracks with `DJAI_NEURAL_BEATS=1`, both downloa
 These four rejected neural BPM estimates are within ~1.6 BPM of ground truth, while deterministic selected BPMs err by ~35–81 BPM. This **confirms the gate, not model availability**, is the proximal reason those accurate predictions did not replace deterministic tempo on these tracks. It does **not** establish neural beat/downbeat grid quality, calibration on other songs, or whether all rejected neural predictions are beneficial. The implementation in `src/djai/intelligence/neural_ears.py` computes confidence from grid regularity, fallback agreement and downbeat support; requires authority>0, threshold default 0.70 and at least two downbeats before `used=True`. `src/djai/analysis.py` swaps scalar BPM and beat/downbeat grid together when `used=True`.
 
 **Next design experiment:** evaluate neural tempo independently of full beat-grid acceptance; log candidate/reference tempo and reason, quantify tempo-only gains and beat/downbeat F1 on independent annotated Ballroom data; do not lower safety threshold or change production authority on a 12-song one-session pilot. An optional *shadow-only* tempo candidate score should not affect beat/downbeat positions, cue timing or model promotion.
+
+## Scalar-tempo shadow result (12/12 available, 2026-11-17)
+
+Owner ran `scripts/m1-neural-tempo-shadow.py` on exact previously approved 12-track development manifest. Original private output: `/tmp/saund-m1-groove/pilot-12-tempo-shadow.json`. No weights downloaded, no audio committed, no model promoted, no production changed.
+
+- Candidate coverage: 12/12; accepted neural beat grids: 6; rejected neural grids but candidate available: 6.
+- Deterministic original MAE: **35.290125 BPM**.
+- Neural-enabled selected (gated) MAE: **19.198308 BPM**.
+- Beat This! scalar BPM candidate shadow MAE (all 12): **1.207150 BPM**.
+- Rejected-six selected MAE: **37.132633 BPM**, compared with rejected-six candidate MAE **1.150317 BPM**.
+- Improvement in candidate MAE relative to selected-gated MAE: ~**93.71%** on this cohort only.
+
+**Interpretation:** the present coupled gate appears to discard useful scalar tempo estimates when its beat/downbeat grid confidence is low. However, accurate candidate tempo on this one-session pilot does not prove reliable tempo-selection calibration on diverse music or validate neural beat/downbeat locations. Shadow candidate is strictly counterfactual; do not silently apply it to SAUND production or call M1 complete. Next freeze a diverse Groove development cohort, confirm both candidate and selected errors across sessions/styles and rhythm edge cases, and validate independent beat/downbeat timing on rights-reviewed Ballroom audio before proposing a separately controlled tempo-selection policy.
