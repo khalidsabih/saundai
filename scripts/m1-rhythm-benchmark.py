@@ -83,7 +83,7 @@ def validate_manifest(manifest, audio_root):
     if split not in {"development", "validation", "test"}:
         raise ValueError("split must be development, validation or test")
     dataset = manifest.get("dataset_id")
-    if dataset not in {"giantsteps_tempo", "ballroom", "local_34"}:
+    if dataset not in {"giantsteps_tempo", "ballroom", "groove_midi", "local_34"}:
         raise ValueError("unknown M1 dataset ID")
     if manifest.get("rights_confirmed") is not True:
         raise ValueError("explicit local research rights review required")
