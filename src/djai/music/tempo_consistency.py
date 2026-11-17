@@ -6,6 +6,7 @@ If they disagree, retain the original estimate and surface diagnostics.
 """
 from __future__ import annotations
 
+import os
 import numpy as np
 
 
@@ -38,6 +39,25 @@ def _acf_tempo(onsets: np.ndarray, *, frames_per_second: float, low: float, high
     return max(peaks, key=lambda item: item[1]) if peaks else None
 
 
+
+def _audio_window_evidence(
+    onset_envelope: np.ndarray, *, sample_rate: int, hop_length: int,
+) -> list[tuple[float, float]]:
+    """Same independent onset ACF windows used by the existing safety gate."""
+    x = np.asarray(onset_envelope, dtype=np.float64)
+    frames_per_second = sample_rate / hop_length
+    window = int(round(36 * frames_per_second))
+    starts = [int(.15 * len(x)), int(.45 * len(x)), int(.72 * len(x))]
+    results = []
+    for start in starts:
+        segment = x[start:min(len(x), start + window)]
+        value = _acf_tempo(segment, frames_per_second=frames_per_second, low=105.0, high=140.0)
+        if value is not None:
+            results.append(value)
+    return results
+
+
+
 def reconcile_bpm(
     original_bpm: float,
     beat_times: np.ndarray,
@@ -66,22 +86,25 @@ def reconcile_bpm(
     trace["full_grid_span_bpm"] = round(grid_bpm, 5)
     if not 105 <= grid_bpm <= 140 or abs(grid_bpm/original_bpm - 1.0) < 0.008:
         trace["reason"] = "no_material_global_disagreement"
+        # Explicit shadow only: independently inspect the same audio windows
+        # even when the production 0.8% materiality gate keeps the scalar BPM.
+        if os.environ.get("DJAI_TEMPO_SHADOW_AUDIO_WINDOWS", "0").strip().lower() in {"1", "true", "yes", "on"}:
+            shadow = _audio_window_evidence(
+                onset_envelope, sample_rate=sample_rate, hop_length=hop_length
+            )
+            trace["shadow_audio_windows"] = [
+                {"bpm": round(bpm, 5), "strength": round(strength, 4)}
+                for bpm, strength in shadow
+            ]
+            trace["shadow_only"] = True
         return original_bpm, trace
     if abs(grid_bpm/original_bpm - 1.0) > 0.07:
         trace["reason"] = "large_disagreement_requires_manual_review"
         return original_bpm, trace
 
-    x = np.asarray(onset_envelope, dtype=np.float64)
-    frames_per_second = sample_rate / hop_length
-    window = int(round(36*frames_per_second))
-    # Distributed windows protect against a single local arrangement or break.
-    starts = [int(0.15*len(x)), int(0.45*len(x)), int(0.72*len(x))]
-    audio = []
-    for start in starts:
-        segment = x[start:min(len(x), start+window)]
-        result = _acf_tempo(segment, frames_per_second=frames_per_second, low=105.0, high=140.0)
-        if result is not None:
-            audio.append(result)
+    audio = _audio_window_evidence(
+        onset_envelope, sample_rate=sample_rate, hop_length=hop_length
+    )
     trace["audio_windows"] = [{"bpm": round(v, 5), "strength": round(strength, 4)} for v, strength in audio]
     # Require 3 independent pieces of audio evidence. No inferred certainty
     # from the autocorrelation's peak when it is weak or conflicting.
