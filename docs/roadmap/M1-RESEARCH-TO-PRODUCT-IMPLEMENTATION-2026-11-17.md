@@ -92,3 +92,24 @@ python -m pytest -q \
 Actual terminal output: `................................. [100%]` — **33/33 passed**, no failures reported. This verifies unit-level neural bar veto, robust multi-beat BPM, checkpoint pin behavior, existing off/fallback controls and related neural tests against mocks and fixtures. It does **not** yet verify actual `final0` inference through `analyze_track()` after the changes, downstream cue reconstruction, production deployment or the 25 ms continuous planner gate.
 
 **Next end-to-end validation:** run the entire `analyze_track` pipeline with the exact SHA256-pinned local `final0` checkpoint on the previously generated opening fixture, compare against `DJAI_NEURAL_BEATS=off`, and inspect `neural_evidence['beat_downbeat']` `available`, `used`, `reason`, beat/downbeat event counts and BPM. Expect the known irregular 46-downbeat candidate to be **rejected** for grid replacement while remaining recorded in diagnostics, with complete analysis retaining deterministic selected grid and cues. Use an ephemeral subprocess-only environment; do not export settings globally. Do not render or relax the gate.
+
+## Owner full-analyzer smoke test: final0 available, selected grid correctly retained
+
+Owner ran complete `djai.analysis.analyze_track` in separate subprocesses on `01_opening_122bpm_Aminor.wav`, using exact `final0` cached checkpoint SHA256 `8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331`, with downloads disabled. Results:
+
+| Selection | Neural off | Neural on |
+|---|---|---|
+| Selected BPM | 123.0469 | 123.0469 |
+| Selected beats | 128 | 128 |
+| Selected downbeats | 32 | 32 |
+| Entry candidates | 12 | 12 |
+| Exit candidates | 12 | 12 |
+| Neural available | false | true |
+| Neural used | false | false |
+| Neural estimated BPM | 0 | 120.0 |
+| Neural downbeats | 0 | 46 |
+| Reason | neural beats disabled | neural beat grid recorded as evidence but deterministic grid retained |
+
+**Interpretation:** The complete analysis pipeline keeps the original selected grid and equal entry/exit candidate counts when `final0` is available but not used. This is valuable real-runtime fallback evidence, not evidence that the new bar-grid veto specifically fired: the reason did **not** include `neural bar-grid safety veto`, suggesting selection did not pass an earlier confidence/authority threshold. The model's full-analysis `confidence`, `agreement`, `authority` and threshold were not printed. The scalar model BPM remains 120.0 for this track despite the robust estimator, so the model's raw timestamps or estimator need inspection before claiming the nominal 122 BPM discrepancy is fixed.
+
+**Next targeted action:** print confidence/agreement/authority alongside bar-integrity check from the saved candidate arrays, without changing live acceptance thresholds. Then design a separately feature-flagged, beat-only benefit path that does not combine unmatched deterministic/neural bar phases or bypass the hard 25 ms gate. No production update or render.
