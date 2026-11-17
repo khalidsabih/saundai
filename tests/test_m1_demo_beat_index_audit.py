@@ -38,3 +38,26 @@ def test_invalid_beat_grid_fails_closed():
     import pytest
     with pytest.raises(ValueError, match="increase"):
         mod.compare_to_generator([0.0, .5, .5], bpm=120, duration=3)
+
+
+def test_phase_slope_separates_fixed_offset_from_accumulating_drift():
+    mod = load()
+    period = .5
+    fixed = [i * period + .02 for i in range(100)]
+    drifting = [i * (period + .002) + .02 for i in range(100)]
+    fixed_report = mod.compare_to_generator(fixed, bpm=120, duration=51)
+    drift_report = mod.compare_to_generator(drifting, bpm=120, duration=51)
+    fixed_drift = fixed_report["sequential_index_drift"]
+    drift = drift_report["sequential_index_drift"]
+    assert abs(fixed_drift["slope_ms_per_beat"]) < .001
+    assert abs(drift["slope_ms_per_beat"] - 2.0) < .001
+    assert abs(drift["end_minus_start_signed_ms"] - 198) < .001
+
+
+def test_nearest_grid_error_can_wrap_even_with_linear_drift():
+    mod = load()
+    period = .5
+    beats = [i * (period + .002) for i in range(128)]
+    report = mod.compare_to_generator(beats, bpm=120, duration=65)
+    assert report["sequential_index_drift"]["slope_ms_per_beat"] == 2.0
+    assert report["max_absolute_grid_error_ms"] <= 250.0
