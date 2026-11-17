@@ -91,3 +91,20 @@ Owner-provided report comparison from identical 12-track Groove cohort: **5 impr
 | 47 | 1.36 | 1.45 | -0.09 |
 
 Rounding of printed rows means sums may not precisely reproduce full-precision MAE. The **unchanged six tracks** could indicate selective neural acceptance, deterministic fallback, identical predictions, or other behavior. Inspect implementation and instrumentation before attributing causality or promoting a checkpoint. The largest residual errors are suffixes 3, 201, 176, 100. This remains a single-session development smoke test, not a generalization claim.
+
+## Confirmed neural confidence gate diagnostic (owner run)
+
+The owner reran the six selected tracks with `DJAI_NEURAL_BEATS=1`, both download flags set to zero and embeddings disabled, and read `analysis.neural_evidence["beat_downbeat"]`. Installed Beat This! is `available=True` on all six. Results:
+
+| ID suffix | Ref BPM | Final BPM | Neural BPM | Neural used | Confidence | Authority |
+|---|---:|---:|---:|---|---:|---:|
+| 3 | 80 | 161.50 | 81.0811 | false | 0.4943 | 0.0 |
+| 201 | 64 | 129.20 | 65.2174 | false | 0.4872 | 0.0 |
+| 176 | 105 | 143.55 | 103.4483 | false | 0.3759 | 0.0 |
+| 100 | 94 | 129.20 | 93.75 | false | 0.6806 | 0.2314 |
+| 184 | 78 | 78.95 | 78.9474 | true | 0.8996 | 0.3059 |
+| 101 | 120 | 120.00 | 120.0 | true | 0.7314 | 0.2487 |
+
+These four rejected neural BPM estimates are within ~1.6 BPM of ground truth, while deterministic selected BPMs err by ~35–81 BPM. This **confirms the gate, not model availability**, is the proximal reason those accurate predictions did not replace deterministic tempo on these tracks. It does **not** establish neural beat/downbeat grid quality, calibration on other songs, or whether all rejected neural predictions are beneficial. The implementation in `src/djai/intelligence/neural_ears.py` computes confidence from grid regularity, fallback agreement and downbeat support; requires authority>0, threshold default 0.70 and at least two downbeats before `used=True`. `src/djai/analysis.py` swaps scalar BPM and beat/downbeat grid together when `used=True`.
+
+**Next design experiment:** evaluate neural tempo independently of full beat-grid acceptance; log candidate/reference tempo and reason, quantify tempo-only gains and beat/downbeat F1 on independent annotated Ballroom data; do not lower safety threshold or change production authority on a 12-song one-session pilot. An optional *shadow-only* tempo candidate score should not affect beat/downbeat positions, cue timing or model promotion.
