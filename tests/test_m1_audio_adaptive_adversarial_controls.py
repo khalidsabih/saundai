@@ -99,3 +99,52 @@ def test_report_preserves_research_only_authority():
     assert result["transition_rendered"] is False
     assert [row["name"] for row in result["cases"]] == list(load().CASES)
     assert all(len(row["strategies"]) == 2 for row in result["cases"])
+
+
+
+def test_confident_correct_period_can_still_select_wrong_offbeat_events():
+    mod = load()
+
+    class Adaptive:
+        def evaluate_case(self, audio, sr, true_beats, distractors, *, locator, scoring):
+            return {
+                "audio_periodicity": {
+                    "status": "supported_audio_periodicity",
+                    "period_seconds": .5,
+                },
+                "strategies": [
+                    {
+                        "name": "audio_adaptive", "status": "measured",
+                        "primary": {"recall": 0.0},
+                        "distractor": {"recall": 1.0},
+                    }
+                ],
+            }
+
+    row = mod.assess_case(
+        "low_kick_high_bass",
+        adaptive=Adaptive(), locator=object(), scorer=object()
+    )
+    assert row["hypothetical_period_to_reference_ratio_posthoc"] == 1.0
+    assert row["potential_half_or_double_time_alias_posthoc"] is False
+    assert row["posthoc_confident_wrong_phase_event_selection"] is True
+    assert row["posthoc_research_gate"] == "fail_wrong_phase_event_selection"
+
+
+def test_abstention_never_becomes_confident_wrong_phase_gate_failure():
+    mod = load()
+
+    class Adaptive:
+        def evaluate_case(self, audio, sr, true_beats, distractors, *, locator, scoring):
+            return {
+                "audio_periodicity": {"status": "insufficient_evidence"},
+                "strategies": [{"name": "audio_adaptive", "status": "abstain",
+                                "primary": None, "distractor": None}],
+            }
+
+    row = mod.assess_case(
+        "low_kick_high_bass",
+        adaptive=Adaptive(), locator=object(), scorer=object()
+    )
+    assert row["posthoc_confident_wrong_phase_event_selection"] is False
+    assert row["posthoc_research_gate"] == "not_demonstrated_by_this_case"
