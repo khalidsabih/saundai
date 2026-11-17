@@ -798,3 +798,29 @@ python scripts/m1-synthetic-offbeat-midpoint-audit.py \
 ```
 
 Compare `tracks[0].regions` for `between_compressions`: `closer_to_inferred_midpoint_count`, `median_distance_to_inferred_midpoint_ms`, and `within_inferred_midpoint_tolerance_count` versus corresponding measured kick counts. Synthetic-only timing evidence cannot authorize moving beat positions or override the **25 ms** phase-safety stop, frozen neural policy, rights requirements, or rendering gates.
+
+## Owner midpoint comparison: 99 of 99 middle beats near inferred half-beats
+
+The owner completed the generator-window kick-to-midpoint comparison on the two synthetic demo tracks. Of the **99** outgoing middle-section beats (9.636281–58.305306 s), **99/99** were closer to an **inferred midpoint** between independently measured adjacent kicks than to a kick, and all **99/99** were within 80 ms of that inferred midpoint. Median inferred-midpoint distance was **23.651 ms**, compared with **222.449 ms** median distance to a measured kick. Before the first compression **17/17** aligned nearer kicks; after the second compression **7/7** aligned nearer kicks. The entire incoming track had **126/126** beats nearer measured kicks, with a median kick distance **21.780 ms**. The early compression region had **2/2** beats nearer kicks (one beyond kick tolerance), and the late compression region **2/3** nearer inferred midpoints.
+
+This is strong geometric evidence for temporary **half-beat grid displacement**, not evidence that a particular instrument caused the phase switch. Midpoints are computed from two measured kick times and **are not independently measured hi-hat events**. Nothing in this result approves an oracle beat correction, changes neural selection or justifies widening the 25 ms continuous phase-lock envelope.
+
+### Next research-only evidence: waveform-measured high-frequency offbeat transients
+
+Added `scripts/m1-synthetic-audio-offbeat-attack-audit.py` with `tests/test_m1_synthetic_audio_offbeat_attack_audit.py`. The script analyzes the same rights-free generated WAVs with a **high-frequency bandpass (2.5–9 kHz where sample rate permits)** and before/after energy-rise transient estimator. It selects search windows using the synthetic generator's known offbeat timing, but actual attack positions and evidence presence are measured from the WAV, not supplied by the beat tracker, midpoint interpolation or generator template. The output explicitly separates the number of measurable offbeat high-frequency events from alignment between unchanged detected beat times and those measured events, by the same outgoing source-time regions. This distinguishes **midpoint proximity** from independently verified high-frequency event proximity. Even if the latter matches, causality (e.g. tracker following hats) is not established by timing coincidence alone.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_synthetic_audio_offbeat_attack_audit.py
+
+DJAI_NEURAL_BEATS=1 DJAI_NEURAL_DOWNBEAT_INTEGRITY=1 \
+DJAI_TEMPO_CONSISTENCY=0 DJAI_MODEL_ALLOW_DOWNLOAD=0 \
+DJAI_BEAT_THIS_ALLOW_DOWNLOAD=0 \
+python scripts/m1-synthetic-audio-offbeat-attack-audit.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --output /tmp/saund-m1-synthetic-audio-offbeat-01.json
+```
+
+Inspect `tracks[0].measured_offbeat_events` and `tracks[0].regional_measured_offbeat_alignment`, in particular `between_compressions.within_80ms_count` and `median_absolute_attack_error_ms`. Confirm the detector measures enough actual offbeat WAV transients before drawing a conclusion; weak or missing events must be treated as insufficient evidence, not filled with hypothetical midpoints. No plan or render is produced, no production code or frozen neural policy is changed.
