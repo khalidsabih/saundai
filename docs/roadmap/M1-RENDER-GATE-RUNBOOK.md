@@ -1341,3 +1341,49 @@ The arm decomposition shows that the relationship is **not simply "local estimat
 **Decision: do not promote or select an arm.** This comparison reuses the same 52 synthetic fixtures repeatedly examined in prior research; despite a predeclared four-arm matrix, the reported gain needs entirely new, independently generated waveform/timbre/jitter controls and rights-cleared real audio before any claim of generalization. Maintain fixed **42 ms event radius, 0.60 per-phase coverage, 0.006 relative-rise threshold**, original audio-only ACF and low-band peak finder. Held global anchors are also inferred from the same waveform used by local windows, so no independent ground truth is available. A two-phase flag is *ambiguity evidence*, not proof of unsafe alignment; no flag remains `insufficient_evidence`, never a safe-beat approval. The pasted artifact shows the experiment report but not a separate pytest result.
 
 PR #28 stays draft. No production beat-grid edit, source override, neural policy promotion, planner approval, relaxed **25 ms** continuous phase gate or rejected-transition render is authorized. The next bounded research step should independently generate new timing disturbances and source timbres before comparing the four arms against real rights-cleared tracks.
+
+## M1 external pretrained beat/downbeat tracker benchmark: Beat This! first, no production integration
+
+### Why this pivot
+
+The waveform-only research discriminates some competing phase trains but cannot identify which musical beat grid is correct, and repeated tuning on a narrow synthetic fixture family risks overfitting. Before writing another custom detector, benchmark the independent pretrained open-source neural tracker **Beat This!** by CPJKU (Foscarin, Schlüter, Widmer, ISMIR 2024) on the **two existing rights-free generated demo WAVs**, without supplying generator beat schedules to inference. Its official package uses the `beat_this` CLI, `beat_this path/to/audio.wav -o output.beats`. The upstream `save_beat_tsv` file format is each timestamp in seconds followed by a tab and a beat number (**1 marks a downbeat**). Official documentation: https://github.com/CPJKU/beat_this ; https://github.com/CPJKU/beat_this/blob/main/README.md ; https://github.com/CPJKU/beat_this/blob/main/beat_this/utils.py .
+
+Upstream's available checkpoints include `final0` (the default, 78 MB) and `small0`; for the initial predeclared run select **final0**, minimal postprocessing (**no `--dbn`**) and CPU `--gpu=-1` on Mac for reproducibility. Pin the package to **beat-this==1.1.0** and record `beat_this --help`, Python/PyTorch versions, model identifier, and checkpoint provenance/checksum in a local experiment log if possible. Upstream's inference will **automatically download a model checkpoint if it is not cached**; this is a user-invoked opt-in network action in a separate experimental environment, not a production or sealed-test dependency.
+
+The upstream repository lists **MIT code and published model weights**, but explicitly cautions that certain source training audio has copyrighted or restricted licensing; a commercial deployment needs review of provenance and terms, not an assumption that an MIT implementation resolves all rights. Do not import Mixxx GPL code or Essentia AGPL code into a proprietary production codebase without a distinct licensing assessment.
+
+### Implementation
+
+Committed `scripts/m1-beat-this-benchmark.py` and `tests/test_m1_beat_this_benchmark.py`. The benchmark itself imports **no Beat This/PyTorch** and downloads no models. It only reads external `.beats` predictions from its `--predictions-root` and the two generated WAVs under `--audio-root`. It optionally runs the existing unmodified SAUND analysis with `--compare-saund` and all existing model-download switches disabled. To prevent leakage, **the predeclared fixture BPM (122/124) is used only to locate independent measurable low-frequency kick attacks after inference**, via `m1-synthetic-audio-kick-audit.py`. Beat This never receives the fixture truth. The benchmark reports one-to-one matching at **80 ms** for the whole recording and the already predeclared outgoing 9.636281–58.305306 s grid-failure window. This is a **research evaluation tolerance**, **not** the 25 ms production planner safety envelope. The parser rejects unparseable, duplicated/nonmonotonic, nonfinite, negative and out-of-duration model timestamps. Beat numbers of 1 are preserved as predicted downbeats, **but ground-truth downbeat correctness is not measured by this kick-only benchmark**. The two generated tracks are not a representative real-music test set.
+
+### Operator Mac commands
+
+Clone state first; keep the existing SAUND `.venv` separate from the third-party tracker to avoid dependency conflicts.
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_beat_this_benchmark.py
+
+python3 -m venv /tmp/saund-m1-beat-this-venv
+/tmp/saund-m1-beat-this-venv/bin/python -m pip install --upgrade pip
+/tmp/saund-m1-beat-this-venv/bin/python -m pip install "torch>=2.0" "beat-this==1.1.0" tqdm einops soxr rotary-embedding-torch
+
+mkdir -p /tmp/saund-m1-beat-this-predictions-01
+/tmp/saund-m1-beat-this-venv/bin/beat_this --help
+/tmp/saund-m1-beat-this-venv/bin/beat_this "$M1_AUDIO_ROOT/01_opening_122bpm_Aminor.wav" -o /tmp/saund-m1-beat-this-predictions-01/01_opening_122bpm_Aminor.beats --gpu=-1 --model final0
+/tmp/saund-m1-beat-this-venv/bin/beat_this "$M1_AUDIO_ROOT/02_groove_124bpm_Eminor.wav" -o /tmp/saund-m1-beat-this-predictions-01/02_groove_124bpm_Eminor.beats --gpu=-1 --model final0
+
+python scripts/m1-beat-this-benchmark.py \
+  --audio-root "$M1_AUDIO_ROOT" \
+  --predictions-root /tmp/saund-m1-beat-this-predictions-01 \
+  --output /tmp/saund-m1-beat-this-comparison-01.json \
+  --compare-saund
+```
+
+Only invoke the `beat_this` binary after reviewing installation and agreeing to the one-time external checkpoint download. Use **new output paths** for later runs; the benchmark refuses overwrite. If package incompatibilities arise on the Mac, record the error and do not alter production dependencies to force installation.
+
+### Evaluation decision
+
+Compare `beat_this.whole_track` and `beat_this.outgoing_failure_region` to `saund_current` on the two WAVs, emphasizing how many beats the external model places near measured acoustic kicks within the 99-beat displaced middle region. Independently assess predicted downbeat consistency as a later separate step; the kick-window oracle does not label meter/downbeats. If Beat This succeeds, independently validate on **new generated and rights-cleared non-training music** before proposing an opt-in research candidate; if it fails, investigate an ensemble with an independent reference tracker such as Essentia only after license review. No external result can bypass the frozen neural challenger policy or the **25 ms** continuous phase-integrity render gate. PR #28 stays draft; no sealed Ballroom test is touched.
