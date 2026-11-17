@@ -667,3 +667,22 @@ python scripts/m1-shadow-rate-phase-replay.py \
 ```
 
 Inspect `paired_numeric_profiles`, `median_original_numeric_residual_ms`, `median_hypothetical_numeric_residual_ms`, `hypothetical_numeric_below_25ms_count`, and any `missing_phase_coordinate` statuses. The command does not authorize modifying production analysis, planner or rendering. Do not use any hypothetical rate to generate an unsafe transition.
+
+## Owner shadow-rate replay — reduced error, zero numeric passes
+
+The owner twice provided the same completed read-only rate counterfactual from the generated demo pair. Of **111 rejected trace configurations, 111 paired numerical profiles** were replayed with no skipped cases. The existing incoming rate was **1.000000**, the shadow hypothetical **0.991102**. The median original bounded phase residual was **210.420 ms**, versus median hypothetical **94.797 ms**; the median per-configuration reduction was **138.843 ms**. **Zero of 111** hypothetical profiles satisfied the unchanged **25 ms** numerical phase residual threshold. The generated synthetic transition was not rendered, no new plan created, and no production code or frozen M1 policy promoted.
+
+This establishes that a research-only tempo-rate adjustment reduces phase disagreement but **does not make the rejected transitions numerically safe**. A median improvement must never be conflated with plan feasibility. This specific 0.991102 hypothesis cannot be promoted to an actual deck rate or used to force a blend; further root-cause analysis requires independent beat/onset evidence and source-grid quality checks, not threshold relaxation.
+
+The replay report now explicitly records `hypothetical_numeric_still_exceeds_25ms_count` and `all_paired_profiles_still_fail_25ms_numeric_limit`, with tests preventing accidental presentation of a lower residual as a passing transition. These are read-only summaries and do not affect the authoritative phase gate. The previous report's evidence remains sufficient to conclude **all 111 hypothetical overlaps failed the numeric limit** without another expensive inference run.
+
+To validate the focused reporting logic on the Mac:
+
+```bash
+cd /tmp/saund-m1-evaluator
+git fetch origin docs/m0-baseline-capability-audit-20261116
+git checkout --detach FETCH_HEAD
+python -m pytest -q tests/test_m1_shadow_rate_phase_replay.py
+```
+
+Do not rerender or bypass the phase-integrity stop. Only a separate, explicitly safe development plan that passes all existing gates could lead to an authorized synthetic test render.
