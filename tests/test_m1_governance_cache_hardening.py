@@ -120,7 +120,9 @@ def test_actual_cached_analysis_reanalyzes_when_neural_mode_changes(tmp_path, mo
     def fake_analysis(path):
         mode = "off" if cache._modular_feature_cache_safe() else "auto"
         calls.append(mode)
-        return analysis(audio, bpm=121 if mode == "off" else 125)
+        result = analysis(audio, bpm=121 if mode == "off" else 125)
+        result.analysis_version = cache.ANALYSIS_VERSION
+        return result
 
     monkeypatch.setattr(cache, "analyze_track", fake_analysis)
     monkeypatch.setattr(cache, "_sync_feature_store", lambda *args, **kwargs: None)
