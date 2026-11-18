@@ -159,7 +159,7 @@ def fingerprint_file(
     digest.update(cache_schema_version.encode("utf-8"))
     digest.update(analysis_version.encode("utf-8"))
     digest.update(b"tempo-consistency-on" if _tempo_consistency_enabled() else b"tempo-consistency-off")
-    digest.update(_neural_analysis_context().encode("ascii"))
+    # Other consumers (notably stems-v1) use this helper as a stable storage\n    # address. Neural analysis settings must not relocate their existing assets.\n    if analysis_version == ANALYSIS_VERSION and cache_schema_version == CACHE_SCHEMA_VERSION:\n        digest.update(_neural_analysis_context().encode("ascii"))
     digest.update(str(resolved).encode("utf-8"))
     digest.update(str(stat.st_size).encode("ascii"))
     digest.update(str(stat.st_mtime_ns).encode("ascii"))
