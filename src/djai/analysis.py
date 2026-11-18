@@ -1536,7 +1536,17 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     try:
         from .intelligence.neural_ears import predict_beats
         neural_beats = predict_beats(resolved, fallback_beats=beat_times, fallback_downbeats=downbeat_times)
-        neural_evidence["beat_downbeat"] = neural_beats.to_dict()
+        from .intelligence.neural_ears import tempo_only_adoption
+        tempo_only_used, tempo_only_reason = tempo_only_adoption(neural_beats, bpm)
+        neural_evidence["beat_downbeat"] = {
+            **neural_beats.to_dict(),
+            "tempo_only_used": bool(tempo_only_used and not neural_beats.used),
+            "tempo_only_reason": tempo_only_reason if not neural_beats.used else "full neural grid accepted",
+        }
+        if tempo_only_used and not neural_beats.used:
+            # Change only the scalar tempo. Do not disturb beats, bars, phase,
+            # downbeats, their confidence, or any existing safety gate.
+            bpm = float(neural_beats.bpm)
         if neural_beats.used:
             beat_times = np.asarray(neural_beats.beats_seconds, dtype=float)
             downbeat_times = np.asarray(neural_beats.downbeats_seconds, dtype=float)
