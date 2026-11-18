@@ -106,3 +106,44 @@ def test_trial_evidence_never_treats_approval_as_data(monkeypatch):
     forged = {**evidence(), "used": True, "production_approved": True}
     allowed, _ = neural_bar_phase.trial_governance(forged)
     assert not allowed
+
+
+def test_actual_cached_analysis_reanalyzes_when_neural_mode_changes(tmp_path, monkeypatch):
+    """Two real cache loads must never cross the neural on/off boundary."""
+    from conftest import analysis
+
+    audio = tmp_path / "fixture.wav"
+    audio.write_bytes(b"synthetic placeholder; analysis is stubbed")
+    cache_dir = tmp_path / "tracks"
+    calls = []
+
+    def fake_analysis(path):
+        mode = "off" if cache._modular_feature_cache_safe() else "auto"
+        calls.append(mode)
+        return analysis(audio, bpm=121 if mode == "off" else 125)
+
+    monkeypatch.setattr(cache, "analyze_track", fake_analysis)
+    monkeypatch.setattr(cache, "_sync_feature_store", lambda *args, **kwargs: None)
+    monkeypatch.setenv("DJAI_TEMPO_CONSISTENCY", "0")
+    monkeypatch.setenv("DJAI_NEURAL_BAR_PHASE_TRIAL", "0")
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "off")
+
+    old = cache.analyze_track_cached(audio, cache_dir=cache_dir)
+    old_again = cache.analyze_track_cached(audio, cache_dir=cache_dir)
+    assert old.analysis.bpm == 121
+    assert not old.cache_hit and old_again.cache_hit
+    assert calls == ["off"]
+
+    # Changing the same audio to neural mode must trigger new analysis.
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "auto")
+    new = cache.analyze_track_cached(audio, cache_dir=cache_dir)
+    new_again = cache.analyze_track_cached(audio, cache_dir=cache_dir)
+    assert new.analysis.bpm == 125
+    assert not new.cache_hit and new_again.cache_hit
+    assert calls == ["off", "auto"]
+
+    # Rollback must select the original deterministic cache, not the neural one.
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "off")
+    rollback = cache.analyze_track_cached(audio, cache_dir=cache_dir)
+    assert rollback.cache_hit and rollback.analysis.bpm == 121
+    assert calls == ["off", "auto"]
