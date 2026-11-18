@@ -37,7 +37,7 @@ LOCAL_SOURCE_BARS = 8
 MIN_LOCAL_HARMONIC_FRAMES = 12
 MIN_LOCAL_SOURCE_FRAMES = 12
 SOURCE_N_FFT = 2048
-ANALYSIS_VERSION = "5.2.1"
+ANALYSIS_VERSION = "5.2.2"
 
 
 @dataclass(slots=True)
@@ -1572,10 +1572,26 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
     # AND agreement with existing downbeat landmarks. On abstention, retain
     # all current fields. The planner and its hard 25 ms gate are unchanged.
     if os.environ.get("DJAI_NEURAL_BAR_PHASE_TRIAL", "0").strip().lower() in {"1", "true", "yes", "on"}:
-        from .intelligence.neural_bar_phase import resolve_bar_phase
+        from .intelligence.neural_bar_phase import resolve_bar_phase, trial_governance
 
         candidate = neural_evidence.get("beat_downbeat", {})
         if isinstance(candidate, dict) and candidate.get("available") and not candidate.get("used"):
+            authorized, governance_reason = trial_governance(candidate)
+            if not authorized:
+                neural_evidence["bar_phase_trial"] = {
+                    "eligible": False,
+                    "reason": governance_reason,
+                    "used_for_planning": False,
+                    "governance_passed": False,
+                }
+            else:
+                neural_evidence["bar_phase_trial"] = {
+                    "eligible": False, "reason": "resolver not run",
+                    "used_for_planning": False, "governance_passed": True,
+                }
+        if (isinstance(candidate, dict) and candidate.get("available")
+                and not candidate.get("used")
+                and neural_evidence.get("bar_phase_trial", {}).get("governance_passed") is True):
             resolution = resolve_bar_phase(
                 candidate.get("beats_seconds", ()),
                 downbeat_times,
@@ -1586,7 +1602,10 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
                 meter_confidence=time_signature_confidence,
                 duration_seconds=duration,
             )
-            neural_evidence["bar_phase_trial"] = resolution.evidence()
+            neural_evidence["bar_phase_trial"] = {
+                **resolution.evidence(), "governance_passed": True,
+                "used_for_planning": bool(resolution.eligible),
+            }
             if resolution.eligible:
                 # All dependent bar features and cue candidates are constructed
                 # BELOW this point from the selected grid; no cached cues or
