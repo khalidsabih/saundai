@@ -8,9 +8,45 @@ A regular grid alone is not sufficient. Uncertain music abstains.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Sequence
+import math
+import os
+from typing import Mapping, Sequence
 
 import numpy as np
+
+from .model_registry import load_model_registry
+
+
+def trial_governance(evidence: Mapping[str, object]) -> tuple[bool, str]:
+    """Never let an experimental switch override the model registry.
+
+    This trial is not a production release path, even if a user exports its
+    flag on a deployed instance. Its confidence threshold cannot be lowered
+    below the current normal beat-grid threshold by changing environment.
+    """
+    if os.environ.get("SAUND_ENV", "").strip().lower() in {"production", "prod"} or (
+        os.environ.get("SAUND_HOSTED_MODE", "0").strip().lower() in {"1", "true", "yes", "on"}
+    ):
+        return False, "experimental neural bar-phase trial disabled in production/hosted mode"
+    if evidence.get("available") is not True:
+        return False, "neural candidate unavailable"
+    try:
+        confidence = float(evidence.get("confidence", 0))
+        claimed_authority = float(evidence.get("authority", 0))
+        configured = float(os.environ.get("DJAI_NEURAL_BEAT_USE_THRESHOLD", "0.70"))
+    except (TypeError, ValueError, OverflowError):
+        return False, "invalid neural candidate governance evidence"
+    if not all(math.isfinite(v) for v in (confidence, claimed_authority, configured)):
+        return False, "nonfinite neural candidate governance evidence"
+    if confidence < max(.70, configured) or claimed_authority <= 0:
+        return False, "neural confidence or candidate authority below normal selection gate"
+    registry = load_model_registry()
+    manifest = registry.get("beat_this")
+    if manifest is None or manifest.authority in {"disabled", "shadow"}:
+        return False, "Beat This! model registry does not authorize neural selection"
+    if registry.authority("beat_this", confidence) <= 0:
+        return False, "Beat This! model registry rejects candidate confidence"
+    return True, "neural candidate passes ordinary authority gate; bar phase still unverified"
 
 
 @dataclass(frozen=True)
