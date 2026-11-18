@@ -72,3 +72,43 @@ def test_analyze_track_does_not_shadow_os_after_tempo_gate():
         and not (isinstance(node, ast.ImportFrom) and node.module == "os")
         for node in ast.walk(body)
     )
+
+
+
+def test_shadow_onset_windows_below_materiality_preserve_original_bpm(monkeypatch):
+    from djai.music import tempo_consistency
+
+    calls = []
+    def fake_acf(segment, **kwargs):
+        calls.append(len(segment))
+        return (124.0, 0.84)
+    monkeypatch.setattr(tempo_consistency, "_acf_tempo", fake_acf)
+    monkeypatch.setenv("DJAI_TEMPO_SHADOW_AUDIO_WINDOWS", "1")
+    beats = np.arange(0, 128 * 60.0 / 124.0, 60.0 / 124.0)
+    selected, trace = tempo_consistency.reconcile_bpm(
+        123.04688, beats, _pulse_track(124.0, seconds=120),
+        sample_rate=22050, hop_length=512,
+    )
+    assert selected == 123.04688
+    assert trace["decision"] == "retain"
+    assert trace["reason"] == "no_material_global_disagreement"
+    assert len(trace["shadow_audio_windows"]) == 3
+    assert len(calls) == 3
+    assert trace["shadow_only"] is True
+
+
+def test_shadow_disabled_retains_early_exit_without_acf(monkeypatch):
+    from djai.music import tempo_consistency
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("ACF should remain gated by default")
+    monkeypatch.setattr(tempo_consistency, "_acf_tempo", fail_if_called)
+    monkeypatch.delenv("DJAI_TEMPO_SHADOW_AUDIO_WINDOWS", raising=False)
+    beats = np.arange(0, 128 * 60.0 / 124.0, 60.0 / 124.0)
+    selected, trace = tempo_consistency.reconcile_bpm(
+        123.04688, beats, _pulse_track(124.0, seconds=120),
+        sample_rate=22050, hop_length=512,
+    )
+    assert selected == 123.04688
+    assert trace["reason"] == "no_material_global_disagreement"
+    assert "shadow_audio_windows" not in trace
