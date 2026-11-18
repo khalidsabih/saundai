@@ -149,3 +149,20 @@ def test_actual_cached_analysis_reanalyzes_when_neural_mode_changes(tmp_path, mo
     rollback = cache.analyze_track_cached(audio, cache_dir=cache_dir)
     assert rollback.cache_hit and rollback.analysis.bpm == 121
     assert calls == ["off", "auto"]
+
+
+def test_stem_storage_fingerprint_does_not_depend_on_neural_mode(tmp_path, monkeypatch):
+    """Neural analysis cache isolation must not relocate existing stem assets."""
+    audio = tmp_path / "track.wav"
+    audio.write_bytes(b"stable stem identity fixture")
+    monkeypatch.setenv("DJAI_TEMPO_CONSISTENCY", "0")
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "off")
+    off_stems = cache.fingerprint_file(
+        audio, analysis_version="stems-v1", cache_schema_version="stems-v1"
+    )
+    off_analysis = cache.fingerprint_file(audio)
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "auto")
+    assert cache.fingerprint_file(
+        audio, analysis_version="stems-v1", cache_schema_version="stems-v1"
+    ) == off_stems
+    assert cache.fingerprint_file(audio) != off_analysis
