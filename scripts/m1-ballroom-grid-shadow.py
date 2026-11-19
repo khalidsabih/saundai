@@ -99,6 +99,55 @@ def _event_f1(counts):
     return 2.0 * counts["match"] / denominator if denominator else None
 
 
+def governance_counterfactual(evidence, diagnostic, registry, *, threshold=0.70, optional_bar_check=False):
+    """Hypothetical gate decisions only. No selected grid or runtime authority changes.
+
+    Reuse production model-registry authority and neural structural validators,
+    with the original thresholds. Independent annotation accuracy is NEVER
+    an input to this decision.
+    """
+    if diagnostic is None or evidence.get("available") is not True:
+        return {"status": "unavailable", "eligible": False, "shadow_only": True}
+    from djai.intelligence.neural_ears import downbeat_bar_integrity, downbeat_spacing_integrity
+
+    score = float(diagnostic["no_baseline_agreement_shadow"])
+    authority = float(registry.authority("beat_this", score))
+    required_confidence = max(0.5, min(0.95, float(threshold)))
+    beats = evidence["beats_seconds"]
+    downbeats = evidence["downbeats_seconds"]
+    status = "eligible"
+    reason = "counterfactual confidence, authority and structural checks passed"
+    if authority <= 0.0:
+        status = "blocked_authority"
+        reason = "model registry did not grant authority at shadow score"
+    elif score < required_confidence:
+        status = "blocked_confidence"
+        reason = "shadow score below unchanged neural-use threshold"
+    elif len(downbeats) < 2:
+        status = "blocked_downbeat_evidence"
+        reason = "fewer than two downbeats"
+    elif optional_bar_check:
+        valid, reason = downbeat_spacing_integrity(beats, downbeats)
+        if not valid:
+            status = "blocked_optional_spacing"
+    if status == "eligible":
+        valid, bar_reason = downbeat_bar_integrity(beats, downbeats)
+        if not valid:
+            status = "blocked_bar_integrity"
+            reason = bar_reason
+    return {
+        "status": status,
+        "eligible": status == "eligible",
+        "reason": reason,
+        "score": round(score, 6),
+        "hypothetical_authority": round(authority, 6),
+        "threshold_unchanged": round(required_confidence, 6),
+        "hard_bar_integrity_preserved": True,
+        "shadow_only": True,
+        "adoption_authorized": False,
+    }
+
+
 def run_inference(root, items):
     snippet = (
         "import json,sys;"
@@ -133,6 +182,11 @@ def run_inference(root, items):
 
 def score(manifest, outputs):
     m = benchmark()
+    from djai.intelligence.model_registry import load_model_registry
+    registry = load_model_registry()
+    threshold = float(os.environ.get("DJAI_NEURAL_BEAT_USE_THRESHOLD", "0.70"))
+    optional_bar_check = os.environ.get("DJAI_NEURAL_DOWNBEAT_INTEGRITY", "0").strip().lower() in {"1", "true", "yes", "on"}
+    model = registry.get("beat_this")
     selected, candidate, rows = {}, {}, []
     for item in manifest["items"]:
         key = item["id"]
@@ -164,6 +218,10 @@ def score(manifest, outputs):
             "authority": e.get("authority"),
             "reason": e.get("reason"),
             "confidence_shadow": confidence_shadow(s.get("beats_seconds") or [], e),
+            "governance_counterfactual": governance_counterfactual(
+                e, confidence_shadow(s.get("beats_seconds") or [], e), registry,
+                threshold=threshold, optional_bar_check=optional_bar_check
+            ),
             "selected_bpm": s.get("bpm"),
             "selected_grid_bpm": s_bpm,
             "selected_grid_bpm_difference": (
@@ -198,8 +256,37 @@ def score(manifest, outputs):
             }
         else:
             r["independent_accuracy_delta"] = None
+    statuses = {}
+    for row in rows:
+        status = row["governance_counterfactual"]["status"]
+        statuses[status] = statuses.get(status, 0) + 1
+    newly_eligible = [
+        row for row in rows if row["neural_available"] and not row["grid_accepted"]
+        and row["governance_counterfactual"]["eligible"]
+    ]
+    newly_below_target = sum(
+        (row["candidate_beat_counts"] is not None and _event_f1(row["candidate_beat_counts"]) < 0.90)
+        or (row["candidate_downbeat_counts"] is not None and _event_f1(row["candidate_downbeat_counts"]) < 0.90)
+        for row in newly_eligible
+    )
     return {
         "schema_version": "saund-m1-ballroom-grid-shadow-v1",
+        "governance_counterfactual": {
+            "policy": "same_authority_thresholds_and_structural_vetoes",
+            "model_authority": model.authority if model else None,
+            "minimum_model_confidence": model.minimum_confidence if model else None,
+            "model_effective_weight": model.effective_weight if model else 0.0,
+            "neural_use_threshold": round(max(0.5, min(0.95, threshold)), 6),
+            "optional_bar_integrity_enabled": optional_bar_check,
+            "counts_by_status": statuses,
+            "newly_eligible_from_rejected": len(newly_eligible),
+            "newly_eligible_below_either_090_f1": newly_below_target,
+            "changes_grid_selection": False,
+            "changes_authority_policy": False,
+            "changes_phase_limit": False,
+            "calibrated": False,
+            "downstream_render_certified": False,
+        },
         "confidence_challenger": {
             "kind": "no_baseline_agreement_observation",
             "formula": "(0.50 * grid_regularity + 0.18 * downbeat_support) / 0.68",
@@ -228,6 +315,7 @@ def score(manifest, outputs):
             "Ballroom is for permitted research evaluation only; do not train on it.",
             "Beat/downbeat F1 do not certify safe DJ transition rendering.",
             "Shadow confidence is descriptive, not calibrated and not used for authority or grid adoption.",
+            "Counterfactual decisions reuse authority and bar-integrity checks; they are NOT actual eligibility approvals.",
         ],
     }
 
