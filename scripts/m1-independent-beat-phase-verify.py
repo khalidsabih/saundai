@@ -52,8 +52,8 @@ def essentia_beats(path):
     """Full-track 44.1 kHz Essentia reference independent of SAUND selected grid."""
     try:
         import essentia.standard as es
-    except ImportError:
-        return {"available": False, "reason": "essentia not installed"}
+    except (ImportError, AttributeError, RuntimeError) as exc:
+        return {"available": False, "reason": f"essentia unavailable or binary incompatible: {type(exc).__name__}"}
     try:
         signal = es.MonoLoader(filename=str(path), sampleRate=44100)()
         bpm, ticks, confidence, _, _ = es.RhythmExtractor2013(method="multifeature")(signal)
@@ -65,6 +65,44 @@ def essentia_beats(path):
         }
     except Exception as exc:
         return {"available": False, "reason": f"essentia inference failed: {type(exc).__name__}"}
+
+
+
+def external_essentia_predictions(predictions_path, original):
+    """Read SHA-bound beats produced in a separate NumPy 1.x environment."""
+    data = json.loads(Path(predictions_path).read_text(encoding="utf-8"))
+    if data.get("schema_version") != "saund-m1-essentia-sidecar-v1":
+        raise ValueError("unsupported Essentia predictions schema")
+    if data.get("method") != "essentia_rhythmextractor2013_multifeature":
+        raise ValueError("unexpected Essentia reference method")
+    tracks = data.get("tracks")
+    if not isinstance(tracks, dict) or set(tracks) != {"A", "B"}:
+        raise ValueError("Essentia predictions must contain exactly decks A and B")
+    output = {}
+    for deck, path in original.items():
+        item = tracks[deck]
+        if not isinstance(item, dict):
+            raise ValueError(f"invalid Essentia sidecar entry for {deck}")
+        checksum = hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
+        if item.get("audio_sha256") != checksum:
+            raise ValueError(f"Essentia audio SHA256 mismatch for deck {deck}")
+        if item.get("method") != data["method"]:
+            raise ValueError(f"Essentia method mismatch for deck {deck}")
+        beats = _beats(item.get("beats_seconds"), f"Essentia {deck} beats")
+        if len(beats) < 4:
+            output[deck] = {
+                "available": False, "reason": "fewer than four independent beat predictions",
+                "source": "numpy1_sidecar",
+            }
+        else:
+            output[deck] = {
+                "available": True, "beats_seconds": beats,
+                "bpm": float(item["bpm"]),
+                "confidence": float(item["confidence"]),
+                "method": data["method"],
+                "source": "numpy1_sidecar",
+            }
+    return output
 
 
 def neural_candidate(track):
@@ -241,9 +279,11 @@ def run(args):
     end_a = start_a + duration * plan.render_rate_a
     end_b = start_b + duration * plan.render_rate_b + float(phase["points"][-1]["source_offset_seconds"])
     windows = {"A": (start_a, end_a), "B": (start_b, end_b)}
+    sidecar = (external_essentia_predictions(args.essentia_predictions, original)
+               if getattr(args, "essentia_predictions", None) else None)
     references = {}
     for deck in ("A", "B"):
-        ess = essentia_beats(original[deck])
+        ess = sidecar[deck] if sidecar is not None else essentia_beats(original[deck])
         neural = neural_candidate(tracks[deck])
         if ess.get("available") and neural.get("available"):
             agreement = consensus(
@@ -305,6 +345,8 @@ def main(argv=None):
     parser.add_argument("--canary-report", required=True, type=Path)
     parser.add_argument("--rendered-wav", required=True, type=Path)
     parser.add_argument("--phase-samples", type=int, choices=(9, 17), default=17)
+    parser.add_argument("--essentia-predictions", type=Path,
+                        help="SHA-bound JSON from isolated Essentia NumPy 1.x sidecar")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--confirm-render-rights", action="store_true")
     args = parser.parse_args(argv)
