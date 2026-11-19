@@ -425,6 +425,25 @@ def _rank_style_plans(
     return [item[1] for item in ranked]
 
 
+def _automatic_plan_rejection(plan: TransitionPlan, style: TransitionStyle) -> str | None:
+    """Apply the existing automatic-planning gates to a compiled candidate."""
+    if plan.transition_mode == "emergency_cut" and style != "emergency":
+        return "A transparent transition is not feasible. Confirm a fallback cut or choose emergency mode."
+    if plan.score < MINIMUM_AUTOMATIC_SCORE:
+        return f"Transition score {plan.score:.0%} is below the automatic safety threshold."
+    if plan.compatibility.beat_grid < MINIMUM_BEAT_GRID_CONFIDENCE and plan.beatmatched:
+        return f"Local beat-grid confidence is only {plan.compatibility.beat_grid:.0%}."
+    if plan.forced or plan.requires_confirmation:
+        return plan.warning or "The transition requires explicit confirmation."
+    # An explicit fail-closed defense against a stale or incorrectly marked
+    # compiled plan. The normal deck controller also sets requires_confirmation.
+    if plan.beatmatched:
+        phase = plan.metadata.get("deck_performance", {}).get("phase_integrity", {})
+        if not phase or phase.get("safe") is not True:
+            return "Continuous beat-phase integrity was not established."
+    return None
+
+
 def _search_style(
     track_a: TrackAnalysis,
     track_b: TrackAnalysis,
@@ -440,44 +459,50 @@ def _search_style(
     excluded_pairs: set[tuple[int, int]] | None,
     enforce_safety: bool,
 ) -> TransitionPlan:
-    plans = _rank_style_plans(
-        track_a,
-        track_b,
-        evidence_matrix=evidence_matrix,
-        style=style,
-        tempo_policy=tempo_policy,
-        force=force or not enforce_safety,
-        requested_bars=requested_bars,
-        exact_bars=False,
-        effective_bpm_a=effective_bpm_a,
-        render_rate_a=render_rate_a,
-        stems_available=stems_available,
-        excluded_pairs=excluded_pairs,
-    )
-    plan = plans[0]
+    def ranked_for(bars: int | None) -> list[TransitionPlan]:
+        return _rank_style_plans(
+            track_a,
+            track_b,
+            evidence_matrix=evidence_matrix,
+            style=style,
+            tempo_policy=tempo_policy,
+            force=force or not enforce_safety,
+            requested_bars=bars,
+            exact_bars=False,
+            effective_bpm_a=effective_bpm_a,
+            render_rate_a=render_rate_a,
+            stems_available=stems_available,
+            excluded_pairs=excluded_pairs,
+        )
 
-    if enforce_safety and not force:
-        if plan.transition_mode == "emergency_cut" and style != "emergency":
-            raise DifficultTransitionError(
-                plan.score,
-                "A transparent transition is not feasible. Confirm a fallback cut or choose emergency mode.",
-            )
-        if plan.score < MINIMUM_AUTOMATIC_SCORE:
-            raise DifficultTransitionError(
-                plan.score,
-                f"Transition score {plan.score:.0%} is below the automatic safety threshold.",
-            )
-        if plan.compatibility.beat_grid < MINIMUM_BEAT_GRID_CONFIDENCE and plan.beatmatched:
-            raise DifficultTransitionError(
-                plan.score,
-                f"Local beat-grid confidence is only {plan.compatibility.beat_grid:.0%}.",
-            )
-        if plan.requires_confirmation:
-            raise DifficultTransitionError(
-                plan.score,
-                plan.warning or "The transition requires explicit confirmation.",
-            )
-    return plan
+    plans = ranked_for(requested_bars)
+    if not enforce_safety or force:
+        return plans[0]
+
+    # All plans have been independently built, phase-checked and sealed.
+    # Rank order remains unchanged; only skip plans that fail existing gates.
+    for plan in plans:
+        if _automatic_plan_rejection(plan, style) is None:
+            return plan
+
+    # When the caller did not mandate an overlap length, try a bounded
+    # structural-shortening fallback before abstaining. Never override an
+    # explicit bar request or expand a forced/emergency route.
+    if requested_bars is None and style != "emergency" and tempo_policy == "safe":
+        try:
+            shorter = ranked_for(4)
+        except DifficultTransitionError:
+            shorter = []
+        for plan in shorter:
+            if plan.transition_bars <= 4 and _automatic_plan_rejection(plan, style) is None:
+                return plan
+
+    original = plans[0]
+    raise DifficultTransitionError(
+        original.score,
+        _automatic_plan_rejection(original, style)
+        or "No automatically safe transition candidate was found.",
+    )
 
 
 def rank_transition_candidates(
