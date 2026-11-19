@@ -54,25 +54,38 @@ def confidence_shadow(selected_beats, evidence):
         intervals = [float(b) - float(a) for a, b in zip(beats, beats[1:])]
         median = statistics.median(intervals)
         grid = max(0.0, min(1.0, 1.0 - statistics.pstdev(intervals) / median / 0.12)) if median > 1e-8 else 0.0
-    if len(selected_beats) < 2 or len(beats) < 2:
+    # The selected grid can already be neural when adoption succeeded. The
+    # inference evidence's agreement was measured against the deterministic
+    # fallback *before* adoption and is the authoritative comparison.
+    reported_agreement = evidence.get("agreement")
+    if isinstance(reported_agreement, (int, float)):
+        agreement = max(0.0, min(1.0, float(reported_agreement)))
+        agreement_source = "pre_adoption_inference_evidence"
+    elif evidence.get("used") is True:
+        agreement = None
+        agreement_source = "unavailable_for_adopted_grid"
+    elif len(selected_beats) < 2 or len(beats) < 2:
         agreement = 0.5
+        agreement_source = "fallback_missing_grid_default"
     else:
         agreement = sum(
             min(abs(float(reference) - float(beat)) for reference in selected_beats) <= 0.07
             for beat in beats
         ) / len(beats)
+        agreement_source = "retained_deterministic_grid"
     support = min(1.0, len(downbeats) / max(1.0, len(beats) / 4.5)) if beats else 0.0
-    legacy = max(0.0, min(1.0, 0.50 * grid + 0.32 * agreement + 0.18 * support))
+    legacy = max(0.0, min(1.0, 0.50 * grid + 0.32 * agreement + 0.18 * support)) if agreement is not None else None
     # Remove the circular baseline-agreement component for analysis only.
     no_agreement = (0.50 * grid + 0.18 * support) / 0.68
     reported = evidence.get("confidence")
     return {
         "grid_regularity": round(grid, 6),
-        "deterministic_agreement": round(agreement, 6),
+        "deterministic_agreement": round(agreement, 6) if agreement is not None else None,
+        "deterministic_agreement_source": agreement_source,
         "downbeat_support": round(support, 6),
-        "legacy_reconstructed": round(legacy, 6),
+        "legacy_reconstructed": round(legacy, 6) if legacy is not None else None,
         "legacy_reported": reported,
-        "legacy_reconstruction_delta": round(legacy - float(reported), 6) if isinstance(reported, (int, float)) else None,
+        "legacy_reconstruction_delta": round(legacy - float(reported), 6) if legacy is not None and isinstance(reported, (int, float)) else None,
         "no_baseline_agreement_shadow": round(no_agreement, 6),
         "shadow_only": True,
         "adoption_authorized": False,
