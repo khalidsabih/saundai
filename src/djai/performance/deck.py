@@ -198,11 +198,16 @@ def _phase_integrity_profile(
     beat_seconds = 60.0 / max(float(plan.target_bpm), 1.0)
     max_correction = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_MAX_MS", "45")), 10.0, 80.0) / 1000.0
     max_step = _clamp(float(os.environ.get("DJAI_DECK_PHASE_WARP_STEP_MAX_MS", "18")), 5.0, 35.0) / 1000.0
+    # Interpret the legacy step budget as a rate over the default eight
+    # intervals, not a fresh allowance for every extra sampling point.
+    # Keep the absolute per-update cap for missing-point intervals.
+    reference_step_seconds = max(float(plan.transition_seconds), 1e-9) / 8.0
     residual_limit_ms = _clamp(float(os.environ.get("DJAI_DECK_PHASE_RESIDUAL_MAX_MS", "25")), 10.0, 45.0)
     samples = max(5, min(17, int(os.environ.get("DJAI_DECK_PHASE_WARP_SAMPLES", "9"))))
 
     points: list[dict[str, float]] = []
     previous = 0.0
+    previous_output_seconds = 0.0
     baseline_error: float | None = None
     max_error = 0.0
     max_residual = 0.0
@@ -271,8 +276,11 @@ def _phase_integrity_profile(
         drift_error = phase_error - baseline_error
         max_error = max(max_error, abs(drift_error))
         correction = _clamp(-drift_error, -max_correction, max_correction)
-        correction = _clamp(correction, previous - max_step, previous + max_step)
+        elapsed_seconds = max(0.0, output_seconds - previous_output_seconds)
+        allowed_step = min(max_step, max_step * elapsed_seconds / reference_step_seconds)
+        correction = _clamp(correction, previous - allowed_step, previous + allowed_step)
         previous = correction
+        previous_output_seconds = output_seconds
         residual = drift_error + correction
         max_residual = max(max_residual, abs(residual))
         points.append({
