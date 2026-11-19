@@ -77,3 +77,39 @@ PYTHONPATH="$PWD/src" python -m pytest -q \
 A low-agreement, ambiguous or absent reference result is expected to be
 `inconclusive`, not a failure of the production planner. Any 25 ms
 measurement of aligned *predicted* beats must remain labeled proxy only.
+
+## Apple Silicon: isolated Essentia and NumPy 1.x
+
+The Essentia wheel available for this Mac may require NumPy 1.x, whereas the
+SAUND Python environment uses NumPy 2.x. **Do not downgrade NumPy in SAUND.**
+Instead, use a separate offline interpreter and supply SHA-bound predictions.
+
+Run from the repo root:
+
+```bash
+python3.12 -m venv /tmp/saund-m1-essentia-venv
+/tmp/saund-m1-essentia-venv/bin/python -m pip install --only-binary=:all: \
+  "numpy==1.26.4" "essentia==2.1b6.dev1177"
+/tmp/saund-m1-essentia-venv/bin/python -c \
+  "import numpy, essentia.standard; print(numpy.__version__, 'Essentia ready')"
+
+export SAUND_AUDIO_ROOT="$HOME/Downloads/lab/SAUND_AI/data/m1"
+/tmp/saund-m1-essentia-venv/bin/python scripts/m1-essentia-sidecar.py \
+  --audio-a "$SAUND_AUDIO_ROOT/track-a.mp3" \
+  --audio-b "$SAUND_AUDIO_ROOT/track-b.mp3" \
+  --output /tmp/saund-m1-essentia-references-001.json \
+  --confirm-analysis-rights
+```
+
+If pip reports dependency conflicts, stop and inspect the constraints rather
+than forcing an incompatible package into either environment. The pinned wheel
+version is a known available candidate, not a guarantee of successful install.
+
+Then in the unchanged SAUND virtual environment (NumPy 2.x), run the verifier
+with `--essentia-predictions /tmp/saund-m1-essentia-references-001.json`
+and a *fresh* output name. The verifier will reject predictions if either
+source file has changed since the sidecar was generated. The sidecar stores
+candidate beat times and source hashes, not source audio.
+
+The final result is still **research-only**: reference agreement and predicted
+warp mapping do not independently certify rendered phase.
