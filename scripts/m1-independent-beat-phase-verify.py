@@ -83,7 +83,8 @@ def external_essentia_predictions(predictions_path, original):
         item = tracks[deck]
         if not isinstance(item, dict):
             raise ValueError(f"invalid Essentia sidecar entry for {deck}")
-        checksum = hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
+        with path.open("rb") as stream:
+            checksum = hashlib.file_digest(stream, "sha256").hexdigest()
         if item.get("audio_sha256") != checksum:
             raise ValueError(f"Essentia audio SHA256 mismatch for deck {deck}")
         if item.get("method") != data["method"]:
