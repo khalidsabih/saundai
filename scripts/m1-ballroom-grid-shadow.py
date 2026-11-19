@@ -36,6 +36,56 @@ def grid_bpm(beats):
     return round(60 / statistics.median(steps), 4) if steps else None
 
 
+def confidence_shadow(selected_beats, evidence):
+    """Diagnostic-only confidence decomposition; never authorize a neural grid.
+
+    Reconstruct the current inference formula from timestamps. The independent
+    no-agreement estimate is *not* calibrated or an adoption threshold.
+    """
+    if evidence.get("available") is not True:
+        return None
+    beats = evidence.get("beats_seconds")
+    downbeats = evidence.get("downbeats_seconds")
+    if not isinstance(beats, (list, tuple)) or not isinstance(downbeats, (list, tuple)):
+        raise ValueError("available candidate missing beat/downbeat timestamps")
+    if len(beats) < 4:
+        grid = 0.0
+    else:
+        intervals = [float(b) - float(a) for a, b in zip(beats, beats[1:])]
+        median = statistics.median(intervals)
+        grid = max(0.0, min(1.0, 1.0 - statistics.pstdev(intervals) / median / 0.12)) if median > 1e-8 else 0.0
+    if len(selected_beats) < 2 or len(beats) < 2:
+        agreement = 0.5
+    else:
+        agreement = sum(
+            min(abs(float(reference) - float(beat)) for reference in selected_beats) <= 0.07
+            for beat in beats
+        ) / len(beats)
+    support = min(1.0, len(downbeats) / max(1.0, len(beats) / 4.5)) if beats else 0.0
+    legacy = max(0.0, min(1.0, 0.50 * grid + 0.32 * agreement + 0.18 * support))
+    # Remove the circular baseline-agreement component for analysis only.
+    no_agreement = (0.50 * grid + 0.18 * support) / 0.68
+    reported = evidence.get("confidence")
+    return {
+        "grid_regularity": round(grid, 6),
+        "deterministic_agreement": round(agreement, 6),
+        "downbeat_support": round(support, 6),
+        "legacy_reconstructed": round(legacy, 6),
+        "legacy_reported": reported,
+        "legacy_reconstruction_delta": round(legacy - float(reported), 6) if isinstance(reported, (int, float)) else None,
+        "no_baseline_agreement_shadow": round(no_agreement, 6),
+        "shadow_only": True,
+        "adoption_authorized": False,
+    }
+
+
+def _event_f1(counts):
+    if counts is None:
+        return None
+    denominator = counts["reference"] + counts["predicted"]
+    return 2.0 * counts["match"] / denominator if denominator else None
+
+
 def run_inference(root, items):
     snippet = (
         "import json,sys;"
@@ -100,6 +150,7 @@ def score(manifest, outputs):
             "confidence": e.get("confidence"),
             "authority": e.get("authority"),
             "reason": e.get("reason"),
+            "confidence_shadow": confidence_shadow(s.get("beats_seconds") or [], e),
             "selected_bpm": s.get("bpm"),
             "selected_grid_bpm": s_bpm,
             "selected_grid_bpm_difference": (
@@ -125,8 +176,24 @@ def score(manifest, outputs):
         c = candidate_rows.get(key, {})
         r["candidate_beat_counts"] = c.get("beat_counts")
         r["candidate_downbeat_counts"] = c.get("downbeat_counts")
+        if r["neural_available"]:
+            r["independent_accuracy_delta"] = {
+                "beat_f1": round(_event_f1(r["candidate_beat_counts"]) - _event_f1(r["selected_beat_counts"]), 6)
+                if r["candidate_beat_counts"] is not None and r["selected_beat_counts"] is not None else None,
+                "downbeat_f1": round(_event_f1(r["candidate_downbeat_counts"]) - _event_f1(r["selected_downbeat_counts"]), 6)
+                if r["candidate_downbeat_counts"] is not None and r["selected_downbeat_counts"] is not None else None,
+            }
+        else:
+            r["independent_accuracy_delta"] = None
     return {
         "schema_version": "saund-m1-ballroom-grid-shadow-v1",
+        "confidence_challenger": {
+            "kind": "no_baseline_agreement_observation",
+            "formula": "(0.50 * grid_regularity + 0.18 * downbeat_support) / 0.68",
+            "changes_grid_selection": False,
+            "changes_thresholds": False,
+            "calibrated": False,
+        },
         "track_count": len(rows),
         "coverage": {
             "neural_candidate": len(available_items),
@@ -147,6 +214,7 @@ def score(manifest, outputs):
             "Neither selected nor candidate grids were changed by this experiment.",
             "Ballroom is for permitted research evaluation only; do not train on it.",
             "Beat/downbeat F1 do not certify safe DJ transition rendering.",
+            "Shadow confidence is descriptive, not calibrated and not used for authority or grid adoption.",
         ],
     }
 
