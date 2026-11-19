@@ -146,3 +146,79 @@ def test_adopted_grid_without_pre_adoption_agreement_avoids_false_reconstruction
     assert shadow["deterministic_agreement"] is None
     assert shadow["legacy_reconstructed"] is None
     assert shadow["no_baseline_agreement_shadow"] == 1.0
+
+
+def test_counterfactual_recovers_low_agreement_with_existing_authority_and_safe_bars():
+    mod = load()
+    from djai.intelligence.model_registry import ModelRegistry, default_manifests
+    registry = ModelRegistry({m.id: m for m in default_manifests()})
+    beats = [float(i) * 0.5 for i in range(48)]
+    downbeats = beats[::4]
+    evidence = {
+        "available": True, "used": False, "agreement": 0.0,
+        "confidence": 0.68, "beats_seconds": beats, "downbeats_seconds": downbeats,
+    }
+    shadow = mod.confidence_shadow([x + 0.25 for x in beats], evidence)
+    assert shadow["no_baseline_agreement_shadow"] >= 0.70
+    result = mod.governance_counterfactual(evidence, shadow, registry)
+    assert result["status"] == "eligible"
+    assert result["hypothetical_authority"] > 0
+    assert result["adoption_authorized"] is False
+    assert evidence["used"] is False
+
+
+def test_counterfactual_preserves_structural_bar_veto():
+    mod = load()
+    from djai.intelligence.model_registry import ModelRegistry, default_manifests
+    registry = ModelRegistry({m.id: m for m in default_manifests()})
+    beats = [float(i) * 0.5 for i in range(48)]
+    downbeats = [beats[i] for i in (0, 4, 8, 13, 17, 21, 25, 29, 33, 37, 41, 45)]
+    evidence = {
+        "available": True, "used": False, "agreement": 0.0,
+        "confidence": 0.68, "beats_seconds": beats, "downbeats_seconds": downbeats,
+    }
+    shadow = mod.confidence_shadow([x + 0.25 for x in beats], evidence)
+    result = mod.governance_counterfactual(evidence, shadow, registry)
+    assert result["status"] == "blocked_bar_integrity"
+    assert result["eligible"] is False
+    assert result["hard_bar_integrity_preserved"] is True
+
+
+def test_counterfactual_respects_shadow_model_authority_and_unavailable_grid():
+    mod = load()
+    from djai.intelligence.model_registry import ModelRegistry, default_manifests, ModelManifest
+    manifests = {m.id: m for m in default_manifests()}
+    manifests["beat_this"] = ModelManifest(
+        id="beat_this", task="beat_downbeat", provider="test", model="test",
+        version="1", authority="shadow", weight=0.0,
+    )
+    registry = ModelRegistry(manifests)
+    beats = [float(i) * 0.5 for i in range(48)]
+    evidence = {
+        "available": True, "used": False, "agreement": 0.0,
+        "confidence": 0.68, "beats_seconds": beats, "downbeats_seconds": beats[::4],
+    }
+    shadow = mod.confidence_shadow([x + 0.25 for x in beats], evidence)
+    result = mod.governance_counterfactual(evidence, shadow, registry)
+    assert result["status"] == "blocked_authority"
+    assert result["hypothetical_authority"] == 0
+    assert mod.governance_counterfactual(
+        {"available": False}, None, registry
+    )["status"] == "unavailable"
+
+
+def test_counterfactual_requires_two_downbeats():
+    mod = load()
+    from djai.intelligence.model_registry import ModelRegistry, default_manifests
+    registry = ModelRegistry({m.id: m for m in default_manifests()})
+    beats = [float(i) * 0.5 for i in range(48)]
+    evidence = {
+        "available": True, "used": False, "agreement": 0.0,
+        "confidence": 0.5, "beats_seconds": beats, "downbeats_seconds": [0.0],
+    }
+    shadow = mod.confidence_shadow([x + 0.25 for x in beats], evidence)
+    # The low support score might itself block confidence; explicitly isolate
+    # the downbeat count gate with a hypothetical high diagnostic score.
+    shadow["no_baseline_agreement_shadow"] = 0.99
+    result = mod.governance_counterfactual(evidence, shadow, registry)
+    assert result["status"] == "blocked_downbeat_evidence"
