@@ -84,9 +84,15 @@ def neural_candidate(track):
 
 def consensus(reference, candidate, start, end, *, tolerance=0.045):
     """Local one-to-one beat matching. No tempo octave or phase-shift rescue."""
-    import numpy as np
-    a = [float(x) for x in reference if start <= x <= end]
-    b = [float(x) for x in candidate if start <= x <= end]
+    if not (math.isfinite(start) and math.isfinite(end) and
+            math.isfinite(tolerance) and end > start and tolerance > 0):
+        raise ValueError("invalid beat matching window or tolerance")
+    # Validate each complete reference before filtering. Filtering first can
+    # silently discard NaN events or conceal out-of-order timestamps.
+    reference = _beats(reference, "essentia reference beats")
+    candidate = _beats(candidate, "neural candidate beats")
+    a = [x for x in reference if start <= x <= end]
+    b = [x for x in candidate if start <= x <= end]
     i = j = 0
     matches = []
     while i < len(a) and j < len(b):
