@@ -119,3 +119,30 @@ def test_shadow_score_reports_independent_delta_without_adopting_candidate():
     assert row["independent_accuracy_delta"] == {"beat_f1": 1.0, "downbeat_f1": 1.0}
     assert row["confidence_shadow"]["shadow_only"] is True
     assert result["confidence_challenger"]["changes_grid_selection"] is False
+
+
+def test_adopted_grid_uses_pre_adoption_agreement_evidence():
+    mod = load()
+    beats = [0.0, 0.5, 1.0, 1.5]
+    evidence = {
+        "available": True, "used": True, "agreement": 0.25,
+        "confidence": 0.44, "beats_seconds": beats, "downbeats_seconds": [0.0],
+    }
+    shadow = mod.confidence_shadow(beats, evidence)
+    assert shadow["deterministic_agreement"] == 0.25
+    assert shadow["deterministic_agreement_source"] == "pre_adoption_inference_evidence"
+    assert shadow["legacy_reconstructed"] == 0.76
+    assert shadow["adoption_authorized"] is False
+
+
+def test_adopted_grid_without_pre_adoption_agreement_avoids_false_reconstruction():
+    mod = load()
+    beats = [0.0, 0.5, 1.0, 1.5]
+    evidence = {
+        "available": True, "used": True, "confidence": 0.9,
+        "beats_seconds": beats, "downbeats_seconds": [0.0],
+    }
+    shadow = mod.confidence_shadow(beats, evidence)
+    assert shadow["deterministic_agreement"] is None
+    assert shadow["legacy_reconstructed"] is None
+    assert shadow["no_baseline_agreement_shadow"] == 1.0
