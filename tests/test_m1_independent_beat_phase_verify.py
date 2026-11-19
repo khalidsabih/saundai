@@ -101,3 +101,13 @@ def test_invalid_reference_times_rejected():
         m.map_source_beats_to_render([0.8, 0.7], 0.0, 3.0, 1.0)
     with pytest.raises(ValueError):
         m.consensus([0.0, float("nan")], [0.0, 1.0], 0.0, 3.0)
+
+
+def test_consensus_rejects_invalid_events_even_outside_window():
+    m = module()
+    with pytest.raises(ValueError):
+        m.consensus([0.5, 1.0, float("nan")], [0.5, 1.0], 0.0, 2.0)
+    with pytest.raises(ValueError):
+        m.consensus([0.5, 1.0, 0.8, 3.0], [0.5, 1.0], 0.0, 0.7)
+    with pytest.raises(ValueError):
+        m.consensus([0.5, 1.0], [0.5, 1.0], 2.0, 1.0)
