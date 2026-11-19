@@ -37,7 +37,7 @@ LOCAL_SOURCE_BARS = 8
 MIN_LOCAL_HARMONIC_FRAMES = 12
 MIN_LOCAL_SOURCE_FRAMES = 12
 SOURCE_N_FFT = 2048
-ANALYSIS_VERSION = "5.2.1"
+ANALYSIS_VERSION = "5.2.2"
 
 
 @dataclass(slots=True)
@@ -1565,6 +1565,67 @@ def analyze_track(path: str | Path) -> TrackAnalysis:
             beats_per_bar = time_signature if time_signature in {3, 4, 6} else BEATS_PER_BAR
     except Exception as exc:
         neural_evidence["beat_downbeat"] = {"available": False, "used": False, "reason": f"neural beat adapter unavailable: {exc}"}
+
+    # Explicit research-to-product trial: only a *complete*, acoustically
+    # resolved beat+bar candidate can replace the deterministic rhythm grid.
+    # The resolver must independently confirm acoustic phase across regions
+    # AND agreement with existing downbeat landmarks. On abstention, retain
+    # all current fields. The planner and its hard 25 ms gate are unchanged.
+    if os.environ.get("DJAI_NEURAL_BAR_PHASE_TRIAL", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        from .intelligence.neural_bar_phase import resolve_bar_phase, trial_governance
+
+        candidate = neural_evidence.get("beat_downbeat", {})
+        if isinstance(candidate, dict) and candidate.get("available") and not candidate.get("used"):
+            authorized, governance_reason = trial_governance(candidate)
+            if not authorized:
+                neural_evidence["bar_phase_trial"] = {
+                    "eligible": False,
+                    "reason": governance_reason,
+                    "used_for_planning": False,
+                    "governance_passed": False,
+                }
+            else:
+                neural_evidence["bar_phase_trial"] = {
+                    "eligible": False, "reason": "resolver not run",
+                    "used_for_planning": False, "governance_passed": True,
+                }
+        if (isinstance(candidate, dict) and candidate.get("available")
+                and not candidate.get("used")
+                and neural_evidence.get("bar_phase_trial", {}).get("governance_passed") is True):
+            resolution = resolve_bar_phase(
+                candidate.get("beats_seconds", ()),
+                downbeat_times,
+                onset_envelope,
+                sample_rate=sr,
+                hop_length=HOP_LENGTH,
+                meter=beats_per_bar,
+                meter_confidence=time_signature_confidence,
+                duration_seconds=duration,
+            )
+            neural_evidence["bar_phase_trial"] = {
+                **resolution.evidence(), "governance_passed": True,
+                "used_for_planning": bool(resolution.eligible),
+            }
+            if resolution.eligible:
+                # All dependent bar features and cue candidates are constructed
+                # BELOW this point from the selected grid; no cached cues or
+                # signed plans are patched after the fact.
+                beat_times = np.asarray(resolution.beats_seconds, dtype=float)
+                downbeat_times = np.asarray(resolution.downbeats_seconds, dtype=float)
+                beat_frames = np.asarray(
+                    librosa.time_to_frames(beat_times, sr=sr, hop_length=HOP_LENGTH), dtype=int
+                )
+                downbeat_frames = np.asarray(
+                    librosa.time_to_frames(downbeat_times, sr=sr, hop_length=HOP_LENGTH), dtype=int
+                )
+                bpm = resolution.bpm
+                beat_grid_confidence, beat_interval_cv = _beat_grid_diagnostics(beat_times, duration)
+                downbeat_confidence = min(1.0, max(downbeat_confidence, resolution.acoustic_margin))
+                beats_per_bar = resolution.meter
+                time_signature = resolution.meter
+                # Meter is inherited from the independent baseline; do not
+                # claim that inferred phase makes the time signature certain.
+            # If rejected, no rhythm grid, bpm or cue data is modified.
 
     # Opt-in consistency reconciliation: never changes beat positions or
     # downbeat annotations. Three independent onset windows and the complete

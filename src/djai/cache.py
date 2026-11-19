@@ -83,6 +83,62 @@ def _tempo_consistency_enabled() -> bool:
     return os.environ.get("DJAI_TEMPO_CONSISTENCY", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _neural_analysis_context() -> str:
+    """Fingerprint all selection inputs, never serialize secrets or model bytes.
+
+    Missing checkpoint paths remain distinguishable from subsequently
+    bootstrapped files. Configuration changes invalidate cached beat, bar and
+    cue evidence even when source audio is unchanged.
+    """
+    keys = (
+        "DJAI_NEURAL_BEATS", "DJAI_BEAT_THIS_MODEL", "DJAI_BEAT_THIS_CHECKPOINT",
+        "DJAI_BEAT_THIS_SHA256", "DJAI_BEAT_THIS_DEVICE",
+        "DJAI_NEURAL_BEAT_USE_THRESHOLD", "DJAI_NEURAL_DOWNBEAT_INTEGRITY",
+        "DJAI_NEURAL_BAR_PHASE_TRIAL", "DJAI_BEAT_THIS_READY_MARKER",
+        "DJAI_MODEL_ALLOW_DOWNLOAD", "DJAI_BEAT_THIS_ALLOW_DOWNLOAD",
+        "DJAI_MODEL_REGISTRY", "SAUND_ENV", "SAUND_HOSTED_MODE",
+        "DJAI_TEMPO_CONSISTENCY",
+    )
+    settings = {key: os.environ.get(key, "") for key in keys}
+    from .environment import config_path
+
+    locations = (
+        os.environ.get("DJAI_BEAT_THIS_CHECKPOINT", ""),
+        str(config_path(os.environ.get("DJAI_BEAT_THIS_READY_MARKER", "neural/beat-this-ready.json"))),
+        str(config_path(os.environ.get("DJAI_MODEL_REGISTRY", "model-registry.json"))),
+    )
+    files = []
+    for name in locations:
+        if not name:
+            files.append(None)
+            continue
+        path = Path(name).expanduser()
+        try:
+            stat = path.stat()
+            # An explicit checksum pin identifies weights by content. With no
+            # pin, incorporate path, size and mtime for local replacement.
+            files.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
+        except OSError:
+            files.append((str(path), "missing"))
+    serialized = json.dumps({"settings": settings, "files": files}, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _modular_feature_cache_safe() -> bool:
+    """A modular feature projection has no neural-mode provenance.
+
+    Until that schema embeds the model/flag fingerprint, only reconstruct and
+    publish projections from an explicitly neural-disabled run.
+    """
+    return (
+        os.environ.get("DJAI_NEURAL_BEATS", "auto").strip().lower()
+        in {"0", "off", "false", "no", "disabled"}
+        and os.environ.get("DJAI_NEURAL_BAR_PHASE_TRIAL", "0").strip().lower()
+        not in {"1", "true", "yes", "on"}
+        and not _tempo_consistency_enabled()
+    )
+
+
 def fingerprint_file(
     path: str | Path,
     *,
@@ -103,6 +159,10 @@ def fingerprint_file(
     digest.update(cache_schema_version.encode("utf-8"))
     digest.update(analysis_version.encode("utf-8"))
     digest.update(b"tempo-consistency-on" if _tempo_consistency_enabled() else b"tempo-consistency-off")
+    # Other consumers (notably stems-v1) use this helper as a stable storage
+    # address. Neural analysis settings must not relocate their existing assets.
+    if analysis_version == ANALYSIS_VERSION and cache_schema_version == CACHE_SCHEMA_VERSION:
+        digest.update(_neural_analysis_context().encode("ascii"))
     digest.update(str(resolved).encode("utf-8"))
     digest.update(str(stat.st_size).encode("ascii"))
     digest.update(str(stat.st_mtime_ns).encode("ascii"))
@@ -185,11 +245,11 @@ def analyze_track_cached(
         )
         if analysis is not None:
             # Transparently migrate legacy warm caches into the modular store.
-            if not _tempo_consistency_enabled():
+            if _modular_feature_cache_safe():
                 _sync_feature_store(analysis, cache_dir=cache_root)
             return CachedAnalysis(analysis, True, fingerprint, cache_path, "legacy")
 
-    if use_cache and not _tempo_consistency_enabled():
+    if use_cache and _modular_feature_cache_safe():
         # 1.6.1 can recover a complete current TrackAnalysis from independently
         # versioned projections even when the monolithic cache is absent.
         try:
@@ -222,7 +282,7 @@ def analyze_track_cached(
         "analysis": analysis.to_dict(include_beats=True),
     }
     _atomic_json_write(cache_path, payload)
-    if not _tempo_consistency_enabled():
+    if _modular_feature_cache_safe():
         _sync_feature_store(analysis, cache_dir=cache_root)
     return CachedAnalysis(analysis, False, fingerprint, cache_path, "analysis")
 

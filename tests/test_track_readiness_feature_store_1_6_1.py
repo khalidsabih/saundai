@@ -48,6 +48,10 @@ def test_feature_store_reconstructs_analysis_without_legacy_blob(
     monkeypatch,
     track_pair,
 ) -> None:
+    # This test exercises deterministic modular-feature reconstruction.
+    # Neural analysis uses isolated monolithic caches instead.
+    monkeypatch.setenv("DJAI_NEURAL_BEATS", "off")
+    monkeypatch.setenv("DJAI_NEURAL_BAR_PHASE_TRIAL", "0")
     audio = tmp_path / "track.wav"
     audio.write_bytes(b"reconstructable-audio")
     fixture, _ = track_pair

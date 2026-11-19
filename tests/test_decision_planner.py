@@ -67,3 +67,71 @@ def test_emergency_cut_advances_only_the_audible_incoming_tail(track_pair):
     assert plan.source_duration_b > 0.0
     assert plan.source_duration_b < plan.transition_seconds * plan.render_rate_b
     assert plan.source_end_b > plan.entry_time_b
+
+
+
+def test_infeasible_planner_reports_hard_constraints_without_forcing(track_pair, monkeypatch):
+    """A rejected safe plan should explain why, never invent a fallback."""
+    from types import SimpleNamespace
+
+    import pytest
+    import djai.planner as planner
+
+    track_a, track_b = track_pair
+
+    def reject_every_technique(*args, diagnostics=None, **kwargs):
+        if diagnostics is not None:
+            diagnostics.extend([
+                SimpleNamespace(hard_failures=[
+                    "The tempo/meter/beat-grid state cannot support a beatmatched blend.",
+                    "The selected cues do not contain enough bars for this technique.",
+                ]),
+                SimpleNamespace(hard_failures=[
+                    "The tempo/meter/beat-grid state cannot support a beatmatched blend.",
+                ]),
+            ])
+        return None
+
+    monkeypatch.setattr(planner, "assess_transition", reject_every_technique)
+    with pytest.raises(planner.DifficultTransitionError) as err:
+        planner.plan_transition(track_a, track_b, style="safe", tempo_policy="safe")
+    message = str(err.value)
+    assert "No technique-feasible transition" in message
+    assert "Rejection diagnostics across" in message
+    assert "cannot support a beatmatched blend" in message
+    assert "enough bars" in message
+    assert "pair(s)" in message
+
+
+
+def test_blend_gate_diagnostic_identifies_local_grid_deficit(track_pair):
+    from dataclasses import replace
+    from djai.decision import blend_gate_diagnostics
+    from djai.models import CompatibilityBreakdown
+
+    track_a, track_b = track_pair
+    track_b = replace(track_b, bpm=track_a.bpm, time_signature=track_a.time_signature)
+    breakdown = CompatibilityBreakdown(
+        tempo=1.0, harmonic=1.0, energy=1.0, texture=1.0,
+        phrase=1.0, sections=1.0, overall=1.0,
+        tempo_difference_percent=0.0, energy_delta=0.0, beat_grid=0.1,
+    )
+    reasons = blend_gate_diagnostics(track_a, track_b, breakdown, "safe", track_a.bpm)
+    assert any("local beat-grid confidence 0.100 below 0.380" in reason for reason in reasons)
+
+
+def test_blend_gate_diagnostic_reports_meter_mismatch(track_pair):
+    from dataclasses import replace
+    from djai.decision import blend_gate_diagnostics
+    from djai.models import CompatibilityBreakdown
+
+    track_a, track_b = track_pair
+    track_a = replace(track_a, time_signature=3)
+    track_b = replace(track_b, bpm=track_a.bpm, time_signature=4)
+    breakdown = CompatibilityBreakdown(
+        tempo=1.0, harmonic=1.0, energy=1.0, texture=1.0,
+        phrase=1.0, sections=1.0, overall=1.0,
+        tempo_difference_percent=0.0, energy_delta=0.0, beat_grid=1.0,
+    )
+    reasons = blend_gate_diagnostics(track_a, track_b, breakdown, "safe", track_a.bpm)
+    assert any("estimated meters incompatible" in reason for reason in reasons)
