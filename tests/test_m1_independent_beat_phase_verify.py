@@ -111,3 +111,59 @@ def test_consensus_rejects_invalid_events_even_outside_window():
         m.consensus([0.5, 1.0, 0.8, 3.0], [0.5, 1.0], 0.0, 0.7)
     with pytest.raises(ValueError):
         m.consensus([0.5, 1.0], [0.5, 1.0], 2.0, 1.0)
+
+
+def test_checksum_bound_external_essentia_predictions(tmp_path):
+    import hashlib
+    import json
+    m = module()
+    files = {}
+    for deck in ("A", "B"):
+        p = tmp_path / f"{deck}.mp3"
+        p.write_bytes(f"synthetic-audio-{deck}".encode())
+        files[deck] = p
+    method = "essentia_rhythmextractor2013_multifeature"
+    tracks = {}
+    for deck, p in files.items():
+        tracks[deck] = {
+            "audio_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+            "method": method, "bpm": 120.0, "confidence": 1.0,
+            "beats_seconds": [0.5, 1.0, 1.5, 2.0, 2.5],
+        }
+    sidecar = tmp_path / "predictions.json"
+    sidecar.write_text(json.dumps({
+        "schema_version": "saund-m1-essentia-sidecar-v1",
+        "method": method, "tracks": tracks
+    }))
+    result = m.external_essentia_predictions(sidecar, files)
+    assert result["A"]["available"] is True
+    assert result["B"]["source"] == "numpy1_sidecar"
+    files["B"].write_bytes(b"wrong bytes")
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        m.external_essentia_predictions(sidecar, files)
+
+
+def test_external_essentia_rejects_tampered_timestamps(tmp_path):
+    import hashlib
+    import json
+    m = module()
+    sources = {}
+    tracks = {}
+    for deck in ("A", "B"):
+        p = tmp_path / f"{deck}.wav"
+        p.write_bytes(deck.encode())
+        sources[deck] = p
+        tracks[deck] = {
+            "audio_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+            "method": "essentia_rhythmextractor2013_multifeature",
+            "bpm": 120.0, "confidence": 0.9,
+            "beats_seconds": [0.5, 1.0, float("nan"), 2.0],
+        }
+    sidecar = tmp_path / "invalid.json"
+    sidecar.write_text(json.dumps({
+        "schema_version": "saund-m1-essentia-sidecar-v1",
+        "method": "essentia_rhythmextractor2013_multifeature",
+        "tracks": tracks
+    }))
+    with pytest.raises(ValueError, match="Essentia A beats"):
+        m.external_essentia_predictions(sidecar, sources)
